@@ -976,35 +976,37 @@ export default function ColdRoomPage() {
     }
   };
   
-  // Process warehouse history into counting items
-  const processWarehouseHistory = (history: WarehouseHistoryRecord[]) => {
-    console.log('🔄 Processing warehouse history into boxes...');
-    
-    const transformedData: CountingHistoryItem[] = [];
-    
-    history.forEach(record => {
-      const supplierName = record.supplier_name || 'Unknown Supplier';
-      const palletId = record.pallet_id || `WH-${record.id}`;
-      const region = record.region || '';
-      
-      // Get counting data from the record
-      const countingData = record.counting_data || {};
-      const countingTotals = record.counting_totals || {};
-      
-      console.log(`🔄 Processing record for ${supplierName}:`, {
-        countingDataKeys: Object.keys(countingData).length,
-        countingTotals
-      });
-      
-      // METHOD 1: Extract from counting_data fields (most accurate)
-      let extractedFromCountingData = false;
-      
+// Process warehouse history into counting items safely
+const processWarehouseHistory = (history: WarehouseHistoryRecord[]) => {
+  console.log('🔄 Processing warehouse history into boxes...');
+
+  const transformedData: CountingHistoryItem[] = [];
+
+  history.forEach(record => {
+    const supplierName = record.supplier_name || 'Unknown Supplier';
+    const palletId = record.pallet_id || `WH-${record.id}`;
+    const region = record.region || '';
+
+    // Safely get counting data and totals
+    const countingData = record.counting_data ?? {};
+    const countingTotals = record.counting_totals ?? {};
+
+    console.log(`🔄 Processing record for ${supplierName}:`, {
+      countingDataKeys: Object.keys(countingData).length,
+      countingTotals
+    });
+
+    // METHOD 1: Extract from counting_data fields (most accurate)
+    let extractedFromCountingData = false;
+
+    if (countingData && typeof countingData === 'object') {
       Object.keys(countingData).forEach(key => {
-        // Look for fields like: fuerte_4kg_class1_size12, hass_10kg_class2_size28, etc.
-        if ((key.includes('fuerte_') || key.includes('hass_')) && 
+        if (!key) return;
+
+        if ((key.includes('fuerte_') || key.includes('hass_')) &&
             (key.includes('_4kg_') || key.includes('_10kg_')) &&
             (key.includes('_class1_') || key.includes('_class2_'))) {
-          
+
           const parts = key.split('_');
           if (parts.length >= 4) {
             const variety = parts[0] as 'fuerte' | 'hass';
@@ -1012,11 +1014,10 @@ export default function ColdRoomPage() {
             const grade = parts[2] as 'class1' | 'class2';
             const size = parts.slice(3).join('_').replace(/_/g, '');
             const quantity = Number(countingData[key]) || 0;
-            
+
             if (quantity > 0 && size) {
-              // Clean up size - ensure it starts with 'size'
               const cleanSize = size.startsWith('size') ? size : `size${size}`;
-              
+
               transformedData.push({
                 variety,
                 boxType,
@@ -1028,198 +1029,103 @@ export default function ColdRoomPage() {
                 region,
                 countingRecordId: record.id
               });
-              
+
               extractedFromCountingData = true;
             }
           }
         }
       });
-      
-      // METHOD 2: If no detailed counting data, use totals and distribute across sizes
-      if (!extractedFromCountingData && countingTotals) {
-        console.log(`📊 Using totals for ${supplierName}:`, countingTotals);
-        
-        const sizes = ['size12', 'size14', 'size16', 'size18', 'size20', 'size22', 'size24', 'size26'];
-        
-        // Process Fuerte boxes from totals
-        if (countingTotals.fuerte_4kg_total > 0) {
-          const totalBoxes = countingTotals.fuerte_4kg_total;
-          const boxesPerSize = Math.max(1, Math.floor(totalBoxes / sizes.length));
-          
-          sizes.forEach(size => {
-            if (boxesPerSize > 0) {
-              // Class 1 (assume 70%)
-              transformedData.push({
-                variety: 'fuerte',
-                boxType: '4kg',
-                size,
-                grade: 'class1',
-                quantity: Math.max(1, Math.floor(boxesPerSize * 0.7)),
-                supplierName,
-                palletId,
-                region,
-                countingRecordId: record.id
-              });
-              
-              // Class 2 (assume 30%)
-              transformedData.push({
-                variety: 'fuerte',
-                boxType: '4kg',
-                size,
-                grade: 'class2',
-                quantity: Math.max(1, Math.floor(boxesPerSize * 0.3)),
-                supplierName,
-                palletId,
-                region,
-                countingRecordId: record.id
-              });
-            }
-          });
-        }
-        
-        if (countingTotals.fuerte_10kg_total > 0) {
-          const totalBoxes = countingTotals.fuerte_10kg_total;
-          const boxesPerSize = Math.max(1, Math.floor(totalBoxes / sizes.length));
-          
-          sizes.forEach(size => {
-            if (boxesPerSize > 0) {
-              transformedData.push({
-                variety: 'fuerte',
-                boxType: '10kg',
-                size,
-                grade: 'class1',
-                quantity: Math.max(1, Math.floor(boxesPerSize * 0.7)),
-                supplierName,
-                palletId,
-                region,
-                countingRecordId: record.id
-              });
-              
-              transformedData.push({
-                variety: 'fuerte',
-                boxType: '10kg',
-                size,
-                grade: 'class2',
-                quantity: Math.max(1, Math.floor(boxesPerSize * 0.3)),
-                supplierName,
-                palletId,
-                region,
-                countingRecordId: record.id
-              });
-            }
-          });
-        }
-        
-        // Process Hass boxes from totals
-        if (countingTotals.hass_4kg_total > 0) {
-          const totalBoxes = countingTotals.hass_4kg_total;
-          const boxesPerSize = Math.max(1, Math.floor(totalBoxes / sizes.length));
-          
-          sizes.forEach(size => {
-            if (boxesPerSize > 0) {
-              transformedData.push({
-                variety: 'hass',
-                boxType: '4kg',
-                size,
-                grade: 'class1',
-                quantity: Math.max(1, Math.floor(boxesPerSize * 0.7)),
-                supplierName,
-                palletId,
-                region,
-                countingRecordId: record.id
-              });
-              
-              transformedData.push({
-                variety: 'hass',
-                boxType: '4kg',
-                size,
-                grade: 'class2',
-                quantity: Math.max(1, Math.floor(boxesPerSize * 0.3)),
-                supplierName,
-                palletId,
-                region,
-                countingRecordId: record.id
-              });
-            }
-          });
-        }
-        
-        if (countingTotals.hass_10kg_total > 0) {
-          const totalBoxes = countingTotals.hass_10kg_total;
-          const boxesPerSize = Math.max(1, Math.floor(totalBoxes / sizes.length));
-          
-          sizes.forEach(size => {
-            if (boxesPerSize > 0) {
-              transformedData.push({
-                variety: 'hass',
-                boxType: '10kg',
-                size,
-                grade: 'class1',
-                quantity: Math.max(1, Math.floor(boxesPerSize * 0.7)),
-                supplierName,
-                palletId,
-                region,
-                countingRecordId: record.id
-              });
-              
-              transformedData.push({
-                variety: 'hass',
-                boxType: '10kg',
-                size,
-                grade: 'class2',
-                quantity: Math.max(1, Math.floor(boxesPerSize * 0.3)),
-                supplierName,
-                palletId,
-                region,
-                countingRecordId: record.id
-              });
-            }
-          });
-        }
-      }
-    });
-    
-    const filteredData = transformedData.filter(item => item.quantity > 0);
-    
-    if (filteredData.length > 0) {
-      console.log(`✅ Created ${filteredData.length} box items from ${history.length} warehouse history records`);
-      
-      // Group by supplier to show summary
-      const suppliers = new Set(filteredData.map(item => item.supplierName).filter(Boolean));
-      
-      setCountingHistory(filteredData);
-      setDataSource('warehouse');
-      
-      // Initialize all boxes as selected by default
-      const initialSelectedBoxes = filteredData.map(item => ({
-        ...item,
-        selected: true,
-        coldRoomId: 'coldroom1' // Default to cold room 1
-      }));
-      
-      setSelectedBoxes(initialSelectedBoxes);
-      
-      toast({
-        title: "📦 Warehouse Boxes Loaded",
-        description: (
-          <div>
-            <p>Loaded {filteredData.length} box types from {suppliers.size} suppliers</p>
-            <div className="mt-1 text-sm text-gray-600">
-              Total boxes: {filteredData.reduce((sum, item) => sum + item.quantity, 0).toLocaleString()}
-            </div>
-          </div>
-        ),
-      });
-      
-      return true;
-    } else {
-      console.warn('⚠️ No valid box data found in warehouse history');
-      setCountingHistory([]);
-      setSelectedBoxes([]);
-      setDataSource(null);
-      return false;
     }
-  };
+
+    // METHOD 2: Fallback to totals if no detailed counting data
+    if (!extractedFromCountingData && countingTotals && typeof countingTotals === 'object') {
+      console.log(`📊 Using totals for ${supplierName}:`, countingTotals);
+
+      const sizes = ['size12', 'size14', 'size16', 'size18', 'size20', 'size22', 'size24', 'size26'];
+
+      const processTotal = (variety: 'fuerte' | 'hass', boxType: '4kg' | '10kg', total: number) => {
+        if (total > 0) {
+          const boxesPerSize = Math.max(1, Math.floor(total / sizes.length));
+
+          sizes.forEach(size => {
+            if (boxesPerSize > 0) {
+              transformedData.push({
+                variety,
+                boxType,
+                size,
+                grade: 'class1',
+                quantity: Math.max(1, Math.floor(boxesPerSize * 0.7)),
+                supplierName,
+                palletId,
+                region,
+                countingRecordId: record.id
+              });
+
+              transformedData.push({
+                variety,
+                boxType,
+                size,
+                grade: 'class2',
+                quantity: Math.max(1, Math.floor(boxesPerSize * 0.3)),
+                supplierName,
+                palletId,
+                region,
+                countingRecordId: record.id
+              });
+            }
+          });
+        }
+      };
+
+      processTotal('fuerte', '4kg', countingTotals.fuerte_4kg_total ?? 0);
+      processTotal('fuerte', '10kg', countingTotals.fuerte_10kg_total ?? 0);
+      processTotal('hass', '4kg', countingTotals.hass_4kg_total ?? 0);
+      processTotal('hass', '10kg', countingTotals.hass_10kg_total ?? 0);
+    }
+  });
+
+  // Filter out any boxes with quantity <= 0
+  const filteredData = transformedData.filter(item => item.quantity > 0);
+
+  if (filteredData.length > 0) {
+    console.log(`✅ Created ${filteredData.length} box items from ${history.length} warehouse history records`);
+
+    // Group by supplier for summary
+    const suppliers = new Set(filteredData.map(item => item.supplierName).filter(Boolean));
+
+    setCountingHistory(filteredData);
+    setDataSource('warehouse');
+
+    // Initialize all boxes as selected by default
+    const initialSelectedBoxes = filteredData.map(item => ({
+      ...item,
+      selected: true,
+      coldRoomId: 'coldroom1' // Default cold room
+    }));
+
+    setSelectedBoxes(initialSelectedBoxes);
+
+    toast({
+      title: "📦 Warehouse Boxes Loaded",
+      description: (
+        <div>
+          <p>Loaded {filteredData.length} box types from {suppliers.size} suppliers</p>
+          <div className="mt-1 text-sm text-gray-600">
+            Total boxes: {filteredData.reduce((sum, item) => sum + item.quantity, 0).toLocaleString()}
+          </div>
+        </div>
+      ),
+    });
+
+    return true;
+  } else {
+    console.warn('⚠️ No valid box data found in warehouse history');
+    setCountingHistory([]);
+    setSelectedBoxes([]);
+    setDataSource(null);
+    return false;
+  }
+};
   
   // ===========================================
   // NEW FUNCTIONS FOR LOADING BOXES FROM COUNTING RECORDS
@@ -3878,9 +3784,12 @@ export default function ColdRoomPage() {
                       <div className="flex items-center justify-between mb-4">
                         <Label>Loading History ({loadingHistory.length} records)</Label>
                         <Badge variant="outline">
-                          {new Set(loadingHistory.map(record => record.loading_date.split('T')[0])).size} days
+                          {new Set(loadingHistory.map(record => {
+                            const date = record.loading_date || record.created_at || '';
+                            return date ? date.split('T')[0] : '';
+                          }).filter(Boolean)).size} days
                         </Badge>
-                      </div>
+                        </div>
                       
                       {isLoading.loadingHistory ? (
                         <div className="text-center py-8">
