@@ -293,20 +293,29 @@ export default function ColdRoomPage() {
       if (!response.ok) {
         console.error('Error response from cold-room API:', response.status);
         // Create default cold rooms if API fails
+        const calculateOccupiedPallets = (coldRoomId: string) => {
+          const boxesInRoom = coldRoomBoxes.filter(box => box.cold_room_id === coldRoomId);
+          const totalPallets = boxesInRoom.reduce((sum, box) => {
+            const boxesPerPallet = box.box_type === '4kg' ? 288 : 120;
+            return sum + Math.floor(box.quantity / boxesPerPallet);
+          }, 0);
+          return totalPallets;
+        };
+        
         setColdRooms([
           {
             id: 'coldroom1',
             name: 'Cold Room 1',
             current_temperature: 5,
             capacity: 100,
-            occupied: 0
+            occupied: calculateOccupiedPallets('coldroom1')
           },
           {
             id: 'coldroom2',
             name: 'Cold Room 2',
             current_temperature: 5,
             capacity: 100,
-            occupied: 0
+            occupied: calculateOccupiedPallets('coldroom2')
           }
         ]);
         return;
@@ -359,20 +368,29 @@ export default function ColdRoomPage() {
       
     } catch (error) {
       console.error('Error fetching cold rooms:', error);
+      const calculateOccupiedPallets = (coldRoomId: string) => {
+        const boxesInRoom = coldRoomBoxes.filter(box => box.cold_room_id === coldRoomId);
+        const totalPallets = boxesInRoom.reduce((sum, box) => {
+          const boxesPerPallet = box.box_type === '4kg' ? 288 : 120;
+          return sum + Math.floor(box.quantity / boxesPerPallet);
+        }, 0);
+        return totalPallets;
+      };
+      
       setColdRooms([
         {
           id: 'coldroom1',
           name: 'Cold Room 1',
           current_temperature: 5,
           capacity: 100,
-          occupied: 0
+          occupied: calculateOccupiedPallets('coldroom1')
         },
         {
           id: 'coldroom2',
           name: 'Cold Room 2',
           current_temperature: 5,
           capacity: 100,
-          occupied: 0
+          occupied: calculateOccupiedPallets('coldroom2')
         }
       ]);
     } finally {
@@ -396,6 +414,8 @@ export default function ColdRoomPage() {
       // Process boxes response
       if (boxesResponse.status === 'fulfilled' && boxesResponse.value.ok) {
         const result = await boxesResponse.value.json();
+        console.log('Boxes API response:', result);
+        
         if (result.success && Array.isArray(result.data)) {
           console.log(`✅ Loaded ${result.data.length} boxes from cold room`);
           boxesData = result.data.map((box: any) => ({
@@ -443,6 +463,22 @@ export default function ColdRoomPage() {
       } else {
         console.error('Failed to fetch pallets:', palletsResponse);
         setColdRoomPallets([]);
+      }
+      
+      // After loading boxes, update the cold rooms occupied count
+      if (boxesData.length > 0) {
+        const updatedColdRooms = coldRooms.map(room => {
+          const boxesInRoom = boxesData.filter(box => box.cold_room_id === room.id);
+          const totalPallets = boxesInRoom.reduce((sum, box) => {
+            const boxesPerPallet = box.box_type === '4kg' ? 288 : 120;
+            return sum + Math.floor(box.quantity / boxesPerPallet);
+          }, 0);
+          return {
+            ...room,
+            occupied: totalPallets
+          };
+        });
+        setColdRooms(updatedColdRooms);
       }
       
     } catch (error) {
@@ -1539,17 +1575,34 @@ export default function ColdRoomPage() {
         });
         
         // Refresh ALL data to show updated inventory
-        await Promise.all([
-          fetchCountingRecordsForColdRoom(),
-          fetchColdRoomBoxes(),
-          fetchColdRoomStats(),
-        ]);
+        setIsLoading({
+          coldRooms: true,
+          warehouseHistory: false,
+          counting: false,
+          boxes: true,
+          pallets: true,
+          temperature: false,
+          repacking: false,
+          stats: true,
+          countingRecords: true,
+        });
         
-        // Then refresh cold rooms to update occupied counts
-        await fetchColdRooms();
+        // Fetch all cold room data again
+        await Promise.all([
+          fetchCountingRecordsForColdRoom(), // Refresh counting records
+          fetchColdRoomBoxes(), // Refresh boxes and pallets
+          fetchColdRoomStats(), // Refresh statistics
+          fetchColdRooms(), // Refresh cold room occupancy
+        ]);
         
         // Clear selections
         setCountingBoxes(prev => prev.map(box => ({ ...box, selected: false })));
+        
+        // Show success message
+        toast({
+          title: 'Data Refreshed',
+          description: 'Cold room inventory has been updated',
+        });
         
       } else {
         console.error('API Error:', result);
@@ -2511,15 +2564,45 @@ export default function ColdRoomPage() {
             
             {/* Live Inventory Tab */}
             <TabsContent value="inventory" className="space-y-6 mt-6">
-              {/* Detailed Statistics */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-xl font-bold">Live Inventory</h3>
+                  <p className="text-muted-foreground">
+                    Real-time data from cold_room_boxes database table
+                  </p>
+                </div>
+                <Button
+                  onClick={() => {
+                    setIsLoading(prev => ({ ...prev, boxes: true, pallets: true, stats: true }));
+                    Promise.all([
+                      fetchColdRoomBoxes(),
+                      fetchColdRoomStats(),
+                      fetchColdRooms(),
+                    ]).then(() => {
+                      toast({
+                        title: 'Inventory Refreshed',
+                        description: 'Data has been updated from database',
+                      });
+                    });
+                  }}
+                  variant="outline"
+                  size="sm"
+                  disabled={isLoading.boxes || isLoading.pallets || isLoading.stats}
+                >
+                  <RefreshCw className={`w-4 h-4 mr-2 ${isLoading.boxes || isLoading.pallets || isLoading.stats ? 'animate-spin' : ''}`} />
+                  Refresh Inventory
+                </Button>
+              </div>
+              
+              {/* Real-time Statistics from Database */}
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <BarChart3 className="w-5 h-5" />
-                    Detailed Inventory Statistics
+                    Live Inventory Statistics
                   </CardTitle>
                   <CardDescription>
-                    {selectedColdRoom === 'coldroom1' ? 'Cold Room 1' : 'Cold Room 2'} - Detailed Breakdown
+                    Real-time data from cold_room_boxes database table
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -2534,201 +2617,208 @@ export default function ColdRoomPage() {
                       <p className="text-muted-foreground">Loading statistics...</p>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-                      <Card>
-                        <CardHeader className="pb-2">
-                          <CardTitle className="text-sm font-medium">Total 4kg Boxes</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="text-2xl font-bold">
-                            {selectedColdRoom === 'coldroom1' 
-                              ? (coldRoomStats.coldroom1?.total4kgBoxes || 0).toLocaleString()
-                              : (coldRoomStats.coldroom2?.total4kgBoxes || 0).toLocaleString()
-                            }
-                          </div>
-                          <div className="text-xs text-muted-foreground mt-1">4kg boxes total</div>
-                        </CardContent>
-                      </Card>
+                    <div className="space-y-6">
+                      {/* Overall Summary */}
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <Card>
+                          <CardHeader className="pb-2">
+                            <CardTitle className="text-sm font-medium flex items-center gap-2">
+                              <Package className="w-4 h-4" />
+                              Total Boxes
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="text-2xl font-bold text-primary">
+                              {(
+                                (coldRoomStats.overall?.total4kgBoxes || 0) + 
+                                (coldRoomStats.overall?.total10kgBoxes || 0)
+                              ).toLocaleString()}
+                            </div>
+                            <div className="text-xs text-muted-foreground mt-1">
+                              4kg: {(coldRoomStats.overall?.total4kgBoxes || 0).toLocaleString()}<br />
+                              10kg: {(coldRoomStats.overall?.total10kgBoxes || 0).toLocaleString()}
+                            </div>
+                          </CardContent>
+                        </Card>
+                        
+                        <Card>
+                          <CardHeader className="pb-2">
+                            <CardTitle className="text-sm font-medium flex items-center gap-2">
+                              <Truck className="w-4 h-4" />
+                              Total Pallets
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="text-2xl font-bold text-primary">
+                              {(
+                                (coldRoomStats.overall?.total4kgPallets || 0) + 
+                                (coldRoomStats.overall?.total10kgPallets || 0)
+                              ).toLocaleString()}
+                            </div>
+                            <div className="text-xs text-muted-foreground mt-1">
+                              4kg: {(coldRoomStats.overall?.total4kgPallets || 0).toLocaleString()}<br />
+                              10kg: {(coldRoomStats.overall?.total10kgPallets || 0).toLocaleString()}
+                            </div>
+                          </CardContent>
+                        </Card>
+                        
+                        <Card>
+                          <CardHeader className="pb-2">
+                            <CardTitle className="text-sm font-medium flex items-center gap-2">
+                              <Snowflake className="w-4 h-4" />
+                              Cold Room 1
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="text-2xl font-bold text-blue-600">
+                              {coldRooms.find(r => r.id === 'coldroom1')?.occupied || 0}
+                            </div>
+                            <div className="text-xs text-muted-foreground mt-1">
+                              Pallets occupied
+                            </div>
+                          </CardContent>
+                        </Card>
+                        
+                        <Card>
+                          <CardHeader className="pb-2">
+                            <CardTitle className="text-sm font-medium flex items-center gap-2">
+                              <Snowflake className="w-4 h-4" />
+                              Cold Room 2
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="text-2xl font-bold text-blue-600">
+                              {coldRooms.find(r => r.id === 'coldroom2')?.occupied || 0}
+                            </div>
+                            <div className="text-xs text-muted-foreground mt-1">
+                              Pallets occupied
+                            </div>
+                          </CardContent>
+                        </Card>
+                      </div>
                       
-                      <Card>
-                        <CardHeader className="pb-2">
-                          <CardTitle className="text-sm font-medium">Total 10kg Boxes</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="text-2xl font-bold">
-                            {selectedColdRoom === 'coldroom1' 
-                              ? (coldRoomStats.coldroom1?.total10kgBoxes || 0).toLocaleString()
-                              : (coldRoomStats.coldroom2?.total10kgBoxes || 0).toLocaleString()
-                            }
+                      {/* Cold Room Specific Stats */}
+                      <div className="border rounded-lg p-4">
+                        <h3 className="font-medium mb-3">Statistics by Cold Room</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          {/* Cold Room 1 Stats */}
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-2">
+                              <Snowflake className="w-5 h-5 text-blue-600" />
+                              <h4 className="font-medium">Cold Room 1</h4>
+                              <Badge variant="outline" className="ml-auto">
+                                {coldRoomStats.coldroom1 ? 
+                                  ((coldRoomStats.coldroom1.total4kgBoxes || 0) + (coldRoomStats.coldroom1.total10kgBoxes || 0)).toLocaleString() 
+                                  : '0'} boxes
+                              </Badge>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="bg-blue-50 p-3 rounded">
+                                <div className="text-sm text-blue-600">4kg Boxes</div>
+                                <div className="text-lg font-bold">{(coldRoomStats.coldroom1?.total4kgBoxes || 0).toLocaleString()}</div>
+                              </div>
+                              <div className="bg-blue-50 p-3 rounded">
+                                <div className="text-sm text-blue-600">10kg Boxes</div>
+                                <div className="text-lg font-bold">{(coldRoomStats.coldroom1?.total10kgBoxes || 0).toLocaleString()}</div>
+                              </div>
+                            </div>
+                            
+                            <div className="text-sm text-gray-500">
+                              <div className="flex justify-between">
+                                <span>Fuerte Class 1:</span>
+                                <span className="font-medium">
+                                  {((coldRoomStats.coldroom1?.fuerteClass14kg || 0) + (coldRoomStats.coldroom1?.fuerteClass110kg || 0)).toLocaleString()}
+                                </span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>Fuerte Class 2:</span>
+                                <span className="font-medium">
+                                  {((coldRoomStats.coldroom1?.fuerteClass24kg || 0) + (coldRoomStats.coldroom1?.fuerteClass210kg || 0)).toLocaleString()}
+                                </span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>Hass Class 1:</span>
+                                <span className="font-medium">
+                                  {((coldRoomStats.coldroom1?.hassClass14kg || 0) + (coldRoomStats.coldroom1?.hassClass110kg || 0)).toLocaleString()}
+                                </span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>Hass Class 2:</span>
+                                <span className="font-medium">
+                                  {((coldRoomStats.coldroom1?.hassClass24kg || 0) + (coldRoomStats.coldroom1?.hassClass210kg || 0)).toLocaleString()}
+                                </span>
+                              </div>
+                            </div>
                           </div>
-                          <div className="text-xs text-muted-foreground mt-1">10kg boxes total</div>
-                        </CardContent>
-                      </Card>
-                      
-                      <Card>
-                        <CardHeader className="pb-2">
-                          <CardTitle className="text-sm font-medium">Total 4kg Pallets</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="text-2xl font-bold">
-                            {selectedColdRoom === 'coldroom1' 
-                              ? (coldRoomStats.coldroom1?.total4kgPallets || 0).toLocaleString()
-                              : (coldRoomStats.coldroom2?.total4kgPallets || 0).toLocaleString()
-                            }
+                          
+                          {/* Cold Room 2 Stats */}
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-2">
+                              <Snowflake className="w-5 h-5 text-gray-600" />
+                              <h4 className="font-medium">Cold Room 2</h4>
+                              <Badge variant="outline" className="ml-auto">
+                                {coldRoomStats.coldroom2 ? 
+                                  ((coldRoomStats.coldroom2.total4kgBoxes || 0) + (coldRoomStats.coldroom2.total10kgBoxes || 0)).toLocaleString() 
+                                  : '0'} boxes
+                              </Badge>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="bg-gray-50 p-3 rounded">
+                                <div className="text-sm text-gray-600">4kg Boxes</div>
+                                <div className="text-lg font-bold">{(coldRoomStats.coldroom2?.total4kgBoxes || 0).toLocaleString()}</div>
+                              </div>
+                              <div className="bg-gray-50 p-3 rounded">
+                                <div className="text-sm text-gray-600">10kg Boxes</div>
+                                <div className="text-lg font-bold">{(coldRoomStats.coldroom2?.total10kgBoxes || 0).toLocaleString()}</div>
+                              </div>
+                            </div>
+                            
+                            <div className="text-sm text-gray-500">
+                              <div className="flex justify-between">
+                                <span>Fuerte Class 1:</span>
+                                <span className="font-medium">
+                                  {((coldRoomStats.coldroom2?.fuerteClass14kg || 0) + (coldRoomStats.coldroom2?.fuerteClass110kg || 0)).toLocaleString()}
+                                </span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>Fuerte Class 2:</span>
+                                <span className="font-medium">
+                                  {((coldRoomStats.coldroom2?.fuerteClass24kg || 0) + (coldRoomStats.coldroom2?.fuerteClass210kg || 0)).toLocaleString()}
+                                </span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>Hass Class 1:</span>
+                                <span className="font-medium">
+                                  {((coldRoomStats.coldroom2?.hassClass14kg || 0) + (coldRoomStats.coldroom2?.hassClass110kg || 0)).toLocaleString()}
+                                </span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>Hass Class 2:</span>
+                                <span className="font-medium">
+                                  {((coldRoomStats.coldroom2?.hassClass24kg || 0) + (coldRoomStats.coldroom2?.hassClass210kg || 0)).toLocaleString()}
+                                </span>
+                              </div>
+                            </div>
                           </div>
-                          <div className="text-xs text-muted-foreground mt-1">4kg pallets total</div>
-                        </CardContent>
-                      </Card>
-                      
-                      <Card>
-                        <CardHeader className="pb-2">
-                          <CardTitle className="text-sm font-medium">Total 10kg Pallets</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="text-2xl font-bold">
-                            {selectedColdRoom === 'coldroom1' 
-                              ? (coldRoomStats.coldroom1?.total10kgPallets || 0).toLocaleString()
-                              : (coldRoomStats.coldroom2?.total10kgPallets || 0).toLocaleString()
-                            }
-                          </div>
-                          <div className="text-xs text-muted-foreground mt-1">10kg pallets total</div>
-                        </CardContent>
-                      </Card>
-                      
-                      <Card>
-                        <CardHeader className="pb-2">
-                          <CardTitle className="text-sm font-medium">Fuerte Class 1 - 4kg</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="text-2xl font-bold">
-                            {selectedColdRoom === 'coldroom1' 
-                              ? (coldRoomStats.coldroom1?.fuerteClass14kg || 0).toLocaleString()
-                              : (coldRoomStats.coldroom2?.fuerteClass14kg || 0).toLocaleString()
-                            }
-                          </div>
-                          <div className="text-xs text-muted-foreground mt-1">Fuerte Class 1 boxes</div>
-                        </CardContent>
-                      </Card>
-                      
-                      <Card>
-                        <CardHeader className="pb-2">
-                          <CardTitle className="text-sm font-medium">Fuerte Class 2 - 4kg</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="text-2xl font-bold">
-                            {selectedColdRoom === 'coldroom1' 
-                              ? (coldRoomStats.coldroom1?.fuerteClass24kg || 0).toLocaleString()
-                              : (coldRoomStats.coldroom2?.fuerteClass24kg || 0).toLocaleString()
-                            }
-                          </div>
-                          <div className="text-xs text-muted-foreground mt-1">Fuerte Class 2 boxes</div>
-                        </CardContent>
-                      </Card>
-                      
-                      <Card>
-                        <CardHeader className="pb-2">
-                          <CardTitle className="text-sm font-medium">Fuerte Class 1 - 10kg</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="text-2xl font-bold">
-                            {selectedColdRoom === 'coldroom1' 
-                              ? (coldRoomStats.coldroom1?.fuerteClass110kg || 0).toLocaleString()
-                              : (coldRoomStats.coldroom2?.fuerteClass110kg || 0).toLocaleString()
-                            }
-                          </div>
-                          <div className="text-xs text-muted-foreground mt-1">Fuerte Class 1 boxes</div>
-                        </CardContent>
-                      </Card>
-                      
-                      <Card>
-                        <CardHeader className="pb-2">
-                          <CardTitle className="text-sm font-medium">Fuerte Class 2 - 10kg</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="text-2xl font-bold">
-                            {selectedColdRoom === 'coldroom1' 
-                              ? (coldRoomStats.coldroom1?.fuerteClass210kg || 0).toLocaleString()
-                              : (coldRoomStats.coldroom2?.fuerteClass210kg || 0).toLocaleString()
-                            }
-                          </div>
-                          <div className="text-xs text-muted-foreground mt-1">Fuerte Class 2 boxes</div>
-                        </CardContent>
-                      </Card>
-                      
-                      <Card>
-                        <CardHeader className="pb-2">
-                          <CardTitle className="text-sm font-medium">Hass Class 1 - 4kg</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="text-2xl font-bold">
-                            {selectedColdRoom === 'coldroom1' 
-                              ? (coldRoomStats.coldroom1?.hassClass14kg || 0).toLocaleString()
-                              : (coldRoomStats.coldroom2?.hassClass14kg || 0).toLocaleString()
-                            }
-                          </div>
-                          <div className="text-xs text-muted-foreground mt-1">Hass Class 1 boxes</div>
-                        </CardContent>
-                      </Card>
-                      
-                      <Card>
-                        <CardHeader className="pb-2">
-                          <CardTitle className="text-sm font-medium">Hass Class 2 - 4kg</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="text-2xl font-bold">
-                            {selectedColdRoom === 'coldroom1' 
-                              ? (coldRoomStats.coldroom1?.hassClass24kg || 0).toLocaleString()
-                              : (coldRoomStats.coldroom2?.hassClass24kg || 0).toLocaleString()
-                            }
-                          </div>
-                          <div className="text-xs text-muted-foreground mt-1">Hass Class 2 boxes</div>
-                        </CardContent>
-                      </Card>
-                      
-                      <Card>
-                        <CardHeader className="pb-2">
-                          <CardTitle className="text-sm font-medium">Hass Class 1 - 10kg</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="text-2xl font-bold">
-                            {selectedColdRoom === 'coldroom1' 
-                              ? (coldRoomStats.coldroom1?.hassClass110kg || 0).toLocaleString()
-                              : (coldRoomStats.coldroom2?.hassClass110kg || 0).toLocaleString()
-                            }
-                          </div>
-                          <div className="text-xs text-muted-foreground mt-1">Hass Class 1 boxes</div>
-                        </CardContent>
-                      </Card>
-                      
-                      <Card>
-                        <CardHeader className="pb-2">
-                          <CardTitle className="text-sm font-medium">Hass Class 2 - 10kg</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="text-2xl font-bold">
-                            {selectedColdRoom === 'coldroom1' 
-                              ? (coldRoomStats.coldroom1?.hassClass210kg || 0).toLocaleString()
-                              : (coldRoomStats.coldroom2?.hassClass210kg || 0).toLocaleString()
-                            }
-                          </div>
-                          <div className="text-xs text-muted-foreground mt-1">Hass Class 2 boxes</div>
-                        </CardContent>
-                      </Card>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </CardContent>
               </Card>
               
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Boxes Table */}
+                {/* Boxes Table - This shows actual data from cold_room_boxes */}
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <Package className="w-5 h-5" />
-                      Boxes in Cold Room
+                      Boxes in Cold Room ({selectedColdRoom === 'coldroom1' ? 'Cold Room 1' : 'Cold Room 2'})
                     </CardTitle>
                     <CardDescription>
-                      All boxes currently stored in {selectedColdRoom === 'coldroom1' ? 'Cold Room 1' : 'Cold Room 2'}
+                      Actual boxes stored in {selectedColdRoom === 'coldroom1' ? 'Cold Room 1' : 'Cold Room 2'} from database
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -2742,62 +2832,87 @@ export default function ColdRoomPage() {
                         <Package className="w-12 h-12 mx-auto text-gray-300 mb-3" />
                         <p className="text-gray-500 font-medium">No boxes in cold room</p>
                         <p className="text-sm text-gray-400 mt-1">
-                          Load boxes from counting records to get started
+                          Load boxes from the "Load Boxes" tab to populate this section
                         </p>
                       </div>
                     ) : (
-                      <ScrollArea className="h-[400px]">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Variety</TableHead>
-                              <TableHead>Type</TableHead>
-                              <TableHead>Size</TableHead>
-                              <TableHead>Grade</TableHead>
-                              <TableHead className="text-right">Quantity</TableHead>
-                              <TableHead className="text-right">Date In</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {safeArray(coldRoomBoxes)
-                              .filter(box => box.cold_room_id === selectedColdRoom)
-                              .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
-                              .map((box) => (
-                                <TableRow key={box.id}>
-                                  <TableCell className="font-medium capitalize">
-                                    {box.variety === 'fuerte' ? 'Fuerte' : 'Hass'}
-                                  </TableCell>
-                                  <TableCell>{box.box_type}</TableCell>
-                                  <TableCell>{formatSize(box.size)}</TableCell>
-                                  <TableCell>
-                                    <Badge variant={box.grade === 'class1' ? 'default' : 'secondary'}>
-                                      {box.grade === 'class1' ? 'Class 1' : 'Class 2'}
-                                    </Badge>
-                                  </TableCell>
-                                  <TableCell className="text-right font-medium">
-                                    {box.quantity.toLocaleString()}
-                                  </TableCell>
-                                  <TableCell className="text-right text-sm">
-                                    {formatDate(box.created_at)}
-                                  </TableCell>
-                                </TableRow>
-                              ))}
-                          </TableBody>
-                        </Table>
-                      </ScrollArea>
+                      <>
+                        <div className="mb-4 flex justify-between items-center">
+                          <div>
+                            <span className="font-medium">Total: </span>
+                            <span className="text-primary font-bold">
+                              {safeArray(coldRoomBoxes)
+                                .filter(box => box.cold_room_id === selectedColdRoom)
+                                .reduce((sum, box) => sum + box.quantity, 0)
+                                .toLocaleString()} boxes
+                            </span>
+                          </div>
+                          <Button
+                            onClick={() => fetchColdRoomBoxes()}
+                            variant="outline"
+                            size="sm"
+                            disabled={isLoading.boxes}
+                          >
+                            <RefreshCw className={`w-4 h-4 mr-1 ${isLoading.boxes ? 'animate-spin' : ''}`} />
+                            Refresh
+                          </Button>
+                        </div>
+                        
+                        <ScrollArea className="h-[400px] border rounded">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Variety</TableHead>
+                                <TableHead>Type</TableHead>
+                                <TableHead>Size</TableHead>
+                                <TableHead>Grade</TableHead>
+                                <TableHead className="text-right">Quantity</TableHead>
+                                <TableHead className="text-right">Date In</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {safeArray(coldRoomBoxes)
+                                .filter(box => box.cold_room_id === selectedColdRoom)
+                                .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                                .map((box) => (
+                                  <TableRow key={box.id}>
+                                    <TableCell className="font-medium capitalize">
+                                      {box.variety === 'fuerte' ? 'Fuerte' : 'Hass'}
+                                    </TableCell>
+                                    <TableCell>
+                                      <Badge variant="outline">{box.box_type}</Badge>
+                                    </TableCell>
+                                    <TableCell>{formatSize(box.size)}</TableCell>
+                                    <TableCell>
+                                      <Badge variant={box.grade === 'class1' ? 'default' : 'secondary'}>
+                                        {box.grade === 'class1' ? 'Class 1' : 'Class 2'}
+                                      </Badge>
+                                    </TableCell>
+                                    <TableCell className="text-right font-medium">
+                                      {box.quantity.toLocaleString()}
+                                    </TableCell>
+                                    <TableCell className="text-right text-sm">
+                                      {formatDate(box.created_at)}
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                            </TableBody>
+                          </Table>
+                        </ScrollArea>
+                      </>
                     )}
                   </CardContent>
                 </Card>
                 
-                {/* Pallets Table */}
+                {/* Pallets Table - This shows actual data from cold_room_pallets */}
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <Truck className="w-5 h-5" />
-                      Pallets in Cold Room
+                      Pallets in Cold Room ({selectedColdRoom === 'coldroom1' ? 'Cold Room 1' : 'Cold Room 2'})
                     </CardTitle>
                     <CardDescription>
-                      Complete pallets in {selectedColdRoom === 'coldroom1' ? 'Cold Room 1' : 'Cold Room 2'}
+                      Complete pallets in {selectedColdRoom === 'coldroom1' ? 'Cold Room 1' : 'Cold Room 2'} from database
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -2811,53 +2926,78 @@ export default function ColdRoomPage() {
                         <Truck className="w-12 h-12 mx-auto text-gray-300 mb-3" />
                         <p className="text-gray-500 font-medium">No pallets in cold room</p>
                         <p className="text-sm text-gray-400 mt-1">
-                          Boxes will convert to pallets when thresholds are met
+                          Boxes will automatically create pallets when thresholds are met
                         </p>
                       </div>
                     ) : (
-                      <ScrollArea className="h-[400px]">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Pallet ID</TableHead>
-                              <TableHead>Variety</TableHead>
-                              <TableHead>Type</TableHead>
-                              <TableHead>Size</TableHead>
-                              <TableHead>Grade</TableHead>
-                              <TableHead className="text-right">Count</TableHead>
-                              <TableHead className="text-right">Last Updated</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {safeArray(coldRoomPallets)
-                              .filter(pallet => pallet.cold_room_id === selectedColdRoom)
-                              .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
-                              .map((pallet) => (
-                                <TableRow key={pallet.id}>
-                                  <TableCell className="font-mono text-xs" title={pallet.id}>
-                                    {pallet.id.substring(0, 10)}...
-                                  </TableCell>
-                                  <TableCell className="capitalize">
-                                    {pallet.variety === 'fuerte' ? 'Fuerte' : 'Hass'}
-                                  </TableCell>
-                                  <TableCell>{pallet.box_type}</TableCell>
-                                  <TableCell>{formatSize(pallet.size)}</TableCell>
-                                  <TableCell>
-                                    <Badge variant={pallet.grade === 'class1' ? 'default' : 'secondary'}>
-                                      {pallet.grade === 'class1' ? 'Class 1' : 'Class 2'}
-                                    </Badge>
-                                  </TableCell>
-                                  <TableCell className="text-right font-medium">
-                                    {pallet.pallet_count} pallets
-                                  </TableCell>
-                                  <TableCell className="text-right text-sm">
-                                    {formatDate(pallet.last_updated)}
-                                  </TableCell>
-                                </TableRow>
-                              ))}
-                          </TableBody>
-                        </Table>
-                      </ScrollArea>
+                      <>
+                        <div className="mb-4 flex justify-between items-center">
+                          <div>
+                            <span className="font-medium">Total: </span>
+                            <span className="text-primary font-bold">
+                              {safeArray(coldRoomPallets)
+                                .filter(pallet => pallet.cold_room_id === selectedColdRoom)
+                                .reduce((sum, pallet) => sum + pallet.pallet_count, 0)
+                                .toLocaleString()} pallets
+                            </span>
+                          </div>
+                          <Button
+                            onClick={() => fetchColdRoomBoxes()}
+                            variant="outline"
+                            size="sm"
+                            disabled={isLoading.pallets}
+                          >
+                            <RefreshCw className={`w-4 h-4 mr-1 ${isLoading.pallets ? 'animate-spin' : ''}`} />
+                            Refresh
+                          </Button>
+                        </div>
+                        
+                        <ScrollArea className="h-[400px] border rounded">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Pallet ID</TableHead>
+                                <TableHead>Variety</TableHead>
+                                <TableHead>Type</TableHead>
+                                <TableHead>Size</TableHead>
+                                <TableHead>Grade</TableHead>
+                                <TableHead className="text-right">Count</TableHead>
+                                <TableHead className="text-right">Last Updated</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {safeArray(coldRoomPallets)
+                                .filter(pallet => pallet.cold_room_id === selectedColdRoom)
+                                .sort((a, b) => new Date(b.last_updated).getTime() - new Date(a.last_updated).getTime())
+                                .map((pallet) => (
+                                  <TableRow key={pallet.id}>
+                                    <TableCell className="font-mono text-xs" title={pallet.id}>
+                                      {pallet.id.substring(0, 10)}...
+                                    </TableCell>
+                                    <TableCell className="capitalize">
+                                      {pallet.variety === 'fuerte' ? 'Fuerte' : 'Hass'}
+                                    </TableCell>
+                                    <TableCell>
+                                      <Badge variant="outline">{pallet.box_type}</Badge>
+                                    </TableCell>
+                                    <TableCell>{formatSize(pallet.size)}</TableCell>
+                                    <TableCell>
+                                      <Badge variant={pallet.grade === 'class1' ? 'default' : 'secondary'}>
+                                        {pallet.grade === 'class1' ? 'Class 1' : 'Class 2'}
+                                      </Badge>
+                                    </TableCell>
+                                    <TableCell className="text-right font-medium">
+                                      {pallet.pallet_count} pallets
+                                    </TableCell>
+                                    <TableCell className="text-right text-sm">
+                                      {formatDate(pallet.last_updated)}
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                            </TableBody>
+                          </Table>
+                        </ScrollArea>
+                      </>
                     )}
                   </CardContent>
                 </Card>
