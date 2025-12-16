@@ -498,6 +498,24 @@ model repacking_records {
   @@map("repacking_records")
 }
 
+model loading_history {
+  id               String   @id @default(cuid())
+  box_id           String?
+  pallet_id        String
+  supplier_name    String?
+  cold_room_id     String?
+  loaded_weight    Float?
+  loaded_by        String?
+  loaded_at        DateTime @default(now())
+  notes            String?
+
+  @@index([pallet_id])
+  @@index([box_id])
+  @@index([loaded_at])
+  @@map("loading_history")
+}
+
+
 enum carriers_status {
   Active
   Inactive

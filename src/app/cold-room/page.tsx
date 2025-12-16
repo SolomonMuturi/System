@@ -189,10 +189,10 @@ interface WarehouseHistoryRecord {
 // History record interface
 interface LoadingHistoryRecord {
   id: string;
-  box_id: string;
+  box_id?: string;
   supplier_name: string;
   pallet_id: string;
-  region: string;
+  region?: string;
   variety: 'fuerte' | 'hass';
   box_type: '4kg' | '10kg';
   size: string;
@@ -321,7 +321,7 @@ export default function ColdRoomPage() {
     dateFrom: '',
     dateTo: '',
     supplierName: '',
-    coldRoomId: 'all', // Changed from '' to 'all'
+    coldRoomId: 'all',
   });
   
   // Active tab state
@@ -569,53 +569,109 @@ export default function ColdRoomPage() {
     }
   };
   
-// Fetch loading history - which should show ALL boxes in cold room boxes table
-const fetchLoadingHistory = async () => {
-  setIsLoading(prev => ({ ...prev, loadingHistory: true }));
-  try {
-    console.log('📜 Fetching ALL boxes from cold room...');
-    
-    // Instead of a separate loading-history endpoint, just use the cold room boxes
-    const response = await fetch('/api/cold-room?action=boxes');
-    
-    if (response.ok) {
-      const result = await response.json();
-      if (result.success && Array.isArray(result.data)) {
-        console.log(`✅ Loaded ${result.data.length} boxes for history`);
-        
-        // Transform cold room boxes to loading history format
-        const historyData: LoadingHistoryRecord[] = result.data.map((box: any) => ({
-          id: box.id,
-          box_id: box.id,
-          supplier_name: box.supplier_name || 'Unknown Supplier',
-          pallet_id: box.pallet_id || `PAL-${box.id}`,
-          region: box.region || '',
-          variety: box.variety,
-          box_type: box.boxType || box.box_type,
-          size: box.size,
-          grade: box.grade,
-          quantity: Number(box.quantity) || 0,
-          cold_room_id: box.cold_room_id,
-          loaded_by: box.loaded_by || 'Warehouse Staff',
-          loading_date: box.created_at, // Use created_at as loading date
-          created_at: box.created_at
-        }));
-        
-        setLoadingHistory(historyData);
+  // Fetch loading history from the new loading_history table
+  const fetchLoadingHistory = async () => {
+    setIsLoading(prev => ({ ...prev, loadingHistory: true }));
+    try {
+      console.log('📜 Fetching loading history from database...');
+      
+      const response = await fetch('/api/cold-room?action=loading-history');
+      
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success) {
+          console.log(`✅ Loaded ${Array.isArray(result.data) ? result.data.length : 0} history records`);
+          
+          // Map the data to LoadingHistoryRecord interface
+          const historyData: LoadingHistoryRecord[] = (result.data || []).map((item: any) => ({
+            id: item.id,
+            box_id: item.box_id || item.id,
+            supplier_name: item.supplier_name || 'Unknown Supplier',
+            pallet_id: item.pallet_id || `PAL-${item.id}`,
+            region: item.region || '',
+            variety: item.variety,
+            box_type: item.box_type || item.boxType,
+            size: item.size,
+            grade: item.grade,
+            quantity: Number(item.quantity) || 0,
+            cold_room_id: item.cold_room_id || item.coldRoomId,
+            loaded_by: item.loaded_by || 'Warehouse Staff',
+            loading_date: item.loading_date || item.created_at,
+            created_at: item.created_at || item.loading_date
+          }));
+          
+          setLoadingHistory(historyData);
+        } else {
+          setLoadingHistory([]);
+        }
       } else {
         setLoadingHistory([]);
       }
-    } else {
+    } catch (error) {
+      console.error('❌ Error fetching loading history:', error);
       setLoadingHistory([]);
+    } finally {
+      setIsLoading(prev => ({ ...prev, loadingHistory: false }));
     }
-  } catch (error) {
-    console.error('❌ Error fetching loading history:', error);
-    setLoadingHistory([]);
-  } finally {
-    setIsLoading(prev => ({ ...prev, loadingHistory: false }));
-  }
-};
+  };
 
+  // Search loading history
+  const searchLoadingHistory = async () => {
+    setIsLoading(prev => ({ ...prev, loadingHistory: true }));
+    try {
+      console.log('🔍 Searching loading history...');
+      const response = await fetch('/api/cold-room', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'search-history',
+          dateFrom: historySearch.dateFrom,
+          dateTo: historySearch.dateTo,
+          supplierName: historySearch.supplierName,
+          coldRoomId: historySearch.coldRoomId === 'all' ? '' : historySearch.coldRoomId,
+        }),
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success) {
+          console.log(`✅ Found ${Array.isArray(result.data) ? result.data.length : 0} records`);
+          
+          // Map the data to LoadingHistoryRecord interface
+          const historyData: LoadingHistoryRecord[] = (result.data || []).map((item: any) => ({
+            id: item.id,
+            box_id: item.box_id || item.id,
+            supplier_name: item.supplier_name || 'Unknown Supplier',
+            pallet_id: item.pallet_id || `PAL-${item.id}`,
+            region: item.region || '',
+            variety: item.variety,
+            box_type: item.box_type || item.boxType,
+            size: item.size,
+            grade: item.grade,
+            quantity: Number(item.quantity) || 0,
+            cold_room_id: item.cold_room_id || item.coldRoomId,
+            loaded_by: item.loaded_by || 'Warehouse Staff',
+            loading_date: item.loading_date || item.created_at,
+            created_at: item.created_at || item.loading_date
+          }));
+          
+          setLoadingHistory(historyData);
+        } else {
+          setLoadingHistory([]);
+        }
+      } else {
+        setLoadingHistory([]);
+      }
+    } catch (error) {
+      console.error('❌ Error searching loading history:', error);
+      setLoadingHistory([]);
+    } finally {
+      setIsLoading(prev => ({ ...prev, loadingHistory: false }));
+    }
+  };
+  
   // Enhanced fetchCountingHistory function - now focused on warehouse history
   const fetchCountingHistory = async () => {
     setIsLoading(prev => ({ ...prev, counting: true }));
@@ -1507,6 +1563,7 @@ const fetchLoadingHistory = async () => {
         fetchRepackingRecords(),
         fetchColdRoomStats(),
         fetchCountingRecordsForColdRoom(),
+        fetchLoadingHistory(), // Added loading history fetch
       ]);
       
     } catch (error) {
@@ -1624,6 +1681,9 @@ const fetchLoadingHistory = async () => {
                 {countingRecordIds.length > 0 ? 
                   `Updated ${countingRecordIds.length} counting record(s) to 'completed'` : 
                   'No counting records to update'}
+              </p>
+              <p className="text-xs text-blue-600 mt-1">
+                ✅ Saved to loading history
               </p>
             </div>
           ),
@@ -1849,6 +1909,9 @@ const fetchLoadingHistory = async () => {
               </div>
               <p className="text-xs text-gray-500 mt-2">
                 Inventory has been updated. Check the Live Inventory tab.
+              </p>
+              <p className="text-xs text-blue-600 mt-1">
+                ✅ Saved to loading history
               </p>
             </div>
           ),
@@ -2180,16 +2243,95 @@ const fetchLoadingHistory = async () => {
   
   const loadingHistorySummary = calculateLoadingHistorySummary();
   
-// Clear search filters
-const clearSearchFilters = () => {
-  setHistorySearch({
-    dateFrom: '',
-    dateTo: '',
-    supplierName: '',
-    coldRoomId: 'all',
-  });
-  fetchLoadingHistory(); 
-};
+  // Clear search filters
+  const clearSearchFilters = () => {
+    setHistorySearch({
+      dateFrom: '',
+      dateTo: '',
+      supplierName: '',
+      coldRoomId: 'all',
+    });
+    fetchLoadingHistory(); 
+  };
+  
+  // Render loading history table
+  const renderLoadingHistoryTable = () => {
+    return (
+      <ScrollArea className="h-[500px] border rounded">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Loading Date</TableHead>
+              <TableHead>Supplier</TableHead>
+              <TableHead>Pallet ID</TableHead>
+              <TableHead>Variety</TableHead>
+              <TableHead>Type</TableHead>
+              <TableHead>Size</TableHead>
+              <TableHead>Grade</TableHead>
+              <TableHead className="text-right">Quantity</TableHead>
+              <TableHead>Cold Room</TableHead>
+              <TableHead>Loaded By</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loadingHistory
+              .sort((a, b) => new Date(b.loading_date).getTime() - new Date(a.loading_date).getTime())
+              .map((record) => {
+                const boxWeight = record.box_type === '4kg' ? 4 : 10;
+                const totalWeight = record.quantity * boxWeight;
+                
+                return (
+                  <TableRow key={record.id}>
+                    <TableCell>
+                      <div className="font-medium">{formatDate(record.loading_date)}</div>
+                      <div className="text-xs text-gray-500">
+                        {formatDateForInput(record.loading_date)}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="max-w-[120px] truncate" title={record.supplier_name}>
+                        {record.supplier_name || 'Unknown'}
+                      </div>
+                      {record.region && (
+                        <div className="text-xs text-gray-500">{record.region}</div>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="font-mono text-xs" title={record.pallet_id}>
+                        {record.pallet_id?.substring(0, 8)}...
+                      </div>
+                    </TableCell>
+                    <TableCell className="capitalize">
+                      {record.variety === 'fuerte' ? 'Fuerte' : 'Hass'}
+                    </TableCell>
+                    <TableCell>{record.box_type}</TableCell>
+                    <TableCell>{formatSize(record.size)}</TableCell>
+                    <TableCell>
+                      <Badge variant={record.grade === 'class1' ? 'default' : 'secondary'}>
+                        {record.grade === 'class1' ? 'Class 1' : 'Class 2'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="font-medium">{record.quantity.toLocaleString()}</div>
+                      <div className="text-xs text-gray-500">
+                        {safeToFixed(totalWeight)} kg total
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        <Snowflake className="w-3 h-3" />
+                        {record.cold_room_id === 'coldroom1' ? 'Cold Room 1' : 'Cold Room 2'}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-sm">{record.loaded_by || 'Warehouse Staff'}</TableCell>
+                  </TableRow>
+                );
+              })}
+          </TableBody>
+        </Table>
+      </ScrollArea>
+    );
+  };
 
   return (
     <SidebarProvider>
@@ -3754,79 +3896,7 @@ const clearSearchFilters = () => {
                           </p>
                         </div>
                       ) : (
-                        <ScrollArea className="h-[500px] border rounded">
-                          <Table>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead>Loading Date</TableHead>
-                                <TableHead>Supplier</TableHead>
-                                <TableHead>Pallet ID</TableHead>
-                                <TableHead>Variety</TableHead>
-                                <TableHead>Type</TableHead>
-                                <TableHead>Size</TableHead>
-                                <TableHead>Grade</TableHead>
-                                <TableHead className="text-right">Quantity</TableHead>
-                                <TableHead>Cold Room</TableHead>
-                                <TableHead>Loaded By</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {loadingHistory
-                                .sort((a, b) => new Date(b.loading_date).getTime() - new Date(a.loading_date).getTime())
-                                .map((record) => {
-                                  const boxWeight = record.box_type === '4kg' ? 4 : 10;
-                                  const totalWeight = record.quantity * boxWeight;
-                                  
-                                  return (
-                                    <TableRow key={record.id}>
-                                      <TableCell>
-                                        <div className="font-medium">{formatDate(record.loading_date)}</div>
-                                        <div className="text-xs text-gray-500">
-                                          {formatDateForInput(record.loading_date)}
-                                        </div>
-                                      </TableCell>
-                                      <TableCell>
-                                        <div className="max-w-[120px] truncate" title={record.supplier_name}>
-                                          {record.supplier_name || 'Unknown'}
-                                        </div>
-                                        {record.region && (
-                                          <div className="text-xs text-gray-500">{record.region}</div>
-                                        )}
-                                      </TableCell>
-                                      <TableCell>
-                                        <div className="font-mono text-xs" title={record.pallet_id}>
-                                          {record.pallet_id?.substring(0, 8)}...
-                                        </div>
-                                      </TableCell>
-                                      <TableCell className="capitalize">
-                                        {record.variety === 'fuerte' ? 'Fuerte' : 'Hass'}
-                                      </TableCell>
-                                      <TableCell>{record.box_type}</TableCell>
-                                      <TableCell>{formatSize(record.size)}</TableCell>
-                                      <TableCell>
-                                        <Badge variant={record.grade === 'class1' ? 'default' : 'secondary'}>
-                                          {record.grade === 'class1' ? 'Class 1' : 'Class 2'}
-                                        </Badge>
-                                      </TableCell>
-                                      <TableCell className="text-right">
-                                        <div className="font-medium">{record.quantity.toLocaleString()}</div>
-                                        <div className="text-xs text-gray-500">
-                                          {safeToFixed(totalWeight)} kg total
-                                        </div>
-                                      </TableCell>
-                                      <TableCell>
-                                        <div className="flex items-center gap-1">
-                                          <Snowflake className="w-3 h-3" />
-                                          {record.cold_room_id === 'coldroom1' ? 'Cold Room 1' : 'Cold Room 2'}
-                                        </div>
-                                      </TableCell>
-                                      <TableCell className="text-sm">{record.loaded_by}</TableCell>
-                                    </TableRow>
-                                  );
-                                })}
-                            </TableBody>
-                          </Table>
-                        </ScrollArea>
+                        renderLoadingHistoryTable()
                       )}
                     </div>
                   </div>
