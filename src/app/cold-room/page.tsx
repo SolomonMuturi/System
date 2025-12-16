@@ -569,69 +569,53 @@ export default function ColdRoomPage() {
     }
   };
   
-  // Fetch loading history
-  const fetchLoadingHistory = async () => {
-    setIsLoading(prev => ({ ...prev, loadingHistory: true }));
-    try {
-      console.log('📜 Fetching loading history...');
-      const response = await fetch('/api/cold-room?action=loading-history');
-      
-      if (response.ok) {
-        const result = await response.json();
-        if (result.success) {
-          console.log(`✅ Loaded ${Array.isArray(result.data) ? result.data.length : 0} loading history records`);
-          setLoadingHistory(result.data || []);
-        } else {
-          setLoadingHistory([]);
-        }
+// Fetch loading history - which should show ALL boxes in cold room boxes table
+const fetchLoadingHistory = async () => {
+  setIsLoading(prev => ({ ...prev, loadingHistory: true }));
+  try {
+    console.log('📜 Fetching ALL boxes from cold room...');
+    
+    // Instead of a separate loading-history endpoint, just use the cold room boxes
+    const response = await fetch('/api/cold-room?action=boxes');
+    
+    if (response.ok) {
+      const result = await response.json();
+      if (result.success && Array.isArray(result.data)) {
+        console.log(`✅ Loaded ${result.data.length} boxes for history`);
+        
+        // Transform cold room boxes to loading history format
+        const historyData: LoadingHistoryRecord[] = result.data.map((box: any) => ({
+          id: box.id,
+          box_id: box.id,
+          supplier_name: box.supplier_name || 'Unknown Supplier',
+          pallet_id: box.pallet_id || `PAL-${box.id}`,
+          region: box.region || '',
+          variety: box.variety,
+          box_type: box.boxType || box.box_type,
+          size: box.size,
+          grade: box.grade,
+          quantity: Number(box.quantity) || 0,
+          cold_room_id: box.cold_room_id,
+          loaded_by: box.loaded_by || 'Warehouse Staff',
+          loading_date: box.created_at, // Use created_at as loading date
+          created_at: box.created_at
+        }));
+        
+        setLoadingHistory(historyData);
       } else {
         setLoadingHistory([]);
       }
-    } catch (error) {
-      console.error('❌ Error fetching loading history:', error);
+    } else {
       setLoadingHistory([]);
-    } finally {
-      setIsLoading(prev => ({ ...prev, loadingHistory: false }));
     }
-  };
-  
-  // Search loading history
-  const searchLoadingHistory = async () => {
-    setIsLoading(prev => ({ ...prev, loadingHistory: true }));
-    try {
-      console.log('🔍 Searching loading history...');
-      const response = await fetch('/api/cold-room?action=search-history', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          dateFrom: historySearch.dateFrom,
-          dateTo: historySearch.dateTo,
-          supplierName: historySearch.supplierName,
-          coldRoomId: historySearch.coldRoomId === 'all' ? '' : historySearch.coldRoomId,
-        }),
-      });
-      
-      if (response.ok) {
-        const result = await response.json();
-        if (result.success) {
-          console.log(`✅ Found ${Array.isArray(result.data) ? result.data.length : 0} records`);
-          setLoadingHistory(result.data || []);
-        } else {
-          setLoadingHistory([]);
-        }
-      } else {
-        setLoadingHistory([]);
-      }
-    } catch (error) {
-      console.error('❌ Error searching loading history:', error);
-      setLoadingHistory([]);
-    } finally {
-      setIsLoading(prev => ({ ...prev, loadingHistory: false }));
-    }
-  };
-  
+  } catch (error) {
+    console.error('❌ Error fetching loading history:', error);
+    setLoadingHistory([]);
+  } finally {
+    setIsLoading(prev => ({ ...prev, loadingHistory: false }));
+  }
+};
+
   // Enhanced fetchCountingHistory function - now focused on warehouse history
   const fetchCountingHistory = async () => {
     setIsLoading(prev => ({ ...prev, counting: true }));
@@ -1497,10 +1481,7 @@ export default function ColdRoomPage() {
       setIsLoading(prev => ({ ...prev, countingRecords: false }));
     }
   };
-  
-  // ===========================================
-  // UTILITY FUNCTIONS
-  // ===========================================
+
   
   // Fetch all data
   const fetchAllData = async () => {
@@ -1712,9 +1693,6 @@ export default function ColdRoomPage() {
     .filter(box => box.selected && box.coldRoomId === 'coldroom2')
     .reduce((sum, box) => sum + box.totalWeight, 0);
   
-  // ===========================================
-  // EXISTING FUNCTIONS (from your original code)
-  // ===========================================
   
   // Set up polling and initial load
   useEffect(() => {
@@ -2202,17 +2180,17 @@ export default function ColdRoomPage() {
   
   const loadingHistorySummary = calculateLoadingHistorySummary();
   
-  // Clear search filters
-  const clearSearchFilters = () => {
-    setHistorySearch({
-      dateFrom: '',
-      dateTo: '',
-      supplierName: '',
-      coldRoomId: 'all', // Changed from '' to 'all'
-    });
-    fetchLoadingHistory();
-  };
-  
+// Clear search filters
+const clearSearchFilters = () => {
+  setHistorySearch({
+    dateFrom: '',
+    dateTo: '',
+    supplierName: '',
+    coldRoomId: 'all',
+  });
+  fetchLoadingHistory(); 
+};
+
   return (
     <SidebarProvider>
       <Sidebar>
