@@ -363,6 +363,7 @@ model CountingRecord {
   id                 String   @id @default(cuid())
   supplier_id        String?
   supplier_name      String
+  loaded_to_coldroom_at   DateTime?
   supplier_phone     String?
   region             String?
   pallet_id          String
