@@ -240,7 +240,25 @@ export default function ColdRoomPage() {
     temperature: true,
     repacking: true,
     stats: true,
+    countingRecords: false,
   });
+  
+  // State for counting boxes from database
+  const [countingBoxes, setCountingBoxes] = useState<Array<{
+    variety: 'fuerte' | 'hass';
+    boxType: '4kg' | '10kg';
+    size: string;
+    grade: 'class1' | 'class2';
+    quantity: number;
+    supplierName: string;
+    palletId: string;
+    region: string;
+    countingRecordId: string;
+    selected: boolean;
+    coldRoomId: string;
+    boxWeight: number;
+    totalWeight: number;
+  }>>([]);
   
   // State for forms
   const [selectedColdRoom, setSelectedColdRoom] = useState<string>('coldroom1');
@@ -263,10 +281,244 @@ export default function ColdRoomPage() {
     notes: '',
   });
   
-  // Available options for forms
-  const boxVarieties = ['fuerte', 'hass'];
-  const boxTypes = ['4kg', '10kg'];
-  const boxGrades = ['class1', 'class2'];
+  // ===========================================
+  // DATA FETCHING FUNCTIONS
+  // ===========================================
+  
+  // Fetch cold rooms
+  const fetchColdRooms = async () => {
+    try {
+      const response = await fetch('/api/cold-room');
+      
+      if (!response.ok) {
+        console.error('Error response from cold-room API:', response.status);
+        // Create default cold rooms if API fails
+        setColdRooms([
+          {
+            id: 'coldroom1',
+            name: 'Cold Room 1',
+            current_temperature: 5,
+            capacity: 100,
+            occupied: 0
+          },
+          {
+            id: 'coldroom2',
+            name: 'Cold Room 2',
+            current_temperature: 5,
+            capacity: 100,
+            occupied: 0
+          }
+        ]);
+        return;
+      }
+      
+      const data = await response.json();
+      console.log('Cold rooms API response:', data);
+      
+      // Calculate occupied pallets for each cold room
+      const calculateOccupiedPallets = (coldRoomId: string) => {
+        const boxesInRoom = coldRoomBoxes.filter(box => box.cold_room_id === coldRoomId);
+        const totalPallets = boxesInRoom.reduce((sum, box) => {
+          const boxesPerPallet = box.box_type === '4kg' ? 288 : 120;
+          return sum + Math.floor(box.quantity / boxesPerPallet);
+        }, 0);
+        return totalPallets;
+      };
+      
+      if (Array.isArray(data)) {
+        const updatedRooms = data.map(room => ({
+          ...room,
+          occupied: calculateOccupiedPallets(room.id)
+        }));
+        setColdRooms(updatedRooms);
+      } else if (data && Array.isArray(data.data)) {
+        const updatedRooms = data.data.map(room => ({
+          ...room,
+          occupied: calculateOccupiedPallets(room.id)
+        }));
+        setColdRooms(updatedRooms);
+      } else {
+        console.warn('Unexpected cold rooms response format, using defaults:', data);
+        setColdRooms([
+          {
+            id: 'coldroom1',
+            name: 'Cold Room 1',
+            current_temperature: 5,
+            capacity: 100,
+            occupied: calculateOccupiedPallets('coldroom1')
+          },
+          {
+            id: 'coldroom2',
+            name: 'Cold Room 2',
+            current_temperature: 5,
+            capacity: 100,
+            occupied: calculateOccupiedPallets('coldroom2')
+          }
+        ]);
+      }
+      
+    } catch (error) {
+      console.error('Error fetching cold rooms:', error);
+      setColdRooms([
+        {
+          id: 'coldroom1',
+          name: 'Cold Room 1',
+          current_temperature: 5,
+          capacity: 100,
+          occupied: 0
+        },
+        {
+          id: 'coldroom2',
+          name: 'Cold Room 2',
+          current_temperature: 5,
+          capacity: 100,
+          occupied: 0
+        }
+      ]);
+    } finally {
+      setIsLoading(prev => ({ ...prev, coldRooms: false }));
+    }
+  };
+  
+  // Fetch cold room boxes and pallets
+  const fetchColdRoomBoxes = async () => {
+    try {
+      console.log('📦 Fetching cold room boxes and pallets...');
+      
+      const [boxesResponse, palletsResponse] = await Promise.allSettled([
+        fetch('/api/cold-room?action=boxes'),
+        fetch('/api/cold-room?action=pallets'),
+      ]);
+      
+      let boxesData: ColdRoomBox[] = [];
+      let palletsData: ColdRoomPallet[] = [];
+      
+      // Process boxes response
+      if (boxesResponse.status === 'fulfilled' && boxesResponse.value.ok) {
+        const result = await boxesResponse.value.json();
+        if (result.success && Array.isArray(result.data)) {
+          console.log(`✅ Loaded ${result.data.length} boxes from cold room`);
+          boxesData = result.data.map((box: any) => ({
+            id: box.id,
+            variety: box.variety,
+            box_type: box.boxType || box.box_type,
+            size: box.size,
+            grade: box.grade,
+            quantity: Number(box.quantity) || 0,
+            cold_room_id: box.cold_room_id,
+            created_at: box.created_at,
+            cold_room_name: box.cold_room_id === 'coldroom1' ? 'Cold Room 1' : 'Cold Room 2'
+          }));
+          setColdRoomBoxes(boxesData);
+        } else {
+          console.warn('No boxes data returned from API');
+          setColdRoomBoxes([]);
+        }
+      } else {
+        console.error('Failed to fetch boxes:', boxesResponse);
+        setColdRoomBoxes([]);
+      }
+      
+      // Process pallets response
+      if (palletsResponse.status === 'fulfilled' && palletsResponse.value.ok) {
+        const result = await palletsResponse.value.json();
+        if (result.success && Array.isArray(result.data)) {
+          console.log(`✅ Loaded ${result.data.length} pallets from cold room`);
+          palletsData = result.data.map((pallet: any) => ({
+            id: pallet.id,
+            variety: pallet.variety,
+            box_type: pallet.boxType || pallet.box_type,
+            size: pallet.size,
+            grade: pallet.grade,
+            pallet_count: Number(pallet.pallet_count) || 0,
+            cold_room_id: pallet.cold_room_id,
+            created_at: pallet.created_at,
+            last_updated: pallet.last_updated || pallet.created_at
+          }));
+          setColdRoomPallets(palletsData);
+        } else {
+          console.warn('No pallets data returned from API');
+          setColdRoomPallets([]);
+        }
+      } else {
+        console.error('Failed to fetch pallets:', palletsResponse);
+        setColdRoomPallets([]);
+      }
+      
+    } catch (error) {
+      console.error('❌ Error fetching cold room boxes:', error);
+      setColdRoomBoxes([]);
+      setColdRoomPallets([]);
+    } finally {
+      setIsLoading(prev => ({ ...prev, boxes: false, pallets: false }));
+    }
+  };
+  
+  // Fetch temperature logs
+  const fetchTemperatureLogs = async () => {
+    try {
+      console.log('🌡️ Fetching temperature logs...');
+      const response = await fetch('/api/cold-room?action=temperature');
+      const result = await response.json();
+      
+      if (result.success) {
+        console.log(`✅ Loaded ${Array.isArray(result.data) ? result.data.length : 0} temperature logs`);
+        setTemperatureLogs(result.data || []);
+      } else {
+        console.warn('No temperature logs returned from API');
+        setTemperatureLogs([]);
+      }
+    } catch (error) {
+      console.error('❌ Error fetching temperature logs:', error);
+      setTemperatureLogs([]);
+    } finally {
+      setIsLoading(prev => ({ ...prev, temperature: false }));
+    }
+  };
+  
+  // Fetch repacking records
+  const fetchRepackingRecords = async () => {
+    try {
+      console.log('🔄 Fetching repacking records...');
+      const response = await fetch('/api/cold-room?action=repacking');
+      const result = await response.json();
+      
+      if (result.success) {
+        console.log(`✅ Loaded ${Array.isArray(result.data) ? result.data.length : 0} repacking records`);
+        setRepackingRecords(result.data || []);
+      } else {
+        console.warn('No repacking records returned from API');
+        setRepackingRecords([]);
+      }
+    } catch (error) {
+      console.error('❌ Error fetching repacking records:', error);
+      setRepackingRecords([]);
+    } finally {
+      setIsLoading(prev => ({ ...prev, repacking: false }));
+    }
+  };
+  
+  // Fetch cold room statistics
+  const fetchColdRoomStats = async () => {
+    try {
+      console.log('📊 Fetching cold room statistics...');
+      const response = await fetch('/api/cold-room?action=stats');
+      const result = await response.json();
+      
+      if (result.success) {
+        console.log('✅ Loaded cold room statistics');
+        setColdRoomStats(result.data);
+      } else {
+        console.warn('No cold room stats returned from API');
+        setColdRoomStats(null);
+      }
+    } catch (error) {
+      console.error('❌ Error fetching cold room stats:', error);
+      setColdRoomStats(null);
+    } finally {
+      setIsLoading(prev => ({ ...prev, stats: false }));
+    }
+  };
   
   // Fetch warehouse history records from API
   const fetchWarehouseHistory = async () => {
@@ -817,7 +1069,327 @@ export default function ColdRoomPage() {
     }
   };
   
-  // Fetch all other data
+  // ===========================================
+  // NEW FUNCTIONS FOR LOADING BOXES FROM COUNTING RECORDS
+  // ===========================================
+  
+  // Fetch ALL counting records from database
+  const fetchCountingRecordsForColdRoom = async () => {
+    setIsLoading(prev => ({ ...prev, countingRecords: true }));
+    try {
+      console.log('📦 Fetching ALL counting records from database...');
+      
+      const response = await fetch('/api/counting?action=coldroom');
+      const result = await response.json();
+      
+      if (result.success) {
+        console.log(`✅ Found ${result.data?.length || 0} counting records from database`);
+        
+        if (Array.isArray(result.data) && result.data.length > 0) {
+          // Transform ALL counting records to box format
+          const boxes: any[] = [];
+          
+          result.data.forEach((record: any) => {
+            const supplierName = record.supplier_name || 'Unknown Supplier';
+            const palletId = record.pallet_id || `CR-${record.id}`;
+            const region = record.region || '';
+            const status = record.status || 'unknown';
+            const forColdroom = record.for_coldroom || false;
+            
+            console.log(`📝 Processing record: ${supplierName}, status: ${status}, for_coldroom: ${forColdroom}`);
+            
+            // Extract boxes from counting_data
+            const countingData = record.counting_data || {};
+            const totals = record.totals || {};
+            
+            // METHOD 1: Extract from detailed counting_data fields
+            let extractedCount = 0;
+            Object.keys(countingData).forEach(key => {
+              // Look for fields like: fuerte_4kg_class1_size12, hass_10kg_class2_size28, etc.
+              if ((key.includes('fuerte_') || key.includes('hass_')) && 
+                  (key.includes('_4kg_') || key.includes('_10kg_')) &&
+                  (key.includes('_class1_') || key.includes('_class2_'))) {
+                
+                const parts = key.split('_');
+                if (parts.length >= 4) {
+                  const variety = parts[0] as 'fuerte' | 'hass';
+                  const boxType = parts[1] as '4kg' | '10kg';
+                  const grade = parts[2] as 'class1' | 'class2';
+                  const size = parts.slice(3).join('_').replace(/_/g, '');
+                  const quantity = Number(countingData[key]) || 0;
+                  
+                  if (quantity > 0 && size) {
+                    // Clean up size - ensure it starts with 'size'
+                    const cleanSize = size.startsWith('size') ? size : `size${size}`;
+                    const boxWeight = boxType === '4kg' ? 4 : 10;
+                    
+                    boxes.push({
+                      variety,
+                      boxType,
+                      size: cleanSize,
+                      grade,
+                      quantity,
+                      supplierName,
+                      palletId,
+                      region,
+                      status,
+                      forColdroom,
+                      countingRecordId: record.id,
+                      selected: true,
+                      coldRoomId: 'coldroom1',
+                      boxWeight,
+                      totalWeight: quantity * boxWeight
+                    });
+                    extractedCount++;
+                  }
+                }
+              }
+            });
+            
+            // METHOD 2: If no detailed counting_data, use totals
+            if (extractedCount === 0 && totals) {
+              console.log(`📊 Using totals for ${supplierName}:`, totals);
+              const sizes = ['size12', 'size14', 'size16', 'size18', 'size20', 'size22', 'size24', 'size26'];
+              
+              // Process Fuerte boxes
+              if (totals.fuerte_4kg_total > 0) {
+                const totalBoxes = totals.fuerte_4kg_total;
+                const boxesPerSize = Math.max(1, Math.floor(totalBoxes / sizes.length));
+                
+                sizes.forEach(size => {
+                  if (boxesPerSize > 0) {
+                    // Class 1 (assume 70%)
+                    boxes.push({
+                      variety: 'fuerte',
+                      boxType: '4kg',
+                      size,
+                      grade: 'class1',
+                      quantity: Math.max(1, Math.floor(boxesPerSize * 0.7)),
+                      supplierName,
+                      palletId,
+                      region,
+                      status,
+                      forColdroom,
+                      countingRecordId: record.id,
+                      selected: true,
+                      coldRoomId: 'coldroom1',
+                      boxWeight: 4,
+                      totalWeight: Math.max(1, Math.floor(boxesPerSize * 0.7)) * 4
+                    });
+                    
+                    // Class 2 (assume 30%)
+                    boxes.push({
+                      variety: 'fuerte',
+                      boxType: '4kg',
+                      size,
+                      grade: 'class2',
+                      quantity: Math.max(1, Math.floor(boxesPerSize * 0.3)),
+                      supplierName,
+                      palletId,
+                      region,
+                      status,
+                      forColdroom,
+                      countingRecordId: record.id,
+                      selected: true,
+                      coldRoomId: 'coldroom1',
+                      boxWeight: 4,
+                      totalWeight: Math.max(1, Math.floor(boxesPerSize * 0.3)) * 4
+                    });
+                  }
+                });
+              }
+              
+              if (totals.fuerte_10kg_total > 0) {
+                const totalBoxes = totals.fuerte_10kg_total;
+                const boxesPerSize = Math.max(1, Math.floor(totalBoxes / sizes.length));
+                
+                sizes.forEach(size => {
+                  if (boxesPerSize > 0) {
+                    boxes.push({
+                      variety: 'fuerte',
+                      boxType: '10kg',
+                      size,
+                      grade: 'class1',
+                      quantity: Math.max(1, Math.floor(boxesPerSize * 0.7)),
+                      supplierName,
+                      palletId,
+                      region,
+                      status,
+                      forColdroom,
+                      countingRecordId: record.id,
+                      selected: true,
+                      coldRoomId: 'coldroom1',
+                      boxWeight: 10,
+                      totalWeight: Math.max(1, Math.floor(boxesPerSize * 0.7)) * 10
+                    });
+                    
+                    boxes.push({
+                      variety: 'fuerte',
+                      boxType: '10kg',
+                      size,
+                      grade: 'class2',
+                      quantity: Math.max(1, Math.floor(boxesPerSize * 0.3)),
+                      supplierName,
+                      palletId,
+                      region,
+                      status,
+                      forColdroom,
+                      countingRecordId: record.id,
+                      selected: true,
+                      coldRoomId: 'coldroom1',
+                      boxWeight: 10,
+                      totalWeight: Math.max(1, Math.floor(boxesPerSize * 0.3)) * 10
+                    });
+                  }
+                });
+              }
+              
+              // Process Hass boxes
+              if (totals.hass_4kg_total > 0) {
+                const totalBoxes = totals.hass_4kg_total;
+                const boxesPerSize = Math.max(1, Math.floor(totalBoxes / sizes.length));
+                
+                sizes.forEach(size => {
+                  if (boxesPerSize > 0) {
+                    boxes.push({
+                      variety: 'hass',
+                      boxType: '4kg',
+                      size,
+                      grade: 'class1',
+                      quantity: Math.max(1, Math.floor(boxesPerSize * 0.7)),
+                      supplierName,
+                      palletId,
+                      region,
+                      status,
+                      forColdroom,
+                      countingRecordId: record.id,
+                      selected: true,
+                      coldRoomId: 'coldroom1',
+                      boxWeight: 4,
+                      totalWeight: Math.max(1, Math.floor(boxesPerSize * 0.7)) * 4
+                    });
+                    
+                    boxes.push({
+                      variety: 'hass',
+                      boxType: '4kg',
+                      size,
+                      grade: 'class2',
+                      quantity: Math.max(1, Math.floor(boxesPerSize * 0.3)),
+                      supplierName,
+                      palletId,
+                      region,
+                      status,
+                      forColdroom,
+                      countingRecordId: record.id,
+                      selected: true,
+                      coldRoomId: 'coldroom1',
+                      boxWeight: 4,
+                      totalWeight: Math.max(1, Math.floor(boxesPerSize * 0.3)) * 4
+                    });
+                  }
+                });
+              }
+              
+              if (totals.hass_10kg_total > 0) {
+                const totalBoxes = totals.hass_10kg_total;
+                const boxesPerSize = Math.max(1, Math.floor(totalBoxes / sizes.length));
+                
+                sizes.forEach(size => {
+                  if (boxesPerSize > 0) {
+                    boxes.push({
+                      variety: 'hass',
+                      boxType: '10kg',
+                      size,
+                      grade: 'class1',
+                      quantity: Math.max(1, Math.floor(boxesPerSize * 0.7)),
+                      supplierName,
+                      palletId,
+                      region,
+                      status,
+                      forColdroom,
+                      countingRecordId: record.id,
+                      selected: true,
+                      coldRoomId: 'coldroom1',
+                      boxWeight: 10,
+                      totalWeight: Math.max(1, Math.floor(boxesPerSize * 0.7)) * 10
+                    });
+                    
+                    boxes.push({
+                      variety: 'hass',
+                      boxType: '10kg',
+                      size,
+                      grade: 'class2',
+                      quantity: Math.max(1, Math.floor(boxesPerSize * 0.3)),
+                      supplierName,
+                      palletId,
+                      region,
+                      status,
+                      forColdroom,
+                      countingRecordId: record.id,
+                      selected: true,
+                      coldRoomId: 'coldroom1',
+                      boxWeight: 10,
+                      totalWeight: Math.max(1, Math.floor(boxesPerSize * 0.3)) * 10
+                    });
+                  }
+                });
+              }
+            }
+          });
+          
+          console.log(`📦 Created ${boxes.length} box items from ${result.data.length} counting records`);
+          
+          // Add status badges to boxes
+          const boxesWithStatus = boxes.map(box => ({
+            ...box,
+            statusBadge: box.status === 'pending_coldroom' ? 'Ready for Cold Room' : 
+                        box.status === 'pending' ? 'Waiting for Variance' :
+                        box.status === 'completed' ? 'Processed' : box.status
+          }));
+          
+          setCountingBoxes(boxesWithStatus);
+          
+          toast({
+            title: "📦 All Counting Records Loaded",
+            description: (
+              <div>
+                <p>Loaded {boxes.length} box types from {result.data.length} counting records</p>
+                <div className="mt-1 text-sm text-gray-600">
+                  Total boxes: {boxes.reduce((sum, box) => sum + box.quantity, 0).toLocaleString()}
+                </div>
+              </div>
+            ),
+          });
+          
+        } else {
+          setCountingBoxes([]);
+          toast({
+            title: "No counting records found",
+            description: "Database table 'counting_records' is empty",
+            variant: "destructive",
+          });
+        }
+      } else {
+        throw new Error(result.error || 'Failed to fetch counting records');
+      }
+    } catch (error: any) {
+      console.error('❌ Error fetching counting records:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to load counting records from database",
+        variant: "destructive",
+      });
+      setCountingBoxes([]);
+    } finally {
+      setIsLoading(prev => ({ ...prev, countingRecords: false }));
+    }
+  };
+  
+  // ===========================================
+  // UTILITY FUNCTIONS
+  // ===========================================
+  
+  // Fetch all data
   const fetchAllData = async () => {
     try {
       setIsLoading({
@@ -829,15 +1401,17 @@ export default function ColdRoomPage() {
         temperature: true,
         repacking: true,
         stats: true,
+        countingRecords: true,
       });
       
       await Promise.allSettled([
         fetchColdRooms(),
-        fetchCountingHistory(), // This now fetches warehouse history
+        fetchCountingHistory(),
         fetchColdRoomBoxes(),
         fetchTemperatureLogs(),
         fetchRepackingRecords(),
         fetchColdRoomStats(),
+        fetchCountingRecordsForColdRoom(),
       ]);
       
     } catch (error) {
@@ -850,180 +1424,185 @@ export default function ColdRoomPage() {
     }
   };
   
-const fetchColdRooms = async () => {
-  try {
-    const response = await fetch('/api/cold-room');
+  // Selection handlers for counting boxes
+  const handleToggleBoxSelection = (index: number) => {
+    setCountingBoxes(prev => {
+      const updated = [...prev];
+      updated[index].selected = !updated[index].selected;
+      return updated;
+    });
+  };
+  
+  const handleColdRoomSelectionForBox = (index: number, coldRoomId: string) => {
+    setCountingBoxes(prev => {
+      const updated = [...prev];
+      updated[index].coldRoomId = coldRoomId;
+      return updated;
+    });
+  };
+  
+  const handleSelectAllBoxes = () => {
+    setCountingBoxes(prev => 
+      prev.map(box => ({ ...box, selected: true }))
+    );
+  };
+  
+  const handleDeselectAllBoxes = () => {
+    setCountingBoxes(prev => 
+      prev.map(box => ({ ...box, selected: false }))
+    );
+  };
+  
+  // Load boxes to cold room
+  const handleLoadToColdRoom = async () => {
+    const boxesToLoad = countingBoxes.filter(box => box.selected);
     
-    if (!response.ok) {
-      console.error('Error response from cold-room API:', response.status);
-      // Create default cold rooms if API fails
-      setColdRooms([
-        {
-          id: 'coldroom1',
-          name: 'Cold Room 1',
-          current_temperature: 5,
-          capacity: 100,
-          occupied: 0
-        },
-        {
-          id: 'coldroom2',
-          name: 'Cold Room 2',
-          current_temperature: 5,
-          capacity: 100,
-          occupied: 0
-        }
-      ]);
+    if (boxesToLoad.length === 0) {
+      toast({
+        title: 'No boxes selected',
+        description: 'Please select at least one box to load',
+        variant: 'destructive',
+      });
       return;
     }
-    
-    const data = await response.json();
-    console.log('Cold rooms API response:', data);
-    
-    if (Array.isArray(data)) {
-      setColdRooms(data);
-    } else if (data && Array.isArray(data.data)) {
-      // Handle API response with { data: [...] } format
-      setColdRooms(data.data);
-    } else if (data && typeof data === 'object') {
-      // If it's an object but not an array, check for common formats
-      if (data.success && Array.isArray(data.data)) {
-        setColdRooms(data.data);
-      } else {
-        console.warn('Unexpected cold rooms response format, using defaults:', data);
-        // Create default cold rooms
-        setColdRooms([
-          {
-            id: 'coldroom1',
-            name: 'Cold Room 1',
-            current_temperature: 5,
-            capacity: 100,
-            occupied: 0
-          },
-          {
-            id: 'coldroom2',
-            name: 'Cold Room 2',
-            current_temperature: 5,
-            capacity: 100,
-            occupied: 0
-          }
-        ]);
-      }
-    } else {
-      console.warn('Invalid cold rooms response, using defaults:', data);
-      // Create default cold rooms
-      setColdRooms([
-        {
-          id: 'coldroom1',
-          name: 'Cold Room 1',
-          current_temperature: 5,
-          capacity: 100,
-          occupied: 0
+
+    try {
+      // Prepare the data for API - ensure all required fields are present
+      const boxesData = boxesToLoad.map(box => ({
+        variety: box.variety,
+        boxType: box.boxType,
+        size: box.size,
+        grade: box.grade,
+        quantity: box.quantity,
+        coldRoomId: box.coldRoomId,
+        supplierName: box.supplierName || 'Unknown Supplier',
+        // Generate supplier_id from supplierName
+        supplier_id: box.supplierName ? 
+          box.supplierName.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '') : 
+          `supplier_${Date.now()}`,
+        palletId: box.palletId || `PAL-${box.countingRecordId || Date.now()}`,
+        region: box.region || '',
+        countingRecordId: box.countingRecordId,
+        boxWeight: box.boxWeight,
+        totalWeight: box.totalWeight
+      }));
+      
+      // Group by counting record ID to update status
+      const countingRecordIds = [...new Set(boxesToLoad
+        .map(box => box.countingRecordId)
+        .filter(id => id))]; // Filter out undefined/null IDs
+
+      console.log('📤 Sending boxes to cold room:', {
+        boxesCount: boxesData.length,
+        boxesData: boxesData.map(b => ({
+          supplierName: b.supplierName,
+          supplier_id: b.supplier_id,
+          palletId: b.palletId,
+          variety: b.variety,
+          quantity: b.quantity,
+          coldRoomId: b.coldRoomId
+        })),
+        countingRecordIds
+      });
+
+      const response = await fetch('/api/cold-room', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-        {
-          id: 'coldroom2',
-          name: 'Cold Room 2',
-          current_temperature: 5,
-          capacity: 100,
-          occupied: 0
-        }
-      ]);
-    }
-    
-  } catch (error) {
-    console.error('Error fetching cold rooms:', error);
-    // Create default cold rooms on error
-    setColdRooms([
-      {
-        id: 'coldroom1',
-        name: 'Cold Room 1',
-        current_temperature: 5,
-        capacity: 100,
-        occupied: 0
-      },
-      {
-        id: 'coldroom2',
-        name: 'Cold Room 2',
-        current_temperature: 5,
-        capacity: 100,
-        occupied: 0
-      }
-    ]);
-  } finally {
-    setIsLoading(prev => ({ ...prev, coldRooms: false }));
-  }
-};  
-  const fetchColdRoomBoxes = async () => {
-    try {
-      const [boxesResponse, palletsResponse] = await Promise.all([
-        fetch('/api/cold-room?action=boxes'),
-        fetch('/api/cold-room?action=pallets'),
-      ]);
-      
-      if (boxesResponse.ok) {
-        const result = await boxesResponse.json();
-        if (result.success) {
-          setColdRoomBoxes(result.data || []);
-        }
-      }
-      
-      if (palletsResponse.ok) {
-        const result = await palletsResponse.json();
-        if (result.success) {
-          setColdRoomPallets(result.data || []);
-        }
-      }
-      
-    } catch (error) {
-      console.error('Error fetching cold room boxes:', error);
-    } finally {
-      setIsLoading(prev => ({ ...prev, boxes: false, pallets: false }));
-    }
-  };
-  
-  const fetchTemperatureLogs = async () => {
-    try {
-      const response = await fetch('/api/cold-room?action=temperature');
+        body: JSON.stringify({
+          action: 'load-boxes',
+          boxesData: boxesData,
+          countingRecordIds: countingRecordIds,
+        }),
+      });
+
       const result = await response.json();
       
       if (result.success) {
-        setTemperatureLogs(result.data || []);
+        toast({
+          title: '✅ Boxes Loaded Successfully!',
+          description: (
+            <div className="space-y-2">
+              <p>Loaded {boxesToLoad.length} box types ({totalSelectedBoxes.toLocaleString()} boxes)</p>
+              <div className="text-sm text-gray-600">
+                Cold Room 1: {coldRoom1TotalBoxes.toLocaleString()} boxes<br/>
+                Cold Room 2: {coldRoom2TotalBoxes.toLocaleString()} boxes
+              </div>
+              <p className="text-xs text-green-600 mt-1">
+                {countingRecordIds.length > 0 ? 
+                  `Updated ${countingRecordIds.length} counting record(s) to 'completed'` : 
+                  'No counting records to update'}
+              </p>
+            </div>
+          ),
+        });
+        
+        // Refresh ALL data to show updated inventory
+        await Promise.all([
+          fetchCountingRecordsForColdRoom(),
+          fetchColdRoomBoxes(),
+          fetchColdRoomStats(),
+        ]);
+        
+        // Then refresh cold rooms to update occupied counts
+        await fetchColdRooms();
+        
+        // Clear selections
+        setCountingBoxes(prev => prev.map(box => ({ ...box, selected: false })));
+        
+      } else {
+        console.error('API Error:', result);
+        throw new Error(result.error || `Failed to load boxes: ${result.message || 'Unknown error'}`);
       }
-    } catch (error) {
-      console.error('Error fetching temperature logs:', error);
-    } finally {
-      setIsLoading(prev => ({ ...prev, temperature: false }));
+    } catch (error: any) {
+      console.error('❌ Error loading boxes:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to load boxes to cold room',
+        variant: 'destructive',
+      });
     }
   };
   
-  const fetchRepackingRecords = async () => {
-    try {
-      const response = await fetch('/api/cold-room?action=repacking');
-      const result = await response.json();
-      
-      if (result.success) {
-        setRepackingRecords(result.data || []);
-      }
-    } catch (error) {
-      console.error('Error fetching repacking records:', error);
-    } finally {
-      setIsLoading(prev => ({ ...prev, repacking: false }));
-    }
+  // Calculation functions for counting boxes
+  const selectedBoxesCount = countingBoxes.filter(box => box.selected).length;
+  const totalSelectedBoxes = countingBoxes
+    .filter(box => box.selected)
+    .reduce((sum, box) => sum + box.quantity, 0);
+  
+  const totalSelectedWeight = countingBoxes
+    .filter(box => box.selected)
+    .reduce((sum, box) => sum + box.totalWeight, 0);
+  
+  const calculateTotalPallets = () => {
+    return countingBoxes
+      .filter(box => box.selected)
+      .reduce((sum, box) => {
+        const boxesPerPallet = box.boxType === '4kg' ? 288 : 120;
+        return sum + Math.floor(box.quantity / boxesPerPallet);
+      }, 0);
   };
   
-  const fetchColdRoomStats = async () => {
-    try {
-      const response = await fetch('/api/cold-room?action=stats');
-      const result = await response.json();
-      
-      if (result.success) {
-        setColdRoomStats(result.data);
-      }
-    } catch (error) {
-      console.error('Error fetching cold room stats:', error);
-    } finally {
-      setIsLoading(prev => ({ ...prev, stats: false }));
-    }
-  };
+  const coldRoom1BoxTypes = countingBoxes.filter(box => box.selected && box.coldRoomId === 'coldroom1').length;
+  const coldRoom1TotalBoxes = countingBoxes
+    .filter(box => box.selected && box.coldRoomId === 'coldroom1')
+    .reduce((sum, box) => sum + box.quantity, 0);
+  const coldRoom1TotalWeight = countingBoxes
+    .filter(box => box.selected && box.coldRoomId === 'coldroom1')
+    .reduce((sum, box) => sum + box.totalWeight, 0);
+  
+  const coldRoom2BoxTypes = countingBoxes.filter(box => box.selected && box.coldRoomId === 'coldroom2').length;
+  const coldRoom2TotalBoxes = countingBoxes
+    .filter(box => box.selected && box.coldRoomId === 'coldroom2')
+    .reduce((sum, box) => sum + box.quantity, 0);
+  const coldRoom2TotalWeight = countingBoxes
+    .filter(box => box.selected && box.coldRoomId === 'coldroom2')
+    .reduce((sum, box) => sum + box.totalWeight, 0);
+  
+  // ===========================================
+  // EXISTING FUNCTIONS (from your original code)
+  // ===========================================
   
   // Set up polling and initial load
   useEffect(() => {
@@ -1045,7 +1624,7 @@ const fetchColdRooms = async () => {
     };
   }, []);
   
-  // Handle box selection toggle
+  // Handle box selection toggle (for original selectedBoxes)
   const handleBoxSelection = (index: number) => {
     setSelectedBoxes(prev => {
       const updated = [...prev];
@@ -1054,7 +1633,7 @@ const fetchColdRooms = async () => {
     });
   };
   
-  // Handle cold room selection for a box
+  // Handle cold room selection for a box (for original selectedBoxes)
   const handleColdRoomSelection = (index: number, coldRoomId: string) => {
     setSelectedBoxes(prev => {
       const updated = [...prev];
@@ -1063,21 +1642,21 @@ const fetchColdRooms = async () => {
     });
   };
   
-  // Select all boxes
+  // Select all boxes (for original selectedBoxes)
   const handleSelectAll = () => {
     setSelectedBoxes(prev => 
       prev.map(box => ({ ...box, selected: true }))
     );
   };
   
-  // Deselect all boxes
+  // Deselect all boxes (for original selectedBoxes)
   const handleDeselectAll = () => {
     setSelectedBoxes(prev => 
       prev.map(box => ({ ...box, selected: false }))
     );
   };
   
-  // Handle load boxes
+  // Handle load boxes (for original selectedBoxes)
   const handleLoadBoxes = async () => {
     const boxesToLoad = selectedBoxes.filter(box => box.selected);
     
@@ -1448,7 +2027,7 @@ const fetchColdRooms = async () => {
   
   const selectedRoomStats = getSelectedRoomStats();
   
-  // Calculate total boxes summary
+  // Calculate total boxes summary (for original selectedBoxes)
   const calculateTotalSummary = () => {
     if (selectedBoxes.length === 0) return { totalBoxes: 0, totalPallets: 0 };
     
@@ -1621,62 +2200,54 @@ const fetchColdRooms = async () => {
               <TabsTrigger value="repacking">Repacking</TabsTrigger>
             </TabsList>
             
-            {/* Load Boxes Tab - Updated to load from warehouse history */}
+            {/* Load Boxes Tab */}
             <TabsContent value="loading" className="space-y-6 mt-6">
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Warehouse className="w-5 h-5" />
-                    Load Boxes from Warehouse History
-                    {dataSource && (
-                      <Badge variant="outline" className="ml-2">
-                        {dataSource === 'warehouse' ? 'Warehouse History' : 
-                         dataSource === 'local' ? 'Direct Supplier' : 'Counting Records'}
-                      </Badge>
-                    )}
+                    Load Boxes to Cold Room
+                    <Badge variant="outline" className="ml-2">
+                      From Counting Records
+                    </Badge>
                   </CardTitle>
                   <CardDescription>
-                    {dataSource === 'warehouse' 
-                      ? `Boxes loaded from ${warehouseSummary.totalRecords} warehouse history records (${warehouseSummary.totalSuppliers} suppliers)`
-                      : dataSource === 'local'
-                      ? 'Supplier boxes loaded directly from warehouse page'
-                      : 'Boxes loaded from counting records'}
+                    Select boxes from counting records and load them into cold rooms
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-6">
                     <div className="flex items-center justify-between">
                       <div>
-                        <Label className="mb-2 block">Load Configuration</Label>
+                        <h3 className="font-medium">Available Boxes from Counting</h3>
                         <p className="text-sm text-muted-foreground">
-                          {selectedBoxes.filter(box => box.selected).length > 0
-                            ? `${selectedBoxes.filter(box => box.selected).length} box types selected, ${totalBoxes.toLocaleString()} total boxes`
-                            : 'Select boxes and assign them to either Cold Room 1 (5°C) or Cold Room 2 (5°C)'}
+                          Boxes with status 'pending_coldroom' are ready to load
                         </p>
                       </div>
                       <div className="flex gap-2">
                         <Button
-                          onClick={fetchCountingHistory}
+                          onClick={() => fetchCountingRecordsForColdRoom()}
                           variant="outline"
                           size="sm"
+                          disabled={isLoading.countingRecords}
                         >
-                          <RefreshCw className="w-4 h-4 mr-1" />
-                          Reload History
+                          <RefreshCw className={`w-4 h-4 mr-1 ${isLoading.countingRecords ? 'animate-spin' : ''}`} />
+                          Refresh Counting Records
                         </Button>
                         <Button
-                          onClick={handleSelectAll}
+                          onClick={handleSelectAllBoxes}
                           variant="outline"
                           size="sm"
-                          disabled={selectedBoxes.length === 0}
+                          disabled={countingBoxes.length === 0}
                         >
                           <Check className="w-4 h-4 mr-1" />
                           Select All
                         </Button>
                         <Button
-                          onClick={handleDeselectAll}
+                          onClick={handleDeselectAllBoxes}
                           variant="outline"
                           size="sm"
-                          disabled={selectedBoxes.length === 0}
+                          disabled={countingBoxes.length === 0}
                         >
                           <X className="w-4 h-4 mr-1" />
                           Deselect All
@@ -1684,33 +2255,32 @@ const fetchColdRooms = async () => {
                       </div>
                     </div>
                     
-                    {isLoading.warehouseHistory || isLoading.counting ? (
+                    {/* Loading State */}
+                    {isLoading.countingRecords ? (
                       <div className="text-center py-8">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-4 mx-auto"></div>
-                        <p className="text-muted-foreground">Loading warehouse history data...</p>
+                        <p className="text-muted-foreground">Loading counting records...</p>
                       </div>
-                    ) : safeArray(selectedBoxes).length === 0 ? (
+                    ) : countingBoxes.length === 0 ? (
                       <div className="text-center py-8 border rounded">
-                        <Warehouse className="w-12 h-12 mx-auto text-gray-300 mb-3" />
-                        <p className="text-gray-500 font-medium">
-                          {dataSource === null ? 'No warehouse history available' : 'No boxes found to load'}
-                        </p>
+                        <Package className="w-12 h-12 mx-auto text-gray-300 mb-3" />
+                        <p className="text-gray-500 font-medium">No boxes available to load</p>
                         <p className="text-sm text-gray-400 mt-1">
-                          {dataSource === null 
-                            ? 'Warehouse history will appear here after suppliers are processed in the warehouse page'
-                            : 'Go to the Warehouse page to process suppliers first'}
+                          Counting records with status 'pending_coldroom' will appear here
                         </p>
                         <div className="flex gap-2 justify-center mt-3">
                           <Button 
-                            onClick={fetchCountingHistory}
+                            onClick={() => fetchCountingRecordsForColdRoom()}
                             variant="outline"
+                            size="sm"
                           >
                             <RefreshCw className="w-4 h-4 mr-2" />
-                            Check Warehouse History
+                            Check Again
                           </Button>
                           <Button 
                             onClick={() => window.open('/warehouse', '_blank')}
                             variant="outline"
+                            size="sm"
                           >
                             <Warehouse className="w-4 h-4 mr-2" />
                             Go to Warehouse
@@ -1719,15 +2289,16 @@ const fetchColdRooms = async () => {
                       </div>
                     ) : (
                       <>
+                        {/* Boxes Table */}
                         <div>
                           <div className="flex items-center justify-between mb-4">
-                            <Label>Available Boxes from Warehouse History</Label>
+                            <Label>Available Boxes ({countingBoxes.length} types)</Label>
                             <div className="flex items-center gap-2">
                               <Badge variant="outline">
-                                {safeArray(selectedBoxes).filter(b => b.selected).length} selected
+                                {selectedBoxesCount} selected
                               </Badge>
                               <Badge variant="secondary">
-                                {totalBoxes.toLocaleString()} boxes
+                                {totalSelectedBoxes.toLocaleString()} boxes
                               </Badge>
                             </div>
                           </div>
@@ -1738,26 +2309,27 @@ const fetchColdRooms = async () => {
                                 <TableRow>
                                   <TableHead className="w-12">Select</TableHead>
                                   <TableHead>Supplier</TableHead>
+                                  <TableHead>Pallet ID</TableHead>
                                   <TableHead>Variety</TableHead>
                                   <TableHead>Box Type</TableHead>
                                   <TableHead>Size</TableHead>
                                   <TableHead>Grade</TableHead>
                                   <TableHead className="text-right">Quantity</TableHead>
                                   <TableHead>Cold Room</TableHead>
-                                  <TableHead className="text-right">Pallets</TableHead>
+                                  <TableHead className="text-right">Weight</TableHead>
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
-                                {safeArray(selectedBoxes).map((item, index) => (
+                                {countingBoxes.map((item, index) => (
                                   <TableRow 
-                                    key={index}
+                                    key={`${item.countingRecordId}-${item.variety}-${item.boxType}-${item.size}-${item.grade}`}
                                     className={item.selected ? "bg-black-50" : ""}
                                   >
                                     <TableCell>
                                       <input
                                         type="checkbox"
                                         checked={item.selected}
-                                        onChange={() => handleBoxSelection(index)}
+                                        onChange={() => handleToggleBoxSelection(index)}
                                         className="h-4 w-4 rounded border-gray-300"
                                       />
                                     </TableCell>
@@ -1768,6 +2340,11 @@ const fetchColdRooms = async () => {
                                       {item.region && (
                                         <div className="text-xs text-gray-500">{item.region}</div>
                                       )}
+                                    </TableCell>
+                                    <TableCell>
+                                      <div className="font-mono text-xs" title={item.palletId}>
+                                        {item.palletId?.substring(0, 10)}...
+                                      </div>
                                     </TableCell>
                                     <TableCell className="font-medium capitalize">
                                       {item.variety === 'fuerte' ? 'Fuerte' : 'Hass'}
@@ -1783,7 +2360,7 @@ const fetchColdRooms = async () => {
                                     <TableCell>
                                       <Select
                                         value={item.coldRoomId}
-                                        onValueChange={(value) => handleColdRoomSelection(index, value)}
+                                        onValueChange={(value) => handleColdRoomSelectionForBox(index, value)}
                                         disabled={!item.selected}
                                       >
                                         <SelectTrigger className="w-32">
@@ -1807,13 +2384,11 @@ const fetchColdRooms = async () => {
                                     </TableCell>
                                     <TableCell className="text-right">
                                       <div className="font-medium">
-                                        {calculatePallets(item.quantity, item.boxType)} pallets
+                                        {safeToFixed(item.boxWeight)} kg
                                       </div>
-                                      {getRemainingBoxes(item.quantity, item.boxType) > 0 && (
-                                        <div className="text-xs text-gray-500">
-                                          + {getRemainingBoxes(item.quantity, item.boxType)} boxes
-                                        </div>
-                                      )}
+                                      <div className="text-xs text-gray-500">
+                                        {(item.boxType === '4kg' ? '4kg' : '10kg')} each
+                                      </div>
                                     </TableCell>
                                   </TableRow>
                                 ))}
@@ -1822,14 +2397,14 @@ const fetchColdRooms = async () => {
                           </ScrollArea>
                         </div>
                         
-                        {/* Summary Card */}
+                        {/* Load Summary */}
                         <Card>
                           <CardHeader className="py-3">
                             <CardTitle className="text-sm font-medium">Load Summary</CardTitle>
                           </CardHeader>
                           <CardContent className="pt-0">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <div className="border rounded p-4 bg-black-50">
+                              <div className="border rounded p-4 bg-blue-50">
                                 <div className="flex items-center gap-2 mb-3">
                                   <Snowflake className="w-5 h-5 text-blue-600" />
                                   <div>
@@ -1841,30 +2416,25 @@ const fetchColdRooms = async () => {
                                   <div className="flex justify-between items-center">
                                     <span className="text-sm">Box Types:</span>
                                     <span className="font-medium">
-                                      {safeArray(selectedBoxes).filter(b => b.selected && b.coldRoomId === 'coldroom1').length}
+                                      {coldRoom1BoxTypes}
                                     </span>
                                   </div>
                                   <div className="flex justify-between items-center">
                                     <span className="text-sm">Total Boxes:</span>
                                     <span className="font-medium">
-                                      {safeArray(selectedBoxes)
-                                        .filter(b => b.selected && b.coldRoomId === 'coldroom1')
-                                        .reduce((sum, box) => sum + box.quantity, 0)
-                                        .toLocaleString()}
+                                      {coldRoom1TotalBoxes.toLocaleString()}
                                     </span>
                                   </div>
                                   <div className="flex justify-between items-center">
-                                    <span className="text-sm">Total Pallets:</span>
+                                    <span className="text-sm">Total Weight:</span>
                                     <span className="font-medium">
-                                      {safeArray(selectedBoxes)
-                                        .filter(b => b.selected && b.coldRoomId === 'coldroom1')
-                                        .reduce((sum, box) => sum + calculatePallets(box.quantity, box.boxType), 0)}
+                                      {safeToFixed(coldRoom1TotalWeight)} kg
                                     </span>
                                   </div>
                                 </div>
                               </div>
                               
-                              <div className="border rounded p-4 bg-black-50">
+                              <div className="border rounded p-4 bg-gray-50">
                                 <div className="flex items-center gap-2 mb-3">
                                   <Snowflake className="w-5 h-5 text-gray-600" />
                                   <div>
@@ -1876,25 +2446,40 @@ const fetchColdRooms = async () => {
                                   <div className="flex justify-between items-center">
                                     <span className="text-sm">Box Types:</span>
                                     <span className="font-medium">
-                                      {safeArray(selectedBoxes).filter(b => b.selected && b.coldRoomId === 'coldroom2').length}
+                                      {coldRoom2BoxTypes}
                                     </span>
                                   </div>
                                   <div className="flex justify-between items-center">
                                     <span className="text-sm">Total Boxes:</span>
                                     <span className="font-medium">
-                                      {safeArray(selectedBoxes)
-                                        .filter(b => b.selected && b.coldRoomId === 'coldroom2')
-                                        .reduce((sum, box) => sum + box.quantity, 0)
-                                        .toLocaleString()}
+                                      {coldRoom2TotalBoxes.toLocaleString()}
                                     </span>
                                   </div>
                                   <div className="flex justify-between items-center">
-                                    <span className="text-sm">Total Pallets:</span>
+                                    <span className="text-sm">Total Weight:</span>
                                     <span className="font-medium">
-                                      {safeArray(selectedBoxes)
-                                        .filter(b => b.selected && b.coldRoomId === 'coldroom2')
-                                        .reduce((sum, box) => sum + calculatePallets(box.quantity, box.boxType), 0)}
+                                      {safeToFixed(coldRoom2TotalWeight)} kg
                                     </span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                            
+                            {/* Overall Summary */}
+                            <div className="mt-4 pt-4 border-t">
+                              <div className="flex justify-between items-center">
+                                <div>
+                                  <span className="font-medium">Total to Load:</span>
+                                  <p className="text-sm text-gray-500">
+                                    {selectedBoxesCount} box types, {totalSelectedBoxes.toLocaleString()} boxes
+                                  </p>
+                                </div>
+                                <div className="text-right">
+                                  <div className="text-lg font-bold">
+                                    {safeToFixed(totalSelectedWeight)} kg total weight
+                                  </div>
+                                  <div className="text-sm text-gray-500">
+                                    {calculateTotalPallets()} pallets
                                   </div>
                                 </div>
                               </div>
@@ -1902,27 +2487,19 @@ const fetchColdRooms = async () => {
                           </CardContent>
                         </Card>
                         
+                        {/* Load Button */}
                         <div className="flex gap-3">
                           <Button
-                            onClick={handleLoadBoxes}
+                            onClick={handleLoadToColdRoom}
                             className="flex-1"
                             size="lg"
-                            disabled={safeArray(selectedBoxes).filter(b => b.selected).length === 0}
+                            disabled={selectedBoxesCount === 0}
                           >
                             <Upload className="w-4 h-4 mr-2" />
-                            Load Selected Boxes
+                            Load Selected Boxes to Cold Room
                             <span className="ml-2">
-                              ({safeArray(selectedBoxes).filter(b => b.selected).length} types, {totalBoxes.toLocaleString()} boxes)
+                              ({selectedBoxesCount} types, {totalSelectedBoxes.toLocaleString()} boxes)
                             </span>
-                          </Button>
-                          
-                          <Button
-                            onClick={fetchCountingHistory}
-                            variant="outline"
-                            size="lg"
-                          >
-                            <RefreshCw className="w-4 h-4 mr-2" />
-                            Reload History
                           </Button>
                         </div>
                       </>
@@ -1951,11 +2528,10 @@ const fetchColdRooms = async () => {
                       <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-4 mx-auto"></div>
                       <p className="text-muted-foreground">Loading statistics...</p>
                     </div>
-                  ) : !selectedRoomStats ? (
+                  ) : !coldRoomStats ? (
                     <div className="text-center py-8">
-                      <Package className="w-12 h-12 mx-auto text-gray-300 mb-3" />
-                      <p className="text-gray-500">No statistics available for this cold room</p>
-                      <p className="text-sm text-gray-400">Load boxes from warehouse history to see statistics</p>
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-4 mx-auto"></div>
+                      <p className="text-muted-foreground">Loading statistics...</p>
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -1964,7 +2540,12 @@ const fetchColdRooms = async () => {
                           <CardTitle className="text-sm font-medium">Total 4kg Boxes</CardTitle>
                         </CardHeader>
                         <CardContent>
-                          <div className="text-2xl font-bold">{selectedRoomStats.total4kgBoxes?.toLocaleString() || 0}</div>
+                          <div className="text-2xl font-bold">
+                            {selectedColdRoom === 'coldroom1' 
+                              ? (coldRoomStats.coldroom1?.total4kgBoxes || 0).toLocaleString()
+                              : (coldRoomStats.coldroom2?.total4kgBoxes || 0).toLocaleString()
+                            }
+                          </div>
                           <div className="text-xs text-muted-foreground mt-1">4kg boxes total</div>
                         </CardContent>
                       </Card>
@@ -1974,7 +2555,12 @@ const fetchColdRooms = async () => {
                           <CardTitle className="text-sm font-medium">Total 10kg Boxes</CardTitle>
                         </CardHeader>
                         <CardContent>
-                          <div className="text-2xl font-bold">{selectedRoomStats.total10kgBoxes?.toLocaleString() || 0}</div>
+                          <div className="text-2xl font-bold">
+                            {selectedColdRoom === 'coldroom1' 
+                              ? (coldRoomStats.coldroom1?.total10kgBoxes || 0).toLocaleString()
+                              : (coldRoomStats.coldroom2?.total10kgBoxes || 0).toLocaleString()
+                            }
+                          </div>
                           <div className="text-xs text-muted-foreground mt-1">10kg boxes total</div>
                         </CardContent>
                       </Card>
@@ -1984,7 +2570,12 @@ const fetchColdRooms = async () => {
                           <CardTitle className="text-sm font-medium">Total 4kg Pallets</CardTitle>
                         </CardHeader>
                         <CardContent>
-                          <div className="text-2xl font-bold">{selectedRoomStats.total4kgPallets || 0}</div>
+                          <div className="text-2xl font-bold">
+                            {selectedColdRoom === 'coldroom1' 
+                              ? (coldRoomStats.coldroom1?.total4kgPallets || 0).toLocaleString()
+                              : (coldRoomStats.coldroom2?.total4kgPallets || 0).toLocaleString()
+                            }
+                          </div>
                           <div className="text-xs text-muted-foreground mt-1">4kg pallets total</div>
                         </CardContent>
                       </Card>
@@ -1994,7 +2585,12 @@ const fetchColdRooms = async () => {
                           <CardTitle className="text-sm font-medium">Total 10kg Pallets</CardTitle>
                         </CardHeader>
                         <CardContent>
-                          <div className="text-2xl font-bold">{selectedRoomStats.total10kgPallets || 0}</div>
+                          <div className="text-2xl font-bold">
+                            {selectedColdRoom === 'coldroom1' 
+                              ? (coldRoomStats.coldroom1?.total10kgPallets || 0).toLocaleString()
+                              : (coldRoomStats.coldroom2?.total10kgPallets || 0).toLocaleString()
+                            }
+                          </div>
                           <div className="text-xs text-muted-foreground mt-1">10kg pallets total</div>
                         </CardContent>
                       </Card>
@@ -2004,7 +2600,12 @@ const fetchColdRooms = async () => {
                           <CardTitle className="text-sm font-medium">Fuerte Class 1 - 4kg</CardTitle>
                         </CardHeader>
                         <CardContent>
-                          <div className="text-2xl font-bold">{selectedRoomStats.fuerteClass14kg?.toLocaleString() || 0}</div>
+                          <div className="text-2xl font-bold">
+                            {selectedColdRoom === 'coldroom1' 
+                              ? (coldRoomStats.coldroom1?.fuerteClass14kg || 0).toLocaleString()
+                              : (coldRoomStats.coldroom2?.fuerteClass14kg || 0).toLocaleString()
+                            }
+                          </div>
                           <div className="text-xs text-muted-foreground mt-1">Fuerte Class 1 boxes</div>
                         </CardContent>
                       </Card>
@@ -2014,7 +2615,12 @@ const fetchColdRooms = async () => {
                           <CardTitle className="text-sm font-medium">Fuerte Class 2 - 4kg</CardTitle>
                         </CardHeader>
                         <CardContent>
-                          <div className="text-2xl font-bold">{selectedRoomStats.fuerteClass24kg?.toLocaleString() || 0}</div>
+                          <div className="text-2xl font-bold">
+                            {selectedColdRoom === 'coldroom1' 
+                              ? (coldRoomStats.coldroom1?.fuerteClass24kg || 0).toLocaleString()
+                              : (coldRoomStats.coldroom2?.fuerteClass24kg || 0).toLocaleString()
+                            }
+                          </div>
                           <div className="text-xs text-muted-foreground mt-1">Fuerte Class 2 boxes</div>
                         </CardContent>
                       </Card>
@@ -2024,7 +2630,12 @@ const fetchColdRooms = async () => {
                           <CardTitle className="text-sm font-medium">Fuerte Class 1 - 10kg</CardTitle>
                         </CardHeader>
                         <CardContent>
-                          <div className="text-2xl font-bold">{selectedRoomStats.fuerteClass110kg?.toLocaleString() || 0}</div>
+                          <div className="text-2xl font-bold">
+                            {selectedColdRoom === 'coldroom1' 
+                              ? (coldRoomStats.coldroom1?.fuerteClass110kg || 0).toLocaleString()
+                              : (coldRoomStats.coldroom2?.fuerteClass110kg || 0).toLocaleString()
+                            }
+                          </div>
                           <div className="text-xs text-muted-foreground mt-1">Fuerte Class 1 boxes</div>
                         </CardContent>
                       </Card>
@@ -2034,7 +2645,12 @@ const fetchColdRooms = async () => {
                           <CardTitle className="text-sm font-medium">Fuerte Class 2 - 10kg</CardTitle>
                         </CardHeader>
                         <CardContent>
-                          <div className="text-2xl font-bold">{selectedRoomStats.fuerteClass210kg?.toLocaleString() || 0}</div>
+                          <div className="text-2xl font-bold">
+                            {selectedColdRoom === 'coldroom1' 
+                              ? (coldRoomStats.coldroom1?.fuerteClass210kg || 0).toLocaleString()
+                              : (coldRoomStats.coldroom2?.fuerteClass210kg || 0).toLocaleString()
+                            }
+                          </div>
                           <div className="text-xs text-muted-foreground mt-1">Fuerte Class 2 boxes</div>
                         </CardContent>
                       </Card>
@@ -2044,7 +2660,12 @@ const fetchColdRooms = async () => {
                           <CardTitle className="text-sm font-medium">Hass Class 1 - 4kg</CardTitle>
                         </CardHeader>
                         <CardContent>
-                          <div className="text-2xl font-bold">{selectedRoomStats.hassClass14kg?.toLocaleString() || 0}</div>
+                          <div className="text-2xl font-bold">
+                            {selectedColdRoom === 'coldroom1' 
+                              ? (coldRoomStats.coldroom1?.hassClass14kg || 0).toLocaleString()
+                              : (coldRoomStats.coldroom2?.hassClass14kg || 0).toLocaleString()
+                            }
+                          </div>
                           <div className="text-xs text-muted-foreground mt-1">Hass Class 1 boxes</div>
                         </CardContent>
                       </Card>
@@ -2054,7 +2675,12 @@ const fetchColdRooms = async () => {
                           <CardTitle className="text-sm font-medium">Hass Class 2 - 4kg</CardTitle>
                         </CardHeader>
                         <CardContent>
-                          <div className="text-2xl font-bold">{selectedRoomStats.hassClass24kg?.toLocaleString() || 0}</div>
+                          <div className="text-2xl font-bold">
+                            {selectedColdRoom === 'coldroom1' 
+                              ? (coldRoomStats.coldroom1?.hassClass24kg || 0).toLocaleString()
+                              : (coldRoomStats.coldroom2?.hassClass24kg || 0).toLocaleString()
+                            }
+                          </div>
                           <div className="text-xs text-muted-foreground mt-1">Hass Class 2 boxes</div>
                         </CardContent>
                       </Card>
@@ -2064,7 +2690,12 @@ const fetchColdRooms = async () => {
                           <CardTitle className="text-sm font-medium">Hass Class 1 - 10kg</CardTitle>
                         </CardHeader>
                         <CardContent>
-                          <div className="text-2xl font-bold">{selectedRoomStats.hassClass110kg?.toLocaleString() || 0}</div>
+                          <div className="text-2xl font-bold">
+                            {selectedColdRoom === 'coldroom1' 
+                              ? (coldRoomStats.coldroom1?.hassClass110kg || 0).toLocaleString()
+                              : (coldRoomStats.coldroom2?.hassClass110kg || 0).toLocaleString()
+                            }
+                          </div>
                           <div className="text-xs text-muted-foreground mt-1">Hass Class 1 boxes</div>
                         </CardContent>
                       </Card>
@@ -2074,7 +2705,12 @@ const fetchColdRooms = async () => {
                           <CardTitle className="text-sm font-medium">Hass Class 2 - 10kg</CardTitle>
                         </CardHeader>
                         <CardContent>
-                          <div className="text-2xl font-bold">{selectedRoomStats.hassClass210kg?.toLocaleString() || 0}</div>
+                          <div className="text-2xl font-bold">
+                            {selectedColdRoom === 'coldroom1' 
+                              ? (coldRoomStats.coldroom1?.hassClass210kg || 0).toLocaleString()
+                              : (coldRoomStats.coldroom2?.hassClass210kg || 0).toLocaleString()
+                            }
+                          </div>
                           <div className="text-xs text-muted-foreground mt-1">Hass Class 2 boxes</div>
                         </CardContent>
                       </Card>
@@ -2092,7 +2728,7 @@ const fetchColdRooms = async () => {
                       Boxes in Cold Room
                     </CardTitle>
                     <CardDescription>
-                      All boxes currently stored (FIFO order)
+                      All boxes currently stored in {selectedColdRoom === 'coldroom1' ? 'Cold Room 1' : 'Cold Room 2'}
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -2106,7 +2742,7 @@ const fetchColdRooms = async () => {
                         <Package className="w-12 h-12 mx-auto text-gray-300 mb-3" />
                         <p className="text-gray-500 font-medium">No boxes in cold room</p>
                         <p className="text-sm text-gray-400 mt-1">
-                          Load boxes from warehouse history to get started
+                          Load boxes from counting records to get started
                         </p>
                       </div>
                     ) : (
@@ -2138,8 +2774,12 @@ const fetchColdRooms = async () => {
                                       {box.grade === 'class1' ? 'Class 1' : 'Class 2'}
                                     </Badge>
                                   </TableCell>
-                                  <TableCell className="text-right">{box.quantity.toLocaleString()}</TableCell>
-                                  <TableCell className="text-right">{formatDate(box.created_at)}</TableCell>
+                                  <TableCell className="text-right font-medium">
+                                    {box.quantity.toLocaleString()}
+                                  </TableCell>
+                                  <TableCell className="text-right text-sm">
+                                    {formatDate(box.created_at)}
+                                  </TableCell>
                                 </TableRow>
                               ))}
                           </TableBody>
@@ -2157,7 +2797,7 @@ const fetchColdRooms = async () => {
                       Pallets in Cold Room
                     </CardTitle>
                     <CardDescription>
-                      Complete pallets (FIFO order)
+                      Complete pallets in {selectedColdRoom === 'coldroom1' ? 'Cold Room 1' : 'Cold Room 2'}
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -2194,7 +2834,7 @@ const fetchColdRooms = async () => {
                               .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
                               .map((pallet) => (
                                 <TableRow key={pallet.id}>
-                                  <TableCell className="font-mono text-xs">
+                                  <TableCell className="font-mono text-xs" title={pallet.id}>
                                     {pallet.id.substring(0, 10)}...
                                   </TableCell>
                                   <TableCell className="capitalize">
@@ -2207,8 +2847,12 @@ const fetchColdRooms = async () => {
                                       {pallet.grade === 'class1' ? 'Class 1' : 'Class 2'}
                                     </Badge>
                                   </TableCell>
-                                  <TableCell className="text-right">{pallet.pallet_count} pallets</TableCell>
-                                  <TableCell className="text-right">{formatDate(pallet.last_updated)}</TableCell>
+                                  <TableCell className="text-right font-medium">
+                                    {pallet.pallet_count} pallets
+                                  </TableCell>
+                                  <TableCell className="text-right text-sm">
+                                    {formatDate(pallet.last_updated)}
+                                  </TableCell>
                                 </TableRow>
                               ))}
                           </TableBody>

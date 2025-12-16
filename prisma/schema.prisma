@@ -312,7 +312,10 @@ model weight_entries {
   notes            String?             @db.Text
   
   // QUALITY CHECK RELATION - One weight entry can have many quality checks
-  quality_checks   quality_checks[]    // Changed to array for one-to-many
+  quality_checks   quality_checks[]
+  
+  // FIXED: Added counting_records relation for CountingRecord model
+  counting_records CountingRecord[]
 }
 
 model quality_checks {
@@ -358,14 +361,14 @@ model quality_checks {
 
 model CountingRecord {
   id                 String   @id @default(cuid())
-  supplier_id        String
+  supplier_id        String?
   supplier_name      String
   supplier_phone     String?
   region             String?
   pallet_id          String
   total_weight       Float
   
-  // Counting totals
+  // Counting totals - individual columns
   fuerte_4kg_class1  Int      @default(0)
   fuerte_4kg_class2  Int      @default(0)
   fuerte_4kg_total   Int      @default(0)
@@ -382,6 +385,11 @@ model CountingRecord {
   hass_10kg_class2   Int      @default(0)
   hass_10kg_total    Int      @default(0)
   
+  total_counted_weight Float?   // Add this
+  totals              Json?     // Add this (optional JSON)
+  status              String?   @default("pending_coldroom") // Add this
+  for_coldroom       Boolean?  @default(false) // Add this flag
+  
   // Detailed counting data (stored as JSON)
   counting_data      Json
   
@@ -396,9 +404,139 @@ model CountingRecord {
   @@index([submitted_at])
   @@index([supplier_name])
   
-  // Relationships
-  weight_entry       WeightEntry? @relation(fields: [supplier_id], references: [id], onDelete: SetNull)
+  weight_entry       weight_entries? @relation(fields: [supplier_id], references: [id], onDelete: Cascade)
+
+  @@map("counting_records")
 }
+
+model RejectionRecord {
+  id                    String   @id @default(cuid())
+  supplier_id           String?
+  supplier_name         String
+  pallet_id             String
+  region                String?
+  total_intake_weight   Float
+  total_counted_weight  Float
+  total_rejected_weight Float
+  weight_variance       Float
+  variance_level        String   // 'low' | 'medium' | 'high'
+  crates                Json?    // JSON array of rejected crates
+  notes                 String?
+  counting_data         Json?    // Original counting data
+  counting_totals       Json?    // Original totals
+  submitted_at          DateTime @default(now())
+  processed_by          String
+  original_counting_id  String?  // Link back to counting_records
+
+  @@index([supplier_name])
+  @@index([pallet_id])
+  @@index([submitted_at])
+  @@map("rejection_records")
+}
+
+model utility_readings {
+  id              String   @id @default(cuid()) @db.VarChar(20)
+  date            DateTime @default(now()) @db.DateTime(0)
+  
+  // Power readings
+  powerOpening    Decimal  @db.Decimal(12, 2)
+  powerClosing    Decimal  @db.Decimal(12, 2)
+  powerConsumed   Decimal  @db.Decimal(12, 2)
+  
+  // Water readings
+  waterOpening    Decimal  @db.Decimal(12, 2)
+  waterClosing    Decimal  @db.Decimal(12, 2)
+  waterConsumed   Decimal  @db.Decimal(12, 2)
+  
+  // Generator readings
+  generatorStart  String   @db.VarChar(8)  // Format: "HH:MM"
+  generatorStop   String   @db.VarChar(8)  // Format: "HH:MM"
+  timeConsumed    String   @db.VarChar(50) // e.g., "2 hours 30 minutes"
+  dieselConsumed  Decimal  @db.Decimal(10, 2) // in liters
+  
+  // Refill info
+  dieselRefill    Decimal? @db.Decimal(10, 2) // in liters
+  
+  // Additional metadata
+  recordedBy      String?  @db.VarChar(100) // Name of person recording
+  shift           String?  @db.VarChar(20)  // e.g., "Morning", "Evening", "Night"
+  notes           String?  @db.Text
+  
+  createdAt       DateTime @default(now()) @db.DateTime(0)
+  updatedAt       DateTime @updatedAt @db.DateTime(0)
+
+  @@map("utility_readings")
+}
+
+// ===========================================
+// NEW COLD ROOM MANAGEMENT TABLES
+// ===========================================
+
+model cold_room_boxes {
+  id                String   @id @default(cuid())
+  variety           String   // 'fuerte' | 'hass'
+  box_type          String   // '4kg' | '10kg'
+  size              String   // 'size12', 'size14', etc.
+  grade             String   // 'class1' | 'class2'
+  quantity          Int
+  cold_room_id      String
+  counting_record_id String?
+  supplier_name     String?
+  pallet_id         String?
+  region            String?
+  created_at        DateTime @default(now())
+  
+  @@index([cold_room_id])
+  @@index([counting_record_id])
+  @@index([supplier_name])
+  @@map("cold_room_boxes")
+}
+
+model cold_room_pallets {
+  id           String   @id @default(cuid())
+  variety      String   // 'fuerte' | 'hass'
+  box_type     String   // '4kg' | '10kg'
+  size         String   // 'size12', 'size14', etc.
+  grade        String   // 'class1' | 'class2'
+  pallet_count Int      @default(0)
+  cold_room_id String
+  created_at   DateTime @default(now())
+  last_updated DateTime @default(now())
+  
+  @@index([cold_room_id])
+  @@map("cold_room_pallets")
+}
+
+model temperature_logs {
+  id           String   @id @default(cuid())
+  cold_room_id String
+  temperature  Float
+  timestamp    DateTime @default(now())
+  recorded_by  String   @default("Warehouse Staff")
+  
+  @@index([cold_room_id])
+  @@index([timestamp])
+  @@map("temperature_logs")
+}
+
+model repacking_records {
+  id             String   @id @default(cuid())
+  cold_room_id   String
+  removed_boxes  Json
+  returned_boxes Json
+  rejected_boxes Int      @default(0)
+  notes          String?
+  timestamp      DateTime @default(now())
+  processed_by   String   @default("Warehouse Staff")
+  
+  @@index([cold_room_id])
+  @@index([timestamp])
+  @@map("repacking_records")
+}
+
+// ===========================================
+// ENUMS
+// ===========================================
 
 enum carriers_status {
   Active
