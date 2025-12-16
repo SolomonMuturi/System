@@ -111,6 +111,42 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    if (action === 'loading-history') {
+      try {
+        const history = await prisma.$queryRaw`
+          SELECT 
+            id,
+            box_id,
+            supplier_name,
+            pallet_id,
+            region,
+            variety,
+            box_type,
+            size,
+            grade,
+            quantity,
+            cold_room_id,
+            loaded_by,
+            loading_date,
+            created_at
+          FROM loading_history 
+          ORDER BY loading_date DESC, created_at DESC
+          LIMIT 100
+        `;
+        
+        return NextResponse.json({ 
+          success: true, 
+          data: Array.isArray(history) ? history : [] 
+        });
+      } catch (error) {
+        console.error('Error fetching loading history:', error);
+        return NextResponse.json({ 
+          success: true, 
+          data: [] 
+        });
+      }
+    }
+
     if (action === 'stats') {
       try {
         console.log('📊 Fetching cold room statistics...');
@@ -318,7 +354,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST endpoint
+// POST endpoint - FIXED VERSION (without supplier_id)
 export async function POST(request: NextRequest) {
   try {
     const data = await request.json();
@@ -345,18 +381,12 @@ export async function POST(request: NextRequest) {
           const boxId = `BOX-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
           const palletId = boxData.palletId || `PAL-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
           
-          // Generate supplier_id from supplierName if not provided
-          const supplierId = boxData.supplier_id || 
-            (boxData.supplierName ? 
-              boxData.supplierName.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '') : 
-              `supplier_${Date.now()}`);
-          
           const supplierName = boxData.supplierName || 'Unknown Supplier';
           const region = boxData.region || '';
+          const loadedBy = boxData.loadedBy || 'Warehouse Staff';
 
           console.log('💾 Saving box to database:', {
             boxId,
-            supplierId,
             supplierName,
             palletId,
             variety: boxData.variety,
@@ -374,7 +404,6 @@ export async function POST(request: NextRequest) {
               grade,
               quantity,
               cold_room_id,
-              supplier_id,
               supplier_name,
               pallet_id,
               region,
@@ -387,7 +416,6 @@ export async function POST(request: NextRequest) {
               ${boxData.grade},
               ${boxData.quantity},
               ${boxData.coldRoomId},
-              ${supplierId},
               ${supplierName},
               ${palletId},
               ${region},
@@ -395,9 +423,43 @@ export async function POST(request: NextRequest) {
             )
           `;
 
+          // Insert into loading_history
+          await prisma.$executeRaw`
+            INSERT INTO loading_history (
+              id,
+              box_id,
+              supplier_name,
+              pallet_id,
+              region,
+              variety,
+              box_type,
+              size,
+              grade,
+              quantity,
+              cold_room_id,
+              loaded_by,
+              loading_date,
+              created_at
+            ) VALUES (
+              ${`HIST-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`},
+              ${boxId},
+              ${supplierName},
+              ${palletId},
+              ${region},
+              ${boxData.variety},
+              ${boxData.boxType},
+              ${boxData.size},
+              ${boxData.grade},
+              ${boxData.quantity},
+              ${boxData.coldRoomId},
+              ${loadedBy},
+              NOW(),
+              NOW()
+            )
+          `;
+
           results.push({
             boxId,
-            supplierId,
             supplierName,
             palletId,
             region,
@@ -611,6 +673,67 @@ export async function POST(request: NextRequest) {
         success: true,
         message: 'Repacking recorded and inventory updated'
       });
+
+    } else if (data.action === 'search-history') {
+      // Search loading history
+      let query = `
+        SELECT 
+          id,
+          box_id,
+          supplier_name,
+          pallet_id,
+          region,
+          variety,
+          box_type,
+          size,
+          grade,
+          quantity,
+          cold_room_id,
+          loaded_by,
+          loading_date,
+          created_at
+        FROM loading_history 
+        WHERE 1=1
+      `;
+      
+      const params: any[] = [];
+      
+      if (data.dateFrom) {
+        query += ` AND DATE(loading_date) >= ?`;
+        params.push(data.dateFrom);
+      }
+      
+      if (data.dateTo) {
+        query += ` AND DATE(loading_date) <= ?`;
+        params.push(data.dateTo);
+      }
+      
+      if (data.supplierName) {
+        query += ` AND supplier_name LIKE ?`;
+        params.push(`%${data.supplierName}%`);
+      }
+      
+      if (data.coldRoomId) {
+        query += ` AND cold_room_id = ?`;
+        params.push(data.coldRoomId);
+      }
+      
+      query += ` ORDER BY loading_date DESC, created_at DESC LIMIT 100`;
+      
+      try {
+        const history = await prisma.$queryRawUnsafe(query, ...params);
+        
+        return NextResponse.json({
+          success: true,
+          data: Array.isArray(history) ? history : []
+        });
+      } catch (error) {
+        console.error('Error searching loading history:', error);
+        return NextResponse.json({
+          success: true,
+          data: []
+        });
+      }
 
     } else {
       return NextResponse.json(
