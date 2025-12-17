@@ -7,22 +7,24 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
- model carriers {
+model carriers {
   id                   String          @id @default(cuid()) @db.VarChar(20)
   name                 String          @unique @db.VarChar(100)
- contact_name         String?         @db.VarChar(100)
- contact_email        String?         @db.VarChar(100)
+  contact_name         String?         @db.VarChar(100)
+  contact_email        String?         @db.VarChar(100)
   contact_phone        String?         @db.VarChar(20)
   rating               Float?          @default(0) @db.Float
   status               carriers_status @default(Active)
   id_number            String?         @db.VarChar(50)
   vehicle_registration String?         @db.VarChar(20)
- created_at           DateTime        @default(now()) @db.DateTime(0)
+  created_at           DateTime        @default(now()) @db.DateTime(0)
   updated_at           DateTime        @updatedAt @db.DateTime(0)
   shipments            shipments[]
 
+  carrier_assignments carrier_assignments[]
+
   @@map("carriers")
- }
+}
 
 model Employee {
   id          String       @id @default(cuid())
@@ -499,21 +501,21 @@ model repacking_records {
 }
 
 model loading_history {
-  id               String   @id @default(cuid())
-  box_id           String?
-  pallet_id        String
-  supplier_name    String?
-  cold_room_id     String?
-  loaded_weight    Float?
-  loaded_by        String?
-  loaded_at        DateTime @default(now())
-  notes            String?
-  region           String?
-  variety          String?   // ADD THIS
-  box_type         String?   // ADD THIS
-  size             String?   // ADD THIS
-  grade            String?   // ADD THIS
-  quantity         Int?      // ADD THIS
+  id            String   @id @default(cuid())
+  box_id        String?
+  pallet_id     String
+  supplier_name String?
+  cold_room_id  String?
+  loaded_weight Float?
+  loaded_by     String?
+  loaded_at     DateTime @default(now())
+  notes         String?
+  region        String?
+  variety       String? // ADD THIS
+  box_type      String? // ADD THIS
+  size          String? // ADD THIS
+  grade         String? // ADD THIS
+  quantity      Int? // ADD THIS
 
   @@index([pallet_id])
   @@index([box_id])
@@ -524,70 +526,73 @@ model loading_history {
 }
 
 model loading_sheets {
-  id              String   @id @default(cuid()) @db.VarChar(255) // Changed from 20 to 255
-  exporter        String   @db.VarChar(255)
-  client          String   @db.VarChar(255)
-  shipping_line   String   @db.VarChar(255)
-  bill_number     String   @db.VarChar(100)
-  container       String   @db.VarChar(100)
-  seal1           String   @db.VarChar(100)
-  seal2           String   @db.VarChar(100)
-  truck           String   @db.VarChar(100)
-  vessel          String   @db.VarChar(100)
+  id              String            @id @default(cuid()) @db.VarChar(255) // Changed from 20 to 255
+  exporter        String            @db.VarChar(255)
+  client          String            @db.VarChar(255)
+  shipping_line   String            @db.VarChar(255)
+  bill_number     String            @db.VarChar(100)
+  container       String            @db.VarChar(100)
+  seal1           String            @db.VarChar(100)
+  seal2           String            @db.VarChar(100)
+  truck           String            @db.VarChar(100)
+  vessel          String            @db.VarChar(100)
   eta_msa         DateTime?
   etd_msa         DateTime?
-  port            String   @db.VarChar(100)
+  port            String            @db.VarChar(100)
   eta_port        DateTime?
-  temp_rec1       String   @db.VarChar(50)
-  temp_rec2       String   @db.VarChar(50)
+  temp_rec1       String            @db.VarChar(50)
+  temp_rec2       String            @db.VarChar(50)
   loading_date    DateTime
-  loaded_by       String?  @db.VarChar(255)
-  checked_by      String?  @db.VarChar(255)
-  remarks         String?  @db.Text
-  created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
+  loaded_by       String?           @db.VarChar(255)
+  checked_by      String?           @db.VarChar(255)
+  remarks         String?           @db.Text
+  created_at      DateTime          @default(now())
+  updated_at      DateTime          @updatedAt
   loading_pallets loading_pallets[]
+
+  carrier_assignments carrier_assignments[]
 
   @@map("loading_sheets")
 }
 
 model loading_pallets {
-  id              String         @id @default(cuid()) @db.VarChar(255) // Changed from 20 to 255
-  loading_sheet_id String        @db.VarChar(255) // Changed from 20 to 255
-  pallet_no       Int
-  temp            String?        @db.VarChar(50)
-  trace_code      String?        @db.VarChar(100)
-  size12          Int            @default(0)
-  size14          Int            @default(0)
-  size16          Int            @default(0)
-  size18          Int            @default(0)
-  size20          Int            @default(0)
-  size22          Int            @default(0)
-  size24          Int            @default(0)
-  size26          Int            @default(0)
-  size28          Int            @default(0)
-  size30          Int            @default(0)
-  total           Int            @default(0)
-  loading_sheets  loading_sheets @relation(fields: [loading_sheet_id], references: [id], onDelete: Cascade)
+  id               String         @id @default(cuid()) @db.VarChar(255) // Changed from 20 to 255
+  loading_sheet_id String         @db.VarChar(255) // Changed from 20 to 255
+  pallet_no        Int
+  temp             String?        @db.VarChar(50)
+  trace_code       String?        @db.VarChar(100)
+  size12           Int            @default(0)
+  size14           Int            @default(0)
+  size16           Int            @default(0)
+  size18           Int            @default(0)
+  size20           Int            @default(0)
+  size22           Int            @default(0)
+  size24           Int            @default(0)
+  size26           Int            @default(0)
+  size28           Int            @default(0)
+  size30           Int            @default(0)
+  total            Int            @default(0)
+  loading_sheets   loading_sheets @relation(fields: [loading_sheet_id], references: [id], onDelete: Cascade)
 
   @@map("loading_pallets")
 }
 
 model carrier_assignments {
-  id               String         @id @default(cuid())
-  carrier_id       String
-  loading_sheet_id String
-  assigned_at      DateTime       @default(now())
-  assigned_by      String
-  status           String         @default("assigned") // assigned, completed, cancelled
-  notes            String?
-  
-  carrier          carriers       @relation(fields: [carrier_id], references: [id], onDelete: Cascade)
-  loading_sheet    loading_sheets @relation(fields: [loading_sheet_id], references: [id], onDelete: Cascade)
-  
-  created_at       DateTime       @default(now())
-  
+  id               String   @id @default(cuid()) @db.VarChar(255)
+  carrier_id       String   @db.VarChar(20)
+  loading_sheet_id String   @db.VarChar(255) // Changed from 20 to match loading_sheets
+  assigned_at      DateTime @default(now()) @db.DateTime(0)
+  assigned_by      String   @db.VarChar(100)
+  status           String   @default("assigned") @db.VarChar(50)
+  notes            String?  @db.Text
+
+  carrier       carriers       @relation(fields: [carrier_id], references: [id], onDelete: Cascade)
+  loading_sheet loading_sheets @relation(fields: [loading_sheet_id], references: [id], onDelete: Cascade)
+
+  created_at DateTime @default(now()) @db.DateTime(0)
+
   @@unique([carrier_id, loading_sheet_id])
+  @@map("carrier_assignments")
 }
 
 enum carriers_status {
