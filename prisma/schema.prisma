@@ -616,6 +616,22 @@ model transit_history {
   @@map("transit_history")
 }
 
+model packaging_materials {
+  id              String   @id @default(cuid())
+  name            String
+  category        String
+  unit            String
+  currentStock    Int      @default(0)
+  reorderLevel    Int      @default(10)
+  dimensions      String?
+  lastUsedDate    DateTime @default(now())
+  consumptionRate String   @default("medium")
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  @@map("packaging_materials")
+}
+
 enum carriers_status {
   Active
   Inactive
