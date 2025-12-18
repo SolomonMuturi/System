@@ -3,6 +3,28 @@ import { NextResponse } from 'next/server'
 import { startOfDay, endOfDay } from 'date-fns'
 import PDFDocument from 'pdfkit'
 
+// Helper function to generate small ID (max ~20 chars)
+function generateSmallId() {
+  // Using timestamp + random 4 chars = ~14 characters
+  const timestamp = Date.now().toString(36); // Base36 timestamp (~8 chars)
+  const random = Math.random().toString(36).substr(2, 4); // 4 random chars
+  return `s-${timestamp}-${random}`; // Example: s-khts0x8-abc1
+}
+
+// Alternative: Even smaller ID (~10 chars)
+function generateTinyId() {
+  // Base36 timestamp only = ~8 chars
+  return `s${Date.now().toString(36)}`; // Example: skhts0x8
+}
+
+// Alternative: Short UUID (8 chars)
+function generateShortId() {
+  // Using part of timestamp + random
+  const timePart = Date.now().toString(36).slice(-6); // Last 6 chars
+  const randPart = Math.random().toString(36).substr(2, 2); // 2 random chars
+  return `s${timePart}${randPart}`; // Example: sts0x8ab
+}
+
 // Helper function to generate CSV with specified columns
 function generateCSV(suppliers) {
   const headers = [
@@ -292,7 +314,8 @@ export async function POST(request) {
     // Create supplier with vehicle status fields
     const newSupplier = await prisma.suppliers.create({
       data: {
-        id: `supp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        // Using the smallest ID option (8-10 chars)
+        id: generateTinyId(), // OR use generateShortId() or generateSmallId()
         name: body.name,
         location: body.location || 'Gate Registration',
         contact_name: body.contact_name,
