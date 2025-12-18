@@ -729,7 +729,7 @@ export default function InventoryPage() {
                               <SelectContent>
                                 {packagingMaterials.map(material => (
                                   <SelectItem key={material.id} value={material.id}>
-                                    <div className="flex items-center justify-between">
+                                    <div className="flex  items-center justify-between">
                                       <span className="truncate">{material.name}</span>
                                       <span className="text-sm text-muted-foreground ml-2">
                                         {material.currentStock} {material.unit}

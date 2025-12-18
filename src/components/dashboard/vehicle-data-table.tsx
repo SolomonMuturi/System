@@ -154,7 +154,7 @@ export function VehicleDataTable({
                     key={vehicle.id} 
                     onClick={() => onRowClick(vehicle)}
                     className={cn(
-                      "cursor-pointer transition-all hover:bg-gray-50 border-b",
+                      "cursor-pointer transition-all hover:bg-blue-10 border-b",
                       highlighted 
                         ? "bg-gradient-to-r from-blue-50/80 to-blue-50/50 border-l-4 border-l-blue-500" 
                         : ""
