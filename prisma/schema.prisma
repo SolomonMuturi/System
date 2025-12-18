@@ -8,20 +8,19 @@ datasource db {
 }
 
 model carriers {
-  id                   String          @id @default(cuid()) @db.VarChar(20)
-  name                 String          @unique @db.VarChar(100)
-  contact_name         String?         @db.VarChar(100)
-  contact_email        String?         @db.VarChar(100)
-  contact_phone        String?         @db.VarChar(20)
-  rating               Float?          @default(0) @db.Float
-  status               carriers_status @default(Active)
-  id_number            String?         @db.VarChar(50)
-  vehicle_registration String?         @db.VarChar(20)
-  created_at           DateTime        @default(now()) @db.DateTime(0)
-  updated_at           DateTime        @updatedAt @db.DateTime(0)
+  id                   String                @id @default(cuid()) @db.VarChar(20)
+  name                 String                @unique @db.VarChar(100)
+  contact_name         String?               @db.VarChar(100)
+  contact_email        String?               @db.VarChar(100)
+  contact_phone        String?               @db.VarChar(20)
+  rating               Float?                @default(0) @db.Float
+  status               carriers_status       @default(Active)
+  id_number            String?               @db.VarChar(50)
+  vehicle_registration String?               @db.VarChar(20)
+  created_at           DateTime              @default(now()) @db.DateTime(0)
+  updated_at           DateTime              @updatedAt @db.DateTime(0)
+  carrier_assignments  carrier_assignments[]
   shipments            shipments[]
-
-  carrier_assignments carrier_assignments[]
 
   @@map("carriers")
 }
@@ -376,11 +375,11 @@ model CountingRecord {
   submitted_at          DateTime        @default(now())
   processed_by          String
   notes                 String?
-  totals                String?         @db.LongText
   for_coldroom          Boolean?        @default(false)
+  loaded_to_coldroom_at DateTime?
   status                String?         @default("pending_coldroom")
   total_counted_weight  Float?
-  loaded_to_coldroom_at DateTime?
+  totals                String?         @db.LongText
   weight_entry          weight_entries? @relation(fields: [supplier_id], references: [id], onDelete: Cascade)
 
   @@index([supplier_id])
@@ -416,26 +415,24 @@ model RejectionRecord {
 }
 
 model utility_readings {
-  id             String   @id @default(cuid()) @db.VarChar(20)
-  date           DateTime @default(now()) @db.DateTime(0)
-  powerOpening   Decimal  @db.Decimal(12, 2)
-  powerClosing   Decimal  @db.Decimal(12, 2)
-  powerConsumed  Decimal  @db.Decimal(12, 2)
-  waterOpening   Decimal  @db.Decimal(12, 2)
-  waterClosing   Decimal  @db.Decimal(12, 2)
-  waterConsumed  Decimal  @db.Decimal(12, 2)
-  generatorStart String   @db.VarChar(8)
-  generatorStop  String   @db.VarChar(8)
-  timeConsumed   String   @db.VarChar(50)
-  dieselConsumed Decimal  @db.Decimal(10, 2)
-  dieselRefill   Decimal? @db.Decimal(10, 2)
-  recordedBy     String?  @db.VarChar(100)
-  shift          String?  @db.VarChar(20)
-  notes          String?  @db.Text
-  createdAt      DateTime @default(now()) @db.DateTime(0)
-  updatedAt      DateTime @default(now()) @updatedAt @db.DateTime(0)
-
-  @@map("utility_readings")
+  id            Int      @id @default(autoincrement())
+  date          DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  powerOpening  String
+  powerClosing  String
+  powerConsumed String
+  waterOpening  String
+  waterClosing  String
+  waterConsumed String
+  generatorStart String
+  generatorStop  String
+  timeConsumed   String
+  dieselConsumed String
+  dieselRefill   String?
+  recordedBy     String
+  shift          String?
+  notes          String?
 }
 
 model cold_room_boxes {
@@ -502,7 +499,6 @@ model repacking_records {
 
 model loading_history {
   id            String   @id @default(cuid())
-  box_id        String?
   pallet_id     String
   supplier_name String?
   cold_room_id  String?
@@ -510,12 +506,13 @@ model loading_history {
   loaded_by     String?
   loaded_at     DateTime @default(now())
   notes         String?
+  box_id        String?
+  box_type      String?
+  grade         String?
+  quantity      Int?
   region        String?
-  variety       String? // ADD THIS
-  box_type      String? // ADD THIS
-  size          String? // ADD THIS
-  grade         String? // ADD THIS
-  quantity      Int? // ADD THIS
+  size          String?
+  variety       String?
 
   @@index([pallet_id])
   @@index([box_id])
@@ -526,38 +523,37 @@ model loading_history {
 }
 
 model loading_sheets {
-  id              String            @id @default(cuid()) @db.VarChar(255) // Changed from 20 to 255
-  exporter        String            @db.VarChar(255)
-  client          String            @db.VarChar(255)
-  shipping_line   String            @db.VarChar(255)
-  bill_number     String            @db.VarChar(100)
-  container       String            @db.VarChar(100)
-  seal1           String            @db.VarChar(100)
-  seal2           String            @db.VarChar(100)
-  truck           String            @db.VarChar(100)
-  vessel          String            @db.VarChar(100)
-  eta_msa         DateTime?
-  etd_msa         DateTime?
-  port            String            @db.VarChar(100)
-  eta_port        DateTime?
-  temp_rec1       String            @db.VarChar(50)
-  temp_rec2       String            @db.VarChar(50)
-  loading_date    DateTime
-  loaded_by       String?           @db.VarChar(255)
-  checked_by      String?           @db.VarChar(255)
-  remarks         String?           @db.Text
-  created_at      DateTime          @default(now())
-  updated_at      DateTime          @updatedAt
-  loading_pallets loading_pallets[]
-
+  id                  String                @id @default(cuid()) @db.VarChar(255)
+  exporter            String                @db.VarChar(255)
+  client              String                @db.VarChar(255)
+  shipping_line       String                @db.VarChar(255)
+  bill_number         String                @db.VarChar(100)
+  container           String                @db.VarChar(100)
+  seal1               String                @db.VarChar(100)
+  seal2               String                @db.VarChar(100)
+  truck               String                @db.VarChar(100)
+  vessel              String                @db.VarChar(100)
+  eta_msa             DateTime?
+  etd_msa             DateTime?
+  port                String                @db.VarChar(100)
+  eta_port            DateTime?
+  temp_rec1           String                @db.VarChar(50)
+  temp_rec2           String                @db.VarChar(50)
+  loading_date        DateTime
+  loaded_by           String?               @db.VarChar(255)
+  checked_by          String?               @db.VarChar(255)
+  remarks             String?               @db.Text
+  created_at          DateTime              @default(now())
+  updated_at          DateTime              @updatedAt
   carrier_assignments carrier_assignments[]
+  loading_pallets     loading_pallets[]
 
   @@map("loading_sheets")
 }
 
 model loading_pallets {
-  id               String         @id @default(cuid()) @db.VarChar(255) // Changed from 20 to 255
-  loading_sheet_id String         @db.VarChar(255) // Changed from 20 to 255
+  id               String         @id @default(cuid()) @db.VarChar(255)
+  loading_sheet_id String         @db.VarChar(255)
   pallet_no        Int
   temp             String?        @db.VarChar(50)
   trace_code       String?        @db.VarChar(100)
@@ -574,41 +570,40 @@ model loading_pallets {
   total            Int            @default(0)
   loading_sheets   loading_sheets @relation(fields: [loading_sheet_id], references: [id], onDelete: Cascade)
 
+  @@index([loading_sheet_id], map: "loading_pallets_loading_sheet_id_fkey")
   @@map("loading_pallets")
 }
 
 model carrier_assignments {
-  id                   String   @id @default(cuid()) @db.VarChar(255)
-  carrier_id           String   @db.VarChar(20)
-  loading_sheet_id     String   @db.VarChar(255)
-  assigned_at          DateTime @default(now()) @db.DateTime(0)
-  assigned_by          String   @db.VarChar(100)
-  status               String   @default("assigned") @db.VarChar(50)
-  notes                String?  @db.Text
-  transit_started_at   DateTime? @db.DateTime(0)
-  transit_completed_at DateTime? @db.DateTime(0)
-  transit_days         Int?     @default(0)
-
-  carrier       carriers       @relation(fields: [carrier_id], references: [id], onDelete: Cascade)
-  loading_sheet loading_sheets @relation(fields: [loading_sheet_id], references: [id], onDelete: Cascade)
-  transit_history transit_history[]
-
-  created_at DateTime @default(now()) @db.DateTime(0)
+  id                   String            @id @default(cuid()) @db.VarChar(255)
+  carrier_id           String            @db.VarChar(20)
+  loading_sheet_id     String            @db.VarChar(255)
+  assigned_at          DateTime          @default(now()) @db.DateTime(0)
+  assigned_by          String            @db.VarChar(100)
+  status               String            @default("assigned") @db.VarChar(50)
+  notes                String?           @db.Text
+  created_at           DateTime          @default(now()) @db.DateTime(0)
+  transit_completed_at DateTime?         @db.DateTime(0)
+  transit_days         Int?              @default(0)
+  transit_started_at   DateTime?         @db.DateTime(0)
+  carrier              carriers          @relation(fields: [carrier_id], references: [id], onDelete: Cascade)
+  loading_sheet        loading_sheets    @relation(fields: [loading_sheet_id], references: [id], onDelete: Cascade)
+  transit_history      transit_history[]
 
   @@unique([carrier_id, loading_sheet_id])
+  @@index([loading_sheet_id], map: "carrier_assignments_loading_sheet_id_fkey")
   @@map("carrier_assignments")
 }
 
 model transit_history {
-  id            String   @id @default(cuid()) @db.VarChar(255)
-  assignment_id String   @db.VarChar(255)
-  action        String   @db.VarChar(50) // 'start_transit', 'end_transit', 'delivered'
-  timestamp     DateTime @default(now()) @db.DateTime(0)
-  notes         String?  @db.Text
-  location      String?  @db.VarChar(255)
-  created_at    DateTime @default(now()) @db.DateTime(0)
-
-  assignment carrier_assignments @relation(fields: [assignment_id], references: [id], onDelete: Cascade)
+  id            String              @id @default(cuid()) @db.VarChar(255)
+  assignment_id String              @db.VarChar(255)
+  action        String              @db.VarChar(50)
+  timestamp     DateTime            @default(now()) @db.DateTime(0)
+  notes         String?             @db.Text
+  location      String?             @db.VarChar(255)
+  created_at    DateTime            @default(now()) @db.DateTime(0)
+  assignment    carrier_assignments @relation(fields: [assignment_id], references: [id], onDelete: Cascade)
 
   @@index([assignment_id])
   @@index([action])
