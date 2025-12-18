@@ -1255,33 +1255,38 @@ export default function EmployeesPage() {
                             </SelectTrigger>
                             <SelectContent>
                               <ScrollArea className="h-60">
-                                {employees
-                                  .filter(emp => {
-                                    const todayRecord = todaysAttendance.find(r => r.employeeId === emp.id);
-                                    return !todayRecord || todayRecord.status === 'Absent' || todayRecord.status === 'On Leave';
-                                  })
-                                  .map(emp => {
-                                    const todayRecord = todaysAttendance.find(r => r.employeeId === emp.id);
-                                    const isLate = todayRecord?.status === 'Late';
-                                    const isAbsent = todayRecord?.status === 'Absent';
-                                    const isOnLeave = todayRecord?.status === 'On Leave';
-                                    
-                                    return (
-                                      <SelectItem key={emp.id} value={emp.id}>
-                                        <div className="flex items-center justify-between">
-                                          <span>{emp.name}</span>
+                                {employees.map(emp => {
+                                  const todayRecord = todaysAttendance.find(r => r.employeeId === emp.id);
+                                  const isPresent = todayRecord?.status === 'Present';
+                                  const isLate = todayRecord?.status === 'Late';
+                                  const isCheckedOut = !!todayRecord?.clockOutTime;
+                                  const isAbsent = todayRecord?.status === 'Absent';
+                                  const isOnLeave = todayRecord?.status === 'On Leave';
+                                  
+                                  return (
+                                    <SelectItem key={emp.id} value={emp.id}>
+                                      <div className="flex items-center justify-between">
+                                        <span>{emp.name}</span>
+                                        <div className="flex items-center gap-1">
                                           <Badge variant="outline" className="ml-2">
                                             {emp.contract}
                                           </Badge>
-                                          {(isLate || isAbsent || isOnLeave) && (
-                                            <Badge variant="secondary" className="ml-2">
-                                              {isLate ? 'Late' : isAbsent ? 'Absent' : 'On Leave'}
+                                          {todayRecord && (
+                                            <Badge variant={
+                                              isPresent && !isCheckedOut ? 'default' :
+                                              isLate ? 'secondary' :
+                                              isAbsent ? 'destructive' :
+                                              isOnLeave ? 'secondary' :
+                                              isCheckedOut ? 'outline' : 'secondary'
+                                            } className="ml-1">
+                                              {isCheckedOut ? 'Checked Out' : todayRecord.status}
                                             </Badge>
                                           )}
                                         </div>
-                                      </SelectItem>
-                                    );
-                                  })}
+                                      </div>
+                                    </SelectItem>
+                                  );
+                                })}
                               </ScrollArea>
                             </SelectContent>
                           </Select>
@@ -1346,21 +1351,33 @@ export default function EmployeesPage() {
                             </SelectTrigger>
                             <SelectContent>
                               <ScrollArea className="h-60">
-                                {employees
-                                  .filter(emp => {
-                                    const todayRecord = todaysAttendance.find(r => r.employeeId === emp.id);
-                                    return todayRecord?.status === 'Present' && !todayRecord.clockOutTime;
-                                  })
-                                  .map(emp => (
+                                {employees.map(emp => {
+                                  const todayRecord = todaysAttendance.find(r => r.employeeId === emp.id);
+                                  const isPresent = todayRecord?.status === 'Present';
+                                  const hasCheckedOut = !!todayRecord?.clockOutTime;
+                                  
+                                  return (
                                     <SelectItem key={emp.id} value={emp.id}>
                                       <div className="flex items-center justify-between">
                                         <span>{emp.name}</span>
-                                        <Badge variant="outline" className="ml-2">
-                                          {emp.contract}
-                                        </Badge>
+                                        <div className="flex items-center gap-1">
+                                          <Badge variant="outline" className="ml-2">
+                                            {emp.contract}
+                                          </Badge>
+                                          {todayRecord && (
+                                            <Badge variant={
+                                              isPresent && !hasCheckedOut ? 'default' :
+                                              hasCheckedOut ? 'outline' :
+                                              'secondary'
+                                            } className="ml-1">
+                                              {hasCheckedOut ? 'Checked Out' : todayRecord.status}
+                                            </Badge>
+                                          )}
+                                        </div>
                                       </div>
                                     </SelectItem>
-                                  ))}
+                                  );
+                                })}
                               </ScrollArea>
                             </SelectContent>
                           </Select>
@@ -1376,7 +1393,6 @@ export default function EmployeesPage() {
                         </Button>
                       </CardContent>
                     </Card>
-
                     {/* Today's Summary */}
                     <Card>
                       <CardHeader>
