@@ -131,7 +131,7 @@ interface CheckedInSupplier {
   fruit_varieties: string[];
   region: string;
   check_in_time: string;
-  status?: 'pending' | 'weighed'; // Add status field
+  status?: 'pending' | 'weighed';
 }
 
 const getChangeIcon = (changeType: 'increase' | 'decrease' | 'neutral') => {
@@ -156,6 +156,7 @@ export default function WeightCapturePage() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
   const [processedSuppliers, setProcessedSuppliers] = useState<Set<string>>(new Set());
+  const [selectedSupplier, setSelectedSupplier] = useState<CheckedInSupplier | null>(null);
   const { toast } = useToast();
 
   // Fetch weight entries from database
@@ -228,7 +229,7 @@ export default function WeightCapturePage() {
       }
       
       const data: CheckedInSupplier[] = await response.json();
-      // Initialize all suppliers as pending
+      // Initialize suppliers with status based on processedSuppliers
       const suppliersWithStatus = data.map(supplier => ({
         ...supplier,
         status: processedSuppliers.has(supplier.id) ? 'weighed' : 'pending' as const
@@ -478,11 +479,24 @@ export default function WeightCapturePage() {
       
       // Mark supplier as processed
       if (submittedSupplierId) {
-        setProcessedSuppliers(prev => new Set([...prev, submittedSupplierId]));
+        setProcessedSuppliers(prev => {
+          const newSet = new Set(prev);
+          newSet.add(submittedSupplierId);
+          return newSet;
+        });
+        
+        // Update the checked-in suppliers list to reflect the new status
+        setCheckedInSuppliers(prev => 
+          prev.map(supplier => 
+            supplier.id === submittedSupplierId 
+              ? { ...supplier, status: 'weighed' } 
+              : supplier
+          )
+        );
         
         toast({
-          title: 'Supplier Processed',
-          description: 'Intake complete - Supplier has been weighed',
+          title: 'Intake Complete',
+          description: 'Supplier has been successfully weighed and processed.',
         });
       }
       
@@ -541,7 +555,20 @@ export default function WeightCapturePage() {
       
       // Still mark supplier as processed even if API fails
       if (weightData.supplier_id) {
-        setProcessedSuppliers(prev => new Set([...prev, weightData.supplier_id]));
+        setProcessedSuppliers(prev => {
+          const newSet = new Set(prev);
+          newSet.add(weightData.supplier_id);
+          return newSet;
+        });
+        
+        // Update the checked-in suppliers list locally
+        setCheckedInSuppliers(prev => 
+          prev.map(supplier => 
+            supplier.id === weightData.supplier_id 
+              ? { ...supplier, status: 'weighed' } 
+              : supplier
+          )
+        );
       }
       
       setIsReceiptOpen(true);
@@ -561,6 +588,26 @@ export default function WeightCapturePage() {
     const day = String(now.getDate()).padStart(2, '0');
     const randomNum = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
     return `PAL${randomNum}/${month}${day}`;
+  };
+
+  // Handle supplier selection for weighing
+  const handleSelectSupplierForWeighing = (supplier: CheckedInSupplier) => {
+    if (processedSuppliers.has(supplier.id)) {
+      toast({
+        title: 'Supplier Already Processed',
+        description: `${supplier.driver_name} has already been weighed.`,
+        variant: 'default',
+      });
+      return;
+    }
+    
+    setSelectedSupplier(supplier);
+    setActiveTab('capture');
+    
+    toast({
+      title: 'Supplier Selected',
+      description: `${supplier.driver_name} from ${supplier.company_name} is ready for weighing. Details have been pre-filled.`,
+    });
   };
 
   // Default KPI data while loading
@@ -612,9 +659,9 @@ export default function WeightCapturePage() {
       .map(w => w.supplier_id)
   ).size;
 
-  // Count pending suppliers
-  const pendingSuppliersCount = checkedInSuppliers.filter(s => s.status === 'pending').length;
-  const weighedSuppliersCount = checkedInSuppliers.filter(s => s.status === 'weighed').length;
+  // Count pending and weighed suppliers
+  const pendingSuppliersCount = checkedInSuppliers.filter(s => !processedSuppliers.has(s.id)).length;
+  const weighedSuppliersCount = checkedInSuppliers.filter(s => processedSuppliers.has(s.id)).length;
 
   return (
     <SidebarProvider>
@@ -793,77 +840,102 @@ export default function WeightCapturePage() {
                 <CardContent>
                   <div className="space-y-3">
                     {checkedInSuppliers.length > 0 ? (
-                      checkedInSuppliers.map((supplier) => (
-                        <div 
-                          key={supplier.id} 
-                          className={`flex items-center justify-between p-3 rounded-lg border ${
-                            supplier.status === 'weighed' 
-                              ? 'border-green-200 bg-green-10 hover:bg-black-100' 
-                              : 'border-amber-200 bg-black-50 hover:bg-black-100'
-                          }`}
-                        >
-                          <div className="flex items-center gap-4">
-                            <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                              supplier.status === 'weighed' 
-                                ? 'bg-green-100' 
-                                : 'bg-amber-100'
-                            }`}>
-                              {supplier.status === 'weighed' ? (
-                                <CheckCheck className="w-5 h-5 text-green-600" />
-                              ) : (
-                                <Clock className="w-5 h-5 text-amber-600" />
-                              )}
-                            </div>
-                            <div>
-                              <div className="font-medium">{supplier.driver_name}</div>
-                              <div className="text-sm text-muted-foreground">
-                                {supplier.company_name} • {supplier.vehicle_plate}
+                      checkedInSuppliers.map((supplier) => {
+                        const isWeighed = processedSuppliers.has(supplier.id);
+                        
+                        return (
+                          <div 
+                            key={supplier.id} 
+                            className={`flex items-center justify-between p-4 rounded-lg border ${
+                              isWeighed 
+                                ? 'border-green-200 bg-black-50 hover:bg-black-100' 
+                                : 'border-amber-200 bg-black-50 hover:bg-black-100'
+                            } transition-colors`}
+                          >
+                            <div className="flex items-center gap-4">
+                              <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${
+                                isWeighed 
+                                  ? 'bg-black-100 border border-green-200' 
+                                  : 'bg-black-100 border border-amber-200'
+                              }`}>
+                                {isWeighed ? (
+                                  <CheckCircle className="w-6 h-6 text-green-600" />
+                                ) : (
+                                  <Clock className="w-6 h-6 text-amber-600" />
+                                )}
                               </div>
-                              {supplier.fruit_varieties.length > 0 && (
-                                <div className="flex flex-wrap gap-1 mt-1">
-                                  {supplier.fruit_varieties.slice(0, 2).map((variety, idx) => (
-                                    <Badge key={idx} variant="outline" className={`text-xs ${
-                                      supplier.status === 'weighed' 
-                                        ? 'bg-green-50 text-green-700 border-green-200' 
-                                        : 'bg-amber-50 text-amber-700 border-amber-200'
-                                    }`}>
-                                      {variety}
-                                    </Badge>
-                                  ))}
-                                  {supplier.fruit_varieties.length > 2 && (
-                                    <Badge variant="outline" className="text-xs">
-                                      +{supplier.fruit_varieties.length - 2} more
-                                    </Badge>
-                                  )}
+                              <div>
+                                <div className="font-semibold text-lg">{supplier.driver_name}</div>
+                                <div className="text-sm text-muted-foreground">
+                                  {supplier.company_name} • {supplier.vehicle_plate}
                                 </div>
+                                {supplier.fruit_varieties.length > 0 && (
+                                  <div className="flex flex-wrap gap-1 mt-2">
+                                    {supplier.fruit_varieties.slice(0, 2).map((variety, idx) => (
+                                      <Badge key={idx} variant="outline" className={`text-xs ${
+                                        isWeighed 
+                                          ? 'bg-green-50 text-green-700 border-green-300' 
+                                          : 'bg-amber-50 text-amber-700 border-amber-300'
+                                      }`}>
+                                        {variety}
+                                      </Badge>
+                                    ))}
+                                    {supplier.fruit_varieties.length > 2 && (
+                                      <Badge variant="outline" className="text-xs">
+                                        +{supplier.fruit_varieties.length - 2} more
+                                      </Badge>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            <div className="text-right flex flex-col items-end">
+                              <div className={`text-sm font-semibold ${
+                                isWeighed ? 'text-green-700' : 'text-amber-700'
+                              }`}>
+                                {isWeighed ? 'Intake Complete' : 'Pending Weighing'}
+                              </div>
+                              <div className="text-xs text-muted-foreground mt-1">
+                                Checked in: {new Date(supplier.check_in_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </div>
+                              {isWeighed ? (
+                                <Badge 
+                                  variant="outline" 
+                                  className="mt-2 px-3 py-1 text-xs bg-green-100 text-green-800 border-green-300"
+                                >
+                                  <CheckCheck className="w-3 h-3 mr-1" />
+                                  Weighed
+                                </Badge>
+                              ) : (
+                                <Button 
+                                  size="sm" 
+                                  variant="outline" 
+                                  className="mt-2 text-xs bg-white hover:bg-amber-50 border-amber-300 text-amber-700"
+                                  onClick={() => handleSelectSupplierForWeighing(supplier)}
+                                >
+                                  <Scale className="w-3 h-3 mr-1" />
+                                  Weigh Now
+                                </Button>
                               )}
                             </div>
                           </div>
-                          <div className="text-right">
-                            <div className={`text-sm font-medium ${
-                              supplier.status === 'weighed' ? 'text-green-600' : 'text-amber-600'
-                            }`}>
-                              {supplier.status === 'weighed' ? 'Intake Complete' : 'Pending Weighing'}
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              Checked in: {new Date(supplier.check_in_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </div>
-                            {supplier.status === 'weighed' && (
-                              <Badge variant="outline" className="mt-1 text-xs bg-green-100 text-green-800 border-green-300">
-                                <CheckCircle className="w-3 h-3 mr-1" />
-                                Weighed
-                              </Badge>
-                            )}
-                          </div>
-                        </div>
-                      ))
+                        );
+                      })
                     ) : (
-                      <div className="text-center py-8">
-                        <Truck className="w-12 h-12 mx-auto text-gray-300 mb-3" />
-                        <p className="text-gray-500 font-medium">No suppliers checked in</p>
-                        <p className="text-sm text-gray-400 mt-1">
+                      <div className="text-center py-12">
+                        <Truck className="w-16 h-16 mx-auto text-gray-300 mb-4" />
+                        <p className="text-gray-600 font-semibold text-lg">No suppliers checked in</p>
+                        <p className="text-sm text-gray-500 mt-2">
                           Suppliers will appear here once they check in at the gate
                         </p>
+                        <Button 
+                          variant="outline" 
+                          className="mt-4"
+                          onClick={refreshAllData}
+                        >
+                          <RefreshCw className="w-4 h-4 mr-2" />
+                          Refresh
+                        </Button>
                       </div>
                     )}
                   </div>
@@ -877,7 +949,11 @@ export default function WeightCapturePage() {
                 <CardHeader>
                   <CardTitle className="text-2xl">Weight Capture Interface</CardTitle>
                   <CardDescription>
-                    Record weights for supplier deliveries. Select a checked-in supplier to pre-fill details.
+                    Record weights for supplier deliveries. {selectedSupplier && 
+                      <span className="font-semibold text-primary">
+                        Currently processing: {selectedSupplier.driver_name} from {selectedSupplier.company_name}
+                      </span>
+                    }
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -896,6 +972,8 @@ export default function WeightCapturePage() {
                       isLoading={isLoading}
                       onRefreshSuppliers={fetchCheckedInSuppliers}
                       processedSupplierIds={processedSuppliers}
+                      selectedSupplier={selectedSupplier}
+                      onClearSelectedSupplier={() => setSelectedSupplier(null)}
                     />
                   )}
                 </CardContent>
