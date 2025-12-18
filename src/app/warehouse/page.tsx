@@ -89,6 +89,21 @@ interface RejectedCrate {
   total_weight: number;
 }
 
+interface CountingTotals {
+  fuerte_4kg_class1?: number;
+  fuerte_4kg_class2?: number;
+  fuerte_4kg_total?: number;
+  fuerte_10kg_class1?: number;
+  fuerte_10kg_class2?: number;
+  fuerte_10kg_total?: number;
+  hass_4kg_class1?: number;
+  hass_4kg_class2?: number;
+  hass_4kg_total?: number;
+  hass_10kg_class1?: number;
+  hass_10kg_class2?: number;
+  hass_10kg_total?: number;
+}
+
 interface RejectionRecord {
   id: string;
   supplier_id: string;
@@ -103,7 +118,7 @@ interface RejectionRecord {
   crates: RejectedCrate[];
   notes: string;
   counting_data: any;
-  counting_totals: any;
+  counting_totals: CountingTotals | string | null; // Can be object, string, or null
   submitted_at: string;
   processed_by: string;
   original_counting_id: string;
@@ -126,6 +141,57 @@ const safeToFixed = (value: any, decimals: number = 1): string => {
 // Safe array access utility
 const safeArray = <T,>(array: T[] | undefined | null): T[] => {
   return Array.isArray(array) ? array : [];
+};
+
+// Function to parse counting totals from database
+const parseCountingTotals = (countingTotals: any): CountingTotals => {
+  if (!countingTotals) return {};
+  
+  if (typeof countingTotals === 'string') {
+    try {
+      return JSON.parse(countingTotals);
+    } catch (e) {
+      console.error('Error parsing counting_totals:', e);
+      return {};
+    }
+  }
+  
+  if (typeof countingTotals === 'object') {
+    return countingTotals;
+  }
+  
+  return {};
+};
+
+// Function to get total boxes from counting totals
+const getTotalBoxesFromCountingTotals = (countingTotals: CountingTotals | string | null): number => {
+  const totals = parseCountingTotals(countingTotals);
+  
+  const fuerte4kg = totals.fuerte_4kg_total || 0;
+  const fuerte10kg = totals.fuerte_10kg_total || 0;
+  const hass4kg = totals.hass_4kg_total || 0;
+  const hass10kg = totals.hass_10kg_total || 0;
+  
+  return fuerte4kg + fuerte10kg + hass4kg + hass10kg;
+};
+
+// Function to get formatted boxes summary
+const getBoxesSummary = (countingTotals: CountingTotals | string | null): { 
+  fuerte_4kg: number; 
+  fuerte_10kg: number; 
+  hass_4kg: number; 
+  hass_10kg: number;
+  total: number;
+} => {
+  const totals = parseCountingTotals(countingTotals);
+  
+  const fuerte_4kg = totals.fuerte_4kg_total || 0;
+  const fuerte_10kg = totals.fuerte_10kg_total || 0;
+  const hass_4kg = totals.hass_4kg_total || 0;
+  const hass_10kg = totals.hass_10kg_total || 0;
+  const total = fuerte_4kg + fuerte_10kg + hass_4kg + hass_10kg;
+  
+  return { fuerte_4kg, fuerte_10kg, hass_4kg, hass_10kg, total };
 };
 
 export default function WarehousePage() {
@@ -349,7 +415,7 @@ export default function WarehousePage() {
     }
   };
 
-  // Fetch rejection records (history)
+  // Fetch rejection records (history) - Updated to properly parse counting_totals
   const fetchRejectionRecords = async () => {
     try {
       setIsLoading(prev => ({ ...prev, rejections: true }));
@@ -357,7 +423,50 @@ export default function WarehousePage() {
       if (response.ok) {
         const result = await response.json();
         if (result.success) {
-          setRejectionRecords(result.data || []);
+          // Process each record to ensure counting_totals is properly parsed
+          const processedRecords = (result.data || []).map((record: any) => {
+            // Parse counting_totals if it's a string
+            let counting_totals = record.counting_totals;
+            if (typeof counting_totals === 'string') {
+              try {
+                counting_totals = JSON.parse(counting_totals);
+              } catch (e) {
+                console.error('Error parsing counting_totals for record', record.id, e);
+                counting_totals = {};
+              }
+            }
+            
+            // Parse counting_data if it's a string
+            let counting_data = record.counting_data;
+            if (typeof counting_data === 'string') {
+              try {
+                counting_data = JSON.parse(counting_data);
+              } catch (e) {
+                console.error('Error parsing counting_data for record', record.id, e);
+                counting_data = {};
+              }
+            }
+            
+            // Parse crates if it's a string
+            let crates = record.crates;
+            if (typeof crates === 'string') {
+              try {
+                crates = JSON.parse(crates);
+              } catch (e) {
+                console.error('Error parsing crates for record', record.id, e);
+                crates = [];
+              }
+            }
+            
+            return {
+              ...record,
+              counting_totals,
+              counting_data,
+              crates: safeArray(crates)
+            };
+          });
+          
+          setRejectionRecords(processedRecords);
         }
       }
     } catch (err: any) {
@@ -512,288 +621,251 @@ export default function WarehousePage() {
     return class1 + class2;
   };
 
-const handleSubmitCountingForm = async (e: React.FormEvent) => {
-  e.preventDefault();
-  
-  if (!selectedSupplier) {
-    toast({
-      title: "No Supplier Selected",
-      description: "Please select a supplier first",
-      variant: "destructive",
-    });
-    return;
-  }
-
-  try {
-    // Calculate totals
-    const totals = {
-      fuerte_4kg_class1: calculateSubtotal('fuerte', 'class1', '4kg'),
-      fuerte_4kg_class2: calculateSubtotal('fuerte', 'class2', '4kg'),
-      fuerte_4kg_total: calculateTotalBoxes('fuerte', '4kg'),
-      
-      fuerte_10kg_class1: calculateSubtotal('fuerte', 'class1', '10kg'),
-      fuerte_10kg_class2: calculateSubtotal('fuerte', 'class2', '10kg'),
-      fuerte_10kg_total: calculateTotalBoxes('fuerte', '10kg'),
-      
-      hass_4kg_class1: calculateSubtotal('hass', 'class1', '4kg'),
-      hass_4kg_class2: calculateSubtotal('hass', 'class2', '4kg'),
-      hass_4kg_total: calculateTotalBoxes('hass', '4kg'),
-      
-      hass_10kg_class1: calculateSubtotal('hass', 'class1', '10kg'),
-      hass_10kg_class2: calculateSubtotal('hass', 'class2', '10kg'),
-      hass_10kg_total: calculateTotalBoxes('hass', '10kg'),
-    };
-
-    // Calculate total counted weight
-    const calculateTotalWeight = () => {
-      const fuerte4kgWeight = totals.fuerte_4kg_total * 4;
-      const fuerte10kgWeight = totals.fuerte_10kg_total * 10;
-      const hass4kgWeight = totals.hass_4kg_total * 4;
-      const hass10kgWeight = totals.hass_10kg_total * 10;
-      return fuerte4kgWeight + fuerte10kgWeight + hass4kgWeight + hass10kgWeight;
-    };
-
-    // Prepare counting data - ADD STATUS FOR COLD ROOM
-    const countingData = {
-      supplier_id: selectedSupplier.id,
-      supplier_name: selectedSupplier.supplier_name,
-      supplier_phone: countingForm.supplier_phone,
-      region: selectedSupplier.region,
-      pallet_id: selectedSupplier.pallet_id,
-      total_weight: selectedSupplier.total_weight,
-      counting_data: { ...countingForm },
-      submitted_at: new Date().toISOString(),
-      processed_by: "Warehouse Staff",
-      totals,
-      total_counted_weight: calculateTotalWeight(),
-      // CRITICAL: Add these two fields
-      status: 'pending_coldroom', // This tells the Cold Room page to fetch this
-      for_coldroom: true, // Explicit flag for cold room
-    };
-
-    console.log('📦 Submitting counting data for cold room:', countingData);
-
-    // Submit to API
-    const response = await fetch('/api/counting', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(countingData),
-    });
-
-    const result = await response.json();
-
-    if (!result.success) {
-      throw new Error(result.error || 'Failed to save counting data');
+  const handleSubmitCountingForm = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!selectedSupplier) {
+      toast({
+        title: "No Supplier Selected",
+        description: "Please select a supplier first",
+        variant: "destructive",
+      });
+      return;
     }
 
-    // Store the counting data ID for cold room reference
-    const countingRecordId = result.data.id;
-    
-    // Also store in localStorage for immediate access
-    localStorage.setItem('recentCountingData', JSON.stringify({
-      id: countingRecordId,
-      supplier_name: selectedSupplier.supplier_name,
-      totals,
-      counting_data: countingForm,
-      timestamp: new Date().toISOString()
-    }));
-    
-    // Set flag to refresh cold room
-    localStorage.setItem('refreshColdRoom', 'true');
-    console.log('✅ Set refreshColdRoom flag for cold room');
+    try {
+      // Calculate totals
+      const totals = {
+        fuerte_4kg_class1: calculateSubtotal('fuerte', 'class1', '4kg'),
+        fuerte_4kg_class2: calculateSubtotal('fuerte', 'class2', '4kg'),
+        fuerte_4kg_total: calculateTotalBoxes('fuerte', '4kg'),
+        
+        fuerte_10kg_class1: calculateSubtotal('fuerte', 'class1', '10kg'),
+        fuerte_10kg_class2: calculateSubtotal('fuerte', 'class2', '10kg'),
+        fuerte_10kg_total: calculateTotalBoxes('fuerte', '10kg'),
+        
+        hass_4kg_class1: calculateSubtotal('hass', 'class1', '4kg'),
+        hass_4kg_class2: calculateSubtotal('hass', 'class2', '4kg'),
+        hass_4kg_total: calculateTotalBoxes('hass', '4kg'),
+        
+        hass_10kg_class1: calculateSubtotal('hass', 'class1', '10kg'),
+        hass_10kg_class2: calculateSubtotal('hass', 'class2', '10kg'),
+        hass_10kg_total: calculateTotalBoxes('hass', '10kg'),
+      };
 
-    // Update local state
-    setCountingRecords(prev => [result.data, ...prev]);
-    
-    // Clear selected supplier
-    setSelectedSupplier(null);
-    setSelectedQC(null);
-    
-    // Reset form
-    setCountingForm({
-      supplier_id: '',
-      supplier_name: '',
-      supplier_phone: '',
-      region: '',
-      fruits: [],
-      fuerte_4kg_class1_size12: 0,
-      fuerte_4kg_class1_size14: 0,
-      fuerte_4kg_class1_size16: 0,
-      fuerte_4kg_class1_size18: 0,
-      fuerte_4kg_class1_size20: 0,
-      fuerte_4kg_class1_size22: 0,
-      fuerte_4kg_class1_size24: 0,
-      fuerte_4kg_class1_size26: 0,
-      fuerte_4kg_class2_size12: 0,
-      fuerte_4kg_class2_size14: 0,
-      fuerte_4kg_class2_size16: 0,
-      fuerte_4kg_class2_size18: 0,
-      fuerte_4kg_class2_size20: 0,
-      fuerte_4kg_class2_size22: 0,
-      fuerte_4kg_class2_size24: 0,
-      fuerte_4kg_class2_size26: 0,
-      fuerte_10kg_class1_size12: 0,
-      fuerte_10kg_class1_size14: 0,
-      fuerte_10kg_class1_size16: 0,
-      fuerte_10kg_class1_size18: 0,
-      fuerte_10kg_class1_size20: 0,
-      fuerte_10kg_class1_size22: 0,
-      fuerte_10kg_class1_size24: 0,
-      fuerte_10kg_class1_size26: 0,
-      fuerte_10kg_class1_size28: 0,
-      fuerte_10kg_class1_size30: 0,
-      fuerte_10kg_class1_size32: 0,
-      fuerte_10kg_class2_size12: 0,
-      fuerte_10kg_class2_size14: 0,
-      fuerte_10kg_class2_size16: 0,
-      fuerte_10kg_class2_size18: 0,
-      fuerte_10kg_class2_size20: 0,
-      fuerte_10kg_class2_size22: 0,
-      fuerte_10kg_class2_size24: 0,
-      fuerte_10kg_class2_size26: 0,
-      fuerte_10kg_class2_size28: 0,
-      fuerte_10kg_class2_size30: 0,
-      fuerte_10kg_class2_size32: 0,
-      hass_4kg_class1_size12: 0,
-      hass_4kg_class1_size14: 0,
-      hass_4kg_class1_size16: 0,
-      hass_4kg_class1_size18: 0,
-      hass_4kg_class1_size20: 0,
-      hass_4kg_class1_size22: 0,
-      hass_4kg_class1_size24: 0,
-      hass_4kg_class1_size26: 0,
-      hass_4kg_class2_size12: 0,
-      hass_4kg_class2_size14: 0,
-      hass_4kg_class2_size16: 0,
-      hass_4kg_class2_size18: 0,
-      hass_4kg_class2_size20: 0,
-      hass_4kg_class2_size22: 0,
-      hass_4kg_class2_size24: 0,
-      hass_4kg_class2_size26: 0,
-      hass_10kg_class1_size12: 0,
-      hass_10kg_class1_size14: 0,
-      hass_10kg_class1_size16: 0,
-      hass_10kg_class1_size18: 0,
-      hass_10kg_class1_size20: 0,
-      hass_10kg_class1_size22: 0,
-      hass_10kg_class1_size24: 0,
-      hass_10kg_class1_size26: 0,
-      hass_10kg_class1_size28: 0,
-      hass_10kg_class1_size30: 0,
-      hass_10kg_class1_size32: 0,
-      hass_10kg_class2_size12: 0,
-      hass_10kg_class2_size14: 0,
-      hass_10kg_class2_size16: 0,
-      hass_10kg_class2_size18: 0,
-      hass_10kg_class2_size20: 0,
-      hass_10kg_class2_size22: 0,
-      hass_10kg_class2_size24: 0,
-      hass_10kg_class2_size26: 0,
-      hass_10kg_class2_size28: 0,
-      hass_10kg_class2_size30: 0,
-      hass_10kg_class2_size32: 0,
-      notes: '',
-    });
-    
-    // Refresh stats
-    fetchStats();
-    
-    // Switch to variance tab
-    setActiveTab('reject');
-    
-    // Show success message with options
-    toast({
-      title: "✅ Counting Data Saved Successfully!",
-      description: (
-        <div className="space-y-3">
-          <p>{selectedSupplier.supplier_name} has been counted and is ready for cold room.</p>
-          <div className="grid grid-cols-2 gap-2">
-            <Button
-              size="sm"
-              onClick={() => {
-                window.open('/cold-room', '_blank');
-                // Force refresh cold room data
-                localStorage.setItem('forceColdRoomRefresh', 'true');
-              }}
-              className="bg-blue-600 hover:bg-blue-700"
-            >
-              📦 Go to Cold Room
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => {
-                // Copy data to clipboard for debugging
-                navigator.clipboard.writeText(JSON.stringify({
-                  id: countingRecordId,
-                  supplier: selectedSupplier.supplier_name,
-                  totals
-                }, null, 2));
-                toast({
-                  title: "Copied!",
-                  description: "Counting data copied to clipboard",
-                });
-              }}
-              className="bg-gray-600 hover:bg-gray-700"
-            >
-              📋 Copy Data
-            </Button>
+      // Calculate total counted weight
+      const calculateTotalWeight = () => {
+        const fuerte4kgWeight = totals.fuerte_4kg_total * 4;
+        const fuerte10kgWeight = totals.fuerte_10kg_total * 10;
+        const hass4kgWeight = totals.hass_4kg_total * 4;
+        const hass10kgWeight = totals.hass_10kg_total * 10;
+        return fuerte4kgWeight + fuerte10kgWeight + hass4kgWeight + hass10kgWeight;
+      };
+
+      // Prepare counting data - ADD STATUS FOR COLD ROOM
+      const countingData = {
+        supplier_id: selectedSupplier.id,
+        supplier_name: selectedSupplier.supplier_name,
+        supplier_phone: countingForm.supplier_phone,
+        region: selectedSupplier.region,
+        pallet_id: selectedSupplier.pallet_id,
+        total_weight: selectedSupplier.total_weight,
+        counting_data: { ...countingForm },
+        submitted_at: new Date().toISOString(),
+        processed_by: "Warehouse Staff",
+        totals,
+        total_counted_weight: calculateTotalWeight(),
+        // CRITICAL: Add these two fields
+        status: 'pending_coldroom', // This tells the Cold Room page to fetch this
+        for_coldroom: true, // Explicit flag for cold room
+      };
+
+      console.log('📦 Submitting counting data for cold room:', countingData);
+
+      // Submit to API
+      const response = await fetch('/api/counting', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(countingData),
+      });
+
+      const result = await response.json();
+
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to save counting data');
+      }
+
+      // Store the counting data ID for cold room reference
+      const countingRecordId = result.data.id;
+      
+      // Also store in localStorage for immediate access
+      localStorage.setItem('recentCountingData', JSON.stringify({
+        id: countingRecordId,
+        supplier_name: selectedSupplier.supplier_name,
+        totals,
+        counting_data: countingForm,
+        timestamp: new Date().toISOString()
+      }));
+      
+      // Set flag to refresh cold room
+      localStorage.setItem('refreshColdRoom', 'true');
+      console.log('✅ Set refreshColdRoom flag for cold room');
+
+      // Update local state
+      setCountingRecords(prev => [result.data, ...prev]);
+      
+      // Clear selected supplier
+      setSelectedSupplier(null);
+      setSelectedQC(null);
+      
+      // Reset form
+      setCountingForm({
+        supplier_id: '',
+        supplier_name: '',
+        supplier_phone: '',
+        region: '',
+        fruits: [],
+        fuerte_4kg_class1_size12: 0,
+        fuerte_4kg_class1_size14: 0,
+        fuerte_4kg_class1_size16: 0,
+        fuerte_4kg_class1_size18: 0,
+        fuerte_4kg_class1_size20: 0,
+        fuerte_4kg_class1_size22: 0,
+        fuerte_4kg_class1_size24: 0,
+        fuerte_4kg_class1_size26: 0,
+        fuerte_4kg_class2_size12: 0,
+        fuerte_4kg_class2_size14: 0,
+        fuerte_4kg_class2_size16: 0,
+        fuerte_4kg_class2_size18: 0,
+        fuerte_4kg_class2_size20: 0,
+        fuerte_4kg_class2_size22: 0,
+        fuerte_4kg_class2_size24: 0,
+        fuerte_4kg_class2_size26: 0,
+        fuerte_10kg_class1_size12: 0,
+        fuerte_10kg_class1_size14: 0,
+        fuerte_10kg_class1_size16: 0,
+        fuerte_10kg_class1_size18: 0,
+        fuerte_10kg_class1_size20: 0,
+        fuerte_10kg_class1_size22: 0,
+        fuerte_10kg_class1_size24: 0,
+        fuerte_10kg_class1_size26: 0,
+        fuerte_10kg_class1_size28: 0,
+        fuerte_10kg_class1_size30: 0,
+        fuerte_10kg_class1_size32: 0,
+        fuerte_10kg_class2_size12: 0,
+        fuerte_10kg_class2_size14: 0,
+        fuerte_10kg_class2_size16: 0,
+        fuerte_10kg_class2_size18: 0,
+        fuerte_10kg_class2_size20: 0,
+        fuerte_10kg_class2_size22: 0,
+        fuerte_10kg_class2_size24: 0,
+        fuerte_10kg_class2_size26: 0,
+        fuerte_10kg_class2_size28: 0,
+        fuerte_10kg_class2_size30: 0,
+        fuerte_10kg_class2_size32: 0,
+        hass_4kg_class1_size12: 0,
+        hass_4kg_class1_size14: 0,
+        hass_4kg_class1_size16: 0,
+        hass_4kg_class1_size18: 0,
+        hass_4kg_class1_size20: 0,
+        hass_4kg_class1_size22: 0,
+        hass_4kg_class1_size24: 0,
+        hass_4kg_class1_size26: 0,
+        hass_4kg_class2_size12: 0,
+        hass_4kg_class2_size14: 0,
+        hass_4kg_class2_size16: 0,
+        hass_4kg_class2_size18: 0,
+        hass_4kg_class2_size20: 0,
+        hass_4kg_class2_size22: 0,
+        hass_4kg_class2_size24: 0,
+        hass_4kg_class2_size26: 0,
+        hass_10kg_class1_size12: 0,
+        hass_10kg_class1_size14: 0,
+        hass_10kg_class1_size16: 0,
+        hass_10kg_class1_size18: 0,
+        hass_10kg_class1_size20: 0,
+        hass_10kg_class1_size22: 0,
+        hass_10kg_class1_size24: 0,
+        hass_10kg_class1_size26: 0,
+        hass_10kg_class1_size28: 0,
+        hass_10kg_class1_size30: 0,
+        hass_10kg_class1_size32: 0,
+        hass_10kg_class2_size12: 0,
+        hass_10kg_class2_size14: 0,
+        hass_10kg_class2_size16: 0,
+        hass_10kg_class2_size18: 0,
+        hass_10kg_class2_size20: 0,
+        hass_10kg_class2_size22: 0,
+        hass_10kg_class2_size24: 0,
+        hass_10kg_class2_size26: 0,
+        hass_10kg_class2_size28: 0,
+        hass_10kg_class2_size30: 0,
+        hass_10kg_class2_size32: 0,
+        notes: '',
+      });
+      
+      // Refresh stats
+      fetchStats();
+      
+      // Switch to variance tab
+      setActiveTab('reject');
+      
+      // Show success message with options
+      toast({
+        title: "✅ Counting Data Saved Successfully!",
+        description: (
+          <div className="space-y-3">
+            <p>{selectedSupplier.supplier_name} has been counted and is ready for cold room.</p>
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                size="sm"
+                onClick={() => {
+                  window.open('/cold-room', '_blank');
+                  // Force refresh cold room data
+                  localStorage.setItem('forceColdRoomRefresh', 'true');
+                }}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                📦 Go to Cold Room
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  // Copy data to clipboard for debugging
+                  navigator.clipboard.writeText(JSON.stringify({
+                    id: countingRecordId,
+                    supplier: selectedSupplier.supplier_name,
+                    totals
+                  }, null, 2));
+                  toast({
+                    title: "Copied!",
+                    description: "Counting data copied to clipboard",
+                  });
+                }}
+                className="bg-gray-600 hover:bg-gray-700"
+              >
+                📋 Copy Data
+              </Button>
+            </div>
+            <p className="text-xs text-gray-500">
+              Data ID: {countingRecordId?.substring(0, 8)}...
+            </p>
           </div>
-          <p className="text-xs text-gray-500">
-            Data ID: {countingRecordId?.substring(0, 8)}...
-          </p>
-        </div>
-      ),
-      duration: 10000, // Show for 10 seconds
-    });
-    
-  } catch (err: any) {
-    console.error('Error saving counting data:', err);
-    toast({
-      title: "Error",
-      description: err.message || "Failed to save counting data",
-      variant: "destructive",
-    });
-  }
-};
-
-const handleSendToColdRoom = async (record: CountingRecord) => {
-  try {
-    console.log('📤 Sending supplier to cold room:', record.supplier_name);
-    
-    // Store ALL the counting data in localStorage
-    localStorage.setItem('coldRoomSupplierData', JSON.stringify({
-      id: record.id,
-      supplier_id: record.supplier_id,
-      supplier_name: record.supplier_name,
-      pallet_id: record.pallet_id,
-      region: record.region,
-      total_weight: record.total_weight,
-      counting_data: record.counting_data || {},
-      totals: record.totals || {},
-      total_counted_weight: record.total_counted_weight,
-      submitted_at: record.submitted_at,
-      status: record.status
-    }));
-    
-    // Open cold room in a new tab
-    window.open('/cold-room', '_blank');
-    
-    toast({
-      title: "✅ Redirecting to Cold Room",
-      description: `${record.supplier_name} data is being loaded...`,
-    });
-    
-  } catch (error: any) {
-    console.error('Error sending to cold room:', error);
-    toast({
-      title: "Error",
-      description: "Failed to send to cold room",
-      variant: "destructive",
-    });
-  }
-};
+        ),
+        duration: 10000, // Show for 10 seconds
+      });
+      
+    } catch (err: any) {
+      console.error('Error saving counting data:', err);
+      toast({
+        title: "Error",
+        description: err.message || "Failed to save counting data",
+        variant: "destructive",
+      });
+    }
+  };
 
   const handleAddRejectedCrate = () => {
     setRejectionForm(prev => ({
@@ -1747,131 +1819,129 @@ const handleSendToColdRoom = async (record: CountingRecord) => {
               </div>
             </TabsContent>
 
-{/* Variance Tab */}
-<TabsContent value="reject" className="space-y-6">
-  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-    {/* Pending Variance */}
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <AlertTriangle className="w-5 h-5" />
-          Pending Variance Handling
-        </CardTitle>
-        <CardDescription>
-          {countingRecords.length} supplier(s) need variance handling
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <ScrollArea className="h-[400px] pr-4">
-          {isLoading.rejections ? (
-            <div className="flex flex-col items-center justify-center py-12">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-4"></div>
-              <p className="text-muted-foreground">Loading pending variance...</p>
-            </div>
-          ) : countingRecords.length === 0 ? (
-            <div className="text-center py-8">
-              <Check className="w-12 h-12 mx-auto text-gray-300 mb-3" />
-              <p className="text-gray-500 font-medium">No pending variance handling</p>
-              <p className="text-sm text-gray-400 mt-1">
-                All counted suppliers have been processed
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {countingRecords.map((record) => (
-                <Collapsible
-                  key={record.id}
-                  open={expandedReject.has(record.id)}
-                  onOpenChange={() => toggleRejectExpansion(record.id)}
-                  className="border rounded-lg overflow-hidden"
-                >
-                  <CollapsibleTrigger asChild>
-                    <div className="flex items-center justify-between p-4 bg-black-50 hover:bg-black-100 cursor-pointer">
-                      <div className="flex items-center gap-3">
-                        <div className={`transition-transform ${expandedReject.has(record.id) ? 'rotate-180' : ''}`}>
-                          <ChevronDown className="w-4 h-4" />
+            {/* Variance Tab */}
+            <TabsContent value="reject" className="space-y-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Pending Variance */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <AlertTriangle className="w-5 h-5" />
+                      Pending Variance Handling
+                    </CardTitle>
+                    <CardDescription>
+                      {countingRecords.length} supplier(s) need variance handling
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ScrollArea className="h-[400px] pr-4">
+                      {isLoading.rejections ? (
+                        <div className="flex flex-col items-center justify-center py-12">
+                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-4"></div>
+                          <p className="text-muted-foreground">Loading pending variance...</p>
                         </div>
-                        <div>
-                          <div className="font-semibold">{record.supplier_name}</div>
-                          <div className="text-sm text-gray-500 flex items-center gap-4">
-                            <span>Pallet: {record.pallet_id}</span>
-                            <span>Intake: {record.total_weight} kg</span>
-                            <span>{formatDate(record.submitted_at)}</span>
-                          </div>
+                      ) : countingRecords.length === 0 ? (
+                        <div className="text-center py-8">
+                          <Check className="w-12 h-12 mx-auto text-gray-300 mb-3" />
+                          <p className="text-gray-500 font-medium">No pending variance handling</p>
+                          <p className="text-sm text-gray-400 mt-1">
+                            All counted suppliers have been processed
+                          </p>
                         </div>
-                      </div>
-                      <div className="flex items-center gap-2"> 
-                        
-                        
-                        <Button
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleSelectForRejection(record);
-                          }}
-                          className="bg-orange-600 hover:bg-orange-700"
-                        >
-                          Handle Variance
-                        </Button>
-                        <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
-                          Needs Handling
-                        </Badge>
-                      </div>
-                    </div>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="p-4 bg-black border-t">
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4 text-sm">
-                        <div>
-                          <div className="text-gray-500">Supplier</div>
-                          <div className="font-semibold">{record.supplier_name}</div>
+                      ) : (
+                        <div className="space-y-3">
+                          {countingRecords.map((record) => (
+                            <Collapsible
+                              key={record.id}
+                              open={expandedReject.has(record.id)}
+                              onOpenChange={() => toggleRejectExpansion(record.id)}
+                              className="border rounded-lg overflow-hidden"
+                            >
+                              <CollapsibleTrigger asChild>
+                                <div className="flex items-center justify-between p-4 bg-black-50 hover:bg-black-100 cursor-pointer">
+                                  <div className="flex items-center gap-3">
+                                    <div className={`transition-transform ${expandedReject.has(record.id) ? 'rotate-180' : ''}`}>
+                                      <ChevronDown className="w-4 h-4" />
+                                    </div>
+                                    <div>
+                                      <div className="font-semibold">{record.supplier_name}</div>
+                                      <div className="text-sm text-gray-500 flex items-center gap-4">
+                                        <span>Pallet: {record.pallet_id}</span>
+                                        <span>Intake: {record.total_weight} kg</span>
+                                        <span>{formatDate(record.submitted_at)}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <Button
+                                      size="sm"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleSelectForRejection(record);
+                                      }}
+                                      className="bg-orange-600 hover:bg-orange-700"
+                                    >
+                                      Handle Variance
+                                    </Button>
+                                    <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
+                                      Needs Handling
+                                    </Badge>
+                                  </div>
+                                </div>
+                              </CollapsibleTrigger>
+                              <CollapsibleContent className="p-4 bg-black border-t">
+                                <div className="space-y-4">
+                                  <div className="grid grid-cols-2 gap-4 text-sm">
+                                    <div>
+                                      <div className="text-gray-500">Supplier</div>
+                                      <div className="font-semibold">{record.supplier_name}</div>
+                                    </div>
+                                    <div>
+                                      <div className="text-gray-500">Region</div>
+                                      <div className="font-medium">{record.region}</div>
+                                    </div>
+                                    <div>
+                                      <div className="text-gray-500">Intake Weight</div>
+                                      <div className="font-bold">{record.total_weight} kg</div>
+                                    </div>
+                                    <div>
+                                      <div className="text-gray-500">Counted Weight</div>
+                                      <div className="font-bold">
+                                        {Number(record.total_counted_weight || 0).toFixed(1)} kg
+                                      </div>
+                                    </div>
+                                  </div>
+                                  
+                                  <div className="bg-black-50 p-3 rounded border">
+                                    <div className="font-medium mb-2">Counted Boxes Summary</div>
+                                    <div className="grid grid-cols-2 gap-2 text-sm">
+                                      <div>
+                                        <span className="text-gray-500">Fuerte 4kg:</span>
+                                        <span className="font-semibold ml-2">{record.totals?.fuerte_4kg_total || 0}</span>
+                                      </div>
+                                      <div>
+                                        <span className="text-gray-500">Fuerte 10kg:</span>
+                                        <span className="font-semibold ml-2">{record.totals?.fuerte_10kg_total || 0}</span>
+                                      </div>
+                                      <div>
+                                        <span className="text-gray-500">Hass 4kg:</span>
+                                        <span className="font-semibold ml-2">{record.totals?.hass_4kg_total || 0}</span>
+                                      </div>
+                                      <div>
+                                        <span className="text-gray-500">Hass 10kg:</span>
+                                        <span className="font-semibold ml-2">{record.totals?.hass_10kg_total || 0}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </CollapsibleContent>
+                            </Collapsible>
+                          ))}
                         </div>
-                        <div>
-                          <div className="text-gray-500">Region</div>
-                          <div className="font-medium">{record.region}</div>
-                        </div>
-                        <div>
-                          <div className="text-gray-500">Intake Weight</div>
-                          <div className="font-bold">{record.total_weight} kg</div>
-                        </div>
-                        <div>
-                          <div className="text-gray-500">Counted Weight</div>
-                          <div className="font-bold">
-                            {Number(record.total_counted_weight || 0).toFixed(1)} kg
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <div className="bg-black-50 p-3 rounded border">
-                        <div className="font-medium mb-2">Counted Boxes Summary</div>
-                        <div className="grid grid-cols-2 gap-2 text-sm">
-                          <div>
-                            <span className="text-gray-500">Fuerte 4kg:</span>
-                            <span className="font-semibold ml-2">{record.totals?.fuerte_4kg_total || 0}</span>
-                          </div>
-                          <div>
-                            <span className="text-gray-500">Fuerte 10kg:</span>
-                            <span className="font-semibold ml-2">{record.totals?.fuerte_10kg_total || 0}</span>
-                          </div>
-                          <div>
-                            <span className="text-gray-500">Hass 4kg:</span>
-                            <span className="font-semibold ml-2">{record.totals?.hass_4kg_total || 0}</span>
-                          </div>
-                          <div>
-                            <span className="text-gray-500">Hass 10kg:</span>
-                            <span className="font-semibold ml-2">{record.totals?.hass_10kg_total || 0}</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </CollapsibleContent>
-                </Collapsible>
-              ))}
-            </div>
-          )}
-        </ScrollArea>
-      </CardContent>
-    </Card>
+                      )}
+                    </ScrollArea>
+                  </CardContent>
+                </Card>
                 {/* Variance Form */}
                 <Card>
                   <CardHeader>
@@ -2179,147 +2249,200 @@ const handleSendToColdRoom = async (record: CountingRecord) => {
                       </div>
                     ) : (
                       <div className="space-y-3">
-                        {filteredHistory.map((record) => (
-                          <Collapsible
-                            key={record.id}
-                            open={expandedHistory.has(record.id)}
-                            onOpenChange={() => toggleHistoryExpansion(record.id)}
-                            className="border rounded-lg overflow-hidden"
-                          >
-                            <CollapsibleTrigger asChild>
-                              <div className="flex items-center justify-between p-4 bg-black-50 hover:bg-black-100 cursor-pointer">
-                                <div className="flex items-center gap-3">
-                                  <div className={`transition-transform ${expandedHistory.has(record.id) ? 'rotate-180' : ''}`}>
-                                    <ChevronDown className="w-4 h-4" />
-                                  </div>
-                                  <div>
-                                    <div className="font-semibold">{record.supplier_name}</div>
-                                    <div className="text-sm text-gray-500 flex items-center gap-4">
-                                      <span>Pallet: {record.pallet_id}</span>
-                                      <span>Variance: {safeToFixed(record.weight_variance)} kg</span>
-                                      <span>{formatDate(record.submitted_at)}</span>
+                        {filteredHistory.map((record) => {
+                          const boxesSummary = getBoxesSummary(record.counting_totals);
+                          return (
+                            <Collapsible
+                              key={record.id}
+                              open={expandedHistory.has(record.id)}
+                              onOpenChange={() => toggleHistoryExpansion(record.id)}
+                              className="border rounded-lg overflow-hidden"
+                            >
+                              <CollapsibleTrigger asChild>
+                                <div className="flex items-center justify-between p-4 bg-black-50 hover:bg-black-100 cursor-pointer">
+                                  <div className="flex items-center gap-3">
+                                    <div className={`transition-transform ${expandedHistory.has(record.id) ? 'rotate-180' : ''}`}>
+                                      <ChevronDown className="w-4 h-4" />
+                                    </div>
+                                    <div>
+                                      <div className="font-semibold">{record.supplier_name}</div>
+                                      <div className="text-sm text-gray-500 flex items-center gap-4">
+                                        <span>Pallet: {record.pallet_id}</span>
+                                        <span>Boxes: {boxesSummary.total} boxes</span>
+                                        <span>Variance: {safeToFixed(record.weight_variance)} kg</span>
+                                        <span>{formatDate(record.submitted_at)}</span>
+                                      </div>
                                     </div>
                                   </div>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  {renderVarianceBadge(record.variance_level)}
-                                  <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                                    Processed
-                                  </Badge>
-                                </div>
-                              </div>
-                            </CollapsibleTrigger>
-                            <CollapsibleContent className="p-4 bg-black border-t">
-                              <div className="space-y-4">
-                                {/* Supplier Info */}
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                                  <div>
-                                    <div className="text-gray-500">Supplier</div>
-                                    <div className="font-semibold">{record.supplier_name}</div>
-                                  </div>
-                                  <div>
-                                    <div className="text-gray-500">Pallet ID</div>
-                                    <div className="font-medium">{record.pallet_id}</div>
-                                  </div>
-                                  <div>
-                                    <div className="text-gray-500">Region</div>
-                                    <div className="font-medium">{record.region}</div>
-                                  </div>
-                                  <div>
-                                    <div className="text-gray-500">Processed By</div>
-                                    <div className="font-medium">{record.processed_by}</div>
+                                  <div className="flex items-center gap-2">
+                                    {renderVarianceBadge(record.variance_level)}
+                                    <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                                      Processed
+                                    </Badge>
                                   </div>
                                 </div>
+                              </CollapsibleTrigger>
+                              <CollapsibleContent className="p-4 bg-black border-t">
+                                <div className="space-y-4">
+                                  {/* Supplier Info */}
+                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                                    <div>
+                                      <div className="text-gray-500">Supplier</div>
+                                      <div className="font-semibold">{record.supplier_name}</div>
+                                    </div>
+                                    <div>
+                                      <div className="text-gray-500">Pallet ID</div>
+                                      <div className="font-medium">{record.pallet_id}</div>
+                                    </div>
+                                    <div>
+                                      <div className="text-gray-500">Region</div>
+                                      <div className="font-medium">{record.region}</div>
+                                    </div>
+                                    <div>
+                                      <div className="text-gray-500">Processed By</div>
+                                      <div className="font-medium">{record.processed_by}</div>
+                                    </div>
+                                  </div>
 
-                                {/* Weight Summary */}
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                                  <div className="bg-black-50 p-3 rounded border">
-                                    <div className="text-gray-500">Intake Weight</div>
-                                    <div className="font-bold text-lg">{record.total_intake_weight} kg</div>
-                                  </div>
-                                  <div className="bg-black-50 p-3 rounded border">
-                                    <div className="text-gray-500">Counted Weight</div>
-                                    <div className="font-bold text-lg">{safeToFixed(record.total_counted_weight)} kg</div>
-                                  </div>
-                                  <div className="bg-black-50 p-3 rounded border">
-                                    <div className="text-gray-500">Rejected Weight</div>
-                                    <div className="font-bold text-lg">{safeToFixed(record.total_rejected_weight)} kg</div>
-                                  </div>
-                                  <div className={`p-3 rounded border ${
-                                    Math.abs(record.weight_variance) < 10 ? 'bg-black-50' : 
-                                    Math.abs(record.weight_variance) <= 20 ? 'bg-black-50' : 'bg-black-50'
-                                  }`}>
-                                    <div className="text-gray-500">Weight Variance</div>
-                                    <div className={`font-bold text-lg ${
-                                      Math.abs(record.weight_variance) < 10 ? 'text-green-700' : 
-                                      Math.abs(record.weight_variance) <= 20 ? 'text-yellow-700' : 'text-red-700'
+                                  {/* Weight Summary */}
+                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                                    <div className="bg-black-50 p-3 rounded border">
+                                      <div className="text-gray-500">Intake Weight</div>
+                                      <div className="font-bold text-lg">{record.total_intake_weight} kg</div>
+                                    </div>
+                                    <div className="bg-black-50 p-3 rounded border">
+                                      <div className="text-gray-500">Counted Weight</div>
+                                      <div className="font-bold text-lg">{safeToFixed(record.total_counted_weight)} kg</div>
+                                    </div>
+                                    <div className="bg-black-50 p-3 rounded border">
+                                      <div className="text-gray-500">Rejected Weight</div>
+                                      <div className="font-bold text-lg">{safeToFixed(record.total_rejected_weight)} kg</div>
+                                    </div>
+                                    <div className={`p-3 rounded border ${
+                                      Math.abs(record.weight_variance) < 10 ? 'bg-black-50' : 
+                                      Math.abs(record.weight_variance) <= 20 ? 'bg-black-50' : 'bg-black-50'
                                     }`}>
-                                      {safeToFixed(record.weight_variance)} kg
+                                      <div className="text-gray-500">Weight Variance</div>
+                                      <div className={`font-bold text-lg ${
+                                        Math.abs(record.weight_variance) < 10 ? 'text-green-700' : 
+                                        Math.abs(record.weight_variance) <= 20 ? 'text-yellow-700' : 'text-red-700'
+                                      }`}>
+                                        {safeToFixed(record.weight_variance)} kg
+                                      </div>
                                     </div>
                                   </div>
-                                </div>
 
-                                {/* Counted Boxes Summary */}
-                                {record.counting_totals && (
+                                  {/* Boxes Summary */}
                                   <div className="bg-black-50 p-3 rounded border">
-                                    <div className="font-medium mb-2">Counted Boxes Summary</div>
+                                    <div className="font-medium mb-2">Boxes Summary</div>
                                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                                       <div>
                                         <div className="text-gray-500">Fuerte 4kg</div>
-                                        <div className="font-semibold">{record.counting_totals.fuerte_4kg_total || 0}</div>
+                                        <div className="font-semibold text-green-700">{boxesSummary.fuerte_4kg} boxes</div>
                                       </div>
                                       <div>
                                         <div className="text-gray-500">Fuerte 10kg</div>
-                                        <div className="font-semibold">{record.counting_totals.fuerte_10kg_total || 0}</div>
+                                        <div className="font-semibold text-green-700">{boxesSummary.fuerte_10kg} crates</div>
                                       </div>
                                       <div>
                                         <div className="text-gray-500">Hass 4kg</div>
-                                        <div className="font-semibold">{record.counting_totals.hass_4kg_total || 0}</div>
+                                        <div className="font-semibold text-purple-700">{boxesSummary.hass_4kg} boxes</div>
                                       </div>
                                       <div>
                                         <div className="text-gray-500">Hass 10kg</div>
-                                        <div className="font-semibold">{record.counting_totals.hass_10kg_total || 0}</div>
+                                        <div className="font-semibold text-purple-700">{boxesSummary.hass_10kg} crates</div>
+                                      </div>
+                                    </div>
+                                    <div className="mt-2 pt-2 border-t">
+                                      <div className="flex justify-between text-sm">
+                                        <span className="text-gray-500">Total Boxes:</span>
+                                        <span className="font-bold">{boxesSummary.total} boxes/crates</span>
                                       </div>
                                     </div>
                                   </div>
-                                )}
 
-                                {/* Rejected Crates */}
-                                {safeArray(record.crates).length > 0 && (
+                                  {/* Detailed Counting Totals */}
                                   <div>
-                                    <div className="text-gray-500 mb-2">Rejected Crates</div>
+                                    <div className="text-gray-500 mb-2">Detailed Box Counts</div>
                                     <div className="bg-black-50 p-3 rounded border">
                                       <div className="grid grid-cols-4 gap-2 text-sm mb-2 font-medium">
                                         <div>Type</div>
-                                        <div>Class</div>
-                                        <div>Quantity</div>
-                                        <div>Total Weight</div>
+                                        <div>Class 1</div>
+                                        <div>Class 2</div>
+                                        <div>Total</div>
                                       </div>
-                                      {safeArray(record.crates).map((crate, idx) => (
-                                        <div key={idx} className="grid grid-cols-4 gap-2 text-sm py-1 border-t">
-                                          <div>{crate.box_type.replace('_', ' ')}</div>
-                                          <div>{crate.class_type}</div>
-                                          <div>{crate.quantity}</div>
-                                          <div>{safeToFixed(crate.total_weight)} kg</div>
+                                      {boxesSummary.fuerte_4kg > 0 && (
+                                        <div className="grid grid-cols-4 gap-2 text-sm py-1 border-t">
+                                          <div className="font-medium">Fuerte 4kg</div>
+                                          <div>{parseCountingTotals(record.counting_totals).fuerte_4kg_class1 || 0}</div>
+                                          <div>{parseCountingTotals(record.counting_totals).fuerte_4kg_class2 || 0}</div>
+                                          <div className="font-bold">{boxesSummary.fuerte_4kg}</div>
                                         </div>
-                                      ))}
+                                      )}
+                                      {boxesSummary.fuerte_10kg > 0 && (
+                                        <div className="grid grid-cols-4 gap-2 text-sm py-1 border-t">
+                                          <div className="font-medium">Fuerte 10kg</div>
+                                          <div>{parseCountingTotals(record.counting_totals).fuerte_10kg_class1 || 0}</div>
+                                          <div>{parseCountingTotals(record.counting_totals).fuerte_10kg_class2 || 0}</div>
+                                          <div className="font-bold">{boxesSummary.fuerte_10kg}</div>
+                                        </div>
+                                      )}
+                                      {boxesSummary.hass_4kg > 0 && (
+                                        <div className="grid grid-cols-4 gap-2 text-sm py-1 border-t">
+                                          <div className="font-medium">Hass 4kg</div>
+                                          <div>{parseCountingTotals(record.counting_totals).hass_4kg_class1 || 0}</div>
+                                          <div>{parseCountingTotals(record.counting_totals).hass_4kg_class2 || 0}</div>
+                                          <div className="font-bold">{boxesSummary.hass_4kg}</div>
+                                        </div>
+                                      )}
+                                      {boxesSummary.hass_10kg > 0 && (
+                                        <div className="grid grid-cols-4 gap-2 text-sm py-1 border-t">
+                                          <div className="font-medium">Hass 10kg</div>
+                                          <div>{parseCountingTotals(record.counting_totals).hass_10kg_class1 || 0}</div>
+                                          <div>{parseCountingTotals(record.counting_totals).hass_10kg_class2 || 0}</div>
+                                          <div className="font-bold">{boxesSummary.hass_10kg}</div>
+                                        </div>
+                                      )}
                                     </div>
                                   </div>
-                                )}
 
-                                {/* Notes */}
-                                {record.notes && (
-                                  <div>
-                                    <div className="text-gray-500 mb-2">Notes</div>
-                                    <div className="bg-gray-50 p-3 rounded border text-sm">
-                                      {record.notes}
+                                  {/* Rejected Crates */}
+                                  {safeArray(record.crates).length > 0 && (
+                                    <div>
+                                      <div className="text-gray-500 mb-2">Rejected Crates</div>
+                                      <div className="bg-black-50 p-3 rounded border">
+                                        <div className="grid grid-cols-4 gap-2 text-sm mb-2 font-medium">
+                                          <div>Type</div>
+                                          <div>Class</div>
+                                          <div>Quantity</div>
+                                          <div>Total Weight</div>
+                                        </div>
+                                        {safeArray(record.crates).map((crate, idx) => (
+                                          <div key={idx} className="grid grid-cols-4 gap-2 text-sm py-1 border-t">
+                                            <div>{crate.box_type.replace('_', ' ')}</div>
+                                            <div>{crate.class_type}</div>
+                                            <div>{crate.quantity}</div>
+                                            <div>{safeToFixed(crate.total_weight)} kg</div>
+                                          </div>
+                                        ))}
+                                      </div>
                                     </div>
-                                  </div>
-                                )}
-                              </div>
-                            </CollapsibleContent>
-                          </Collapsible>
-                        ))}
+                                  )}
+
+                                  {/* Notes */}
+                                  {record.notes && (
+                                    <div>
+                                      <div className="text-gray-500 mb-2">Notes</div>
+                                      <div className="bg-gray-50 p-3 rounded border text-sm">
+                                        {record.notes}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </CollapsibleContent>
+                            </Collapsible>
+                          );
+                        })}
                       </div>
                     )}
                   </ScrollArea>
