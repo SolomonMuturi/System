@@ -628,11 +628,11 @@ model packaging_materials {
 }
 
 model User {
-  id          String    @id @default(cuid())
+  id          String    @id @default(cuid())           // REMOVE @db.VarChar(20) if present
   email       String    @unique
   name        String?
   password    String?
-  roleId      String?   @db.VarChar(20)
+  roleId      String?                                  // REMOVE @db.VarChar(20)
   role        UserRole? @relation(fields: [roleId], references: [id], onDelete: SetNull)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -641,13 +641,13 @@ model User {
 }
 
 model UserRole {
-  id          String    @id @default(cuid())
+  id          String    @id @default(cuid())           // REMOVE @db.VarChar(20)
   name        String    @unique @db.VarChar(100)
   description String?   @db.Text
   permissions Json      @default("[]")
   isDefault   Boolean   @default(false)
-  createdAt   DateTime  @default(now()) @db.Timestamp(0)
-  updatedAt   DateTime  @updatedAt @db.Timestamp(0)
+  createdAt   DateTime  @default(now()) @db.DateTime(0)
+  updatedAt   DateTime  @updatedAt @db.DateTime(0)
   users       User[]
   
   @@map("user_roles")
