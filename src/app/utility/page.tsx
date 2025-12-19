@@ -16,13 +16,17 @@ import { Header } from '@/components/layout/header';
 
 import { AnomalyDetection } from '@/components/dashboard/anomaly-detection';
 import { OverviewCard } from '@/components/dashboard/overview-card';
-import { DollarSign, Thermometer, Bolt, Zap, Droplet, Fuel, Clock, AlertTriangle, BarChart, PieChart } from 'lucide-react';
+import { DollarSign, Thermometer, Bolt, Zap, Droplet, Fuel, Clock, AlertTriangle, BarChart, PieChart, Download, Filter, X } from 'lucide-react';
 import type { ExplainAnomalyInput } from "@/ai/flows/explain-anomaly-detection";
 import { explainEnergySpike } from '@/ai/flows/explain-energy-spike';
 import { explainWaterAnomaly } from '@/ai/flows/explain-water-anomaly';
 import { Skeleton } from '@/components/ui/skeleton';
 import { UtilityMonitors } from '@/components/dashboard/utility-monitors';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 // Define utility rates
 const UTILITY_RATES = {
@@ -191,6 +195,13 @@ export default function UtilityManagementPage() {
     const [monthlyWaterCost, setMonthlyWaterCost] = useState(0);
     const [monthlyDieselCost, setMonthlyDieselCost] = useState(0);
 
+    // Date filter states
+    const [dateFilter, setDateFilter] = useState<'all' | 'specific' | 'range'>('all');
+    const [specificDate, setSpecificDate] = useState<string>('');
+    const [startDate, setStartDate] = useState<string>('');
+    const [endDate, setEndDate] = useState<string>('');
+    const [utilityTypeFilter, setUtilityTypeFilter] = useState<'all' | 'electricity' | 'water' | 'diesel'>('all');
+
     // Generate chart data from readings
     const generateChartData = (readings: UtilityReading[]) => {
       if (readings.length === 0) return [];
@@ -278,12 +289,159 @@ export default function UtilityManagementPage() {
       }));
     };
 
+    // Filter utility readings based on date and type filters
+    const getFilteredReadings = () => {
+      let filtered = [...readings];
+
+      // Apply date filter
+      if (dateFilter !== 'all') {
+        filtered = filtered.filter(reading => {
+          const readingDate = new Date(reading.date);
+          
+          switch (dateFilter) {
+            case 'specific':
+              if (!specificDate) return true;
+              const specific = new Date(specificDate);
+              return readingDate.toDateString() === specific.toDateString();
+            case 'range':
+              if (!startDate || !endDate) return true;
+              const start = new Date(startDate);
+              const end = new Date(endDate);
+              return readingDate >= start && readingDate <= end;
+            default:
+              return true;
+          }
+        });
+      }
+
+      return filtered;
+    };
+
+    // Filter utility type for CSV export
+    const getFilteredReadingsForExport = () => {
+      let filtered = getFilteredReadings();
+
+      // Apply utility type filter
+      if (utilityTypeFilter !== 'all') {
+        // We'll filter by which columns have data, but for CSV we want all columns
+        // This filter is mainly for the summary display
+        return filtered;
+      }
+
+      return filtered;
+    };
+
+    // Download utility readings as CSV
+    const downloadUtilityReadingsCSV = () => {
+      const filteredReadings = getFilteredReadingsForExport();
+      
+      // CSV headers
+      const headers = [
+        'Date',
+        'Shift',
+        'Recorded By',
+        'Power Opening (kWh)',
+        'Power Closing (kWh)',
+        'Power Consumed (kWh)',
+        'Water Opening (m³)',
+        'Water Closing (m³)',
+        'Water Consumed (m³)',
+        'Generator Start Time',
+        'Generator Stop Time',
+        'Generator Runtime (hours)',
+        'Diesel Consumed (L)',
+        'Diesel Refill (L)',
+        'Notes'
+      ];
+      
+      // CSV rows
+      const rows = filteredReadings.map(reading => [
+        new Date(reading.date).toLocaleDateString('en-GB'),
+        reading.shift || 'N/A',
+        reading.recordedBy,
+        reading.powerOpening,
+        reading.powerClosing,
+        reading.powerConsumed,
+        reading.waterOpening,
+        reading.waterClosing,
+        reading.waterConsumed,
+        reading.generatorStart,
+        reading.generatorStop,
+        reading.timeConsumed,
+        reading.dieselConsumed,
+        reading.dieselRefill || '0',
+        reading.notes || 'N/A'
+      ]);
+      
+      // Combine headers and rows
+      const csvContent = [headers, ...rows]
+        .map(row => row.map(cell => `"${cell}"`).join(','))
+        .join('\n');
+      
+      // Create and download file
+      const blob = new Blob([csvContent], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      
+      // Generate filename with date range
+      let fileName = 'utility-readings';
+      if (dateFilter === 'specific' && specificDate) {
+        const dateStr = new Date(specificDate).toISOString().split('T')[0];
+        fileName += `_${dateStr}`;
+      } else if (dateFilter === 'range' && startDate && endDate) {
+        const startStr = new Date(startDate).toISOString().split('T')[0];
+        const endStr = new Date(endDate).toISOString().split('T')[0];
+        fileName += `_${startStr}_to_${endStr}`;
+      }
+      if (utilityTypeFilter !== 'all') {
+        fileName += `_${utilityTypeFilter}`;
+      }
+      fileName += `_${new Date().toISOString().split('T')[0]}.csv`;
+      
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      
+      // Show success toast (you need to implement toast system or use alert)
+      alert(`Downloaded ${filteredReadings.length} utility readings as CSV`);
+    };
+
+    // Calculate totals for filtered readings
+    const calculateFilteredTotals = (filteredReadings: UtilityReading[]) => {
+      let powerTotal = 0;
+      let waterTotal = 0;
+      let dieselTotal = 0;
+
+      filteredReadings.forEach(reading => {
+        powerTotal += parseFloat(reading.powerConsumed) || 0;
+        waterTotal += parseFloat(reading.waterConsumed) || 0;
+        dieselTotal += parseFloat(reading.dieselConsumed) || 0;
+      });
+
+      return { powerTotal, waterTotal, dieselTotal };
+    };
+
+    // Clear all filters
+    const clearFilters = () => {
+      setDateFilter('all');
+      setSpecificDate('');
+      setStartDate('');
+      setEndDate('');
+      setUtilityTypeFilter('all');
+    };
+
+    // Check if any filters are active
+    const hasActiveFilters = dateFilter !== 'all' || utilityTypeFilter !== 'all';
+
     // Fetch utility data
     const fetchUtilityData = async () => {
         try {
             setIsLoading(true);
             setError(null);
-            const response = await fetch('/api/utility-readings?limit=30');
+            const response = await fetch('/api/utility-readings?limit=100');
             
             if (!response.ok) {
                 throw new Error(`Failed to fetch data: ${response.status}`);
@@ -294,10 +452,8 @@ export default function UtilityManagementPage() {
             // Set readings
             setReadings(data.readings || []);
             
-            // Update state with totals
-            const powerTotal = data.totals?.totalPower || 0;
-            const waterTotal = data.totals?.totalWater || 0;
-            const dieselTotal = data.totals?.totalDiesel || 0;
+            // Calculate totals from all data
+            const { powerTotal, waterTotal, dieselTotal } = calculateFilteredTotals(data.readings || []);
             
             setTotalPower(powerTotal);
             setTotalWater(waterTotal);
@@ -451,6 +607,10 @@ export default function UtilityManagementPage() {
         return explainWaterAnomaly(anomaly);
     }
     
+    // Get current filtered data
+    const filteredReadings = getFilteredReadings();
+    const filteredTotals = calculateFilteredTotals(filteredReadings);
+    
     return (
         <SidebarProvider>
             <Sidebar>
@@ -469,18 +629,30 @@ export default function UtilityManagementPage() {
             <SidebarInset>
                 <Header />
                 <main className="p-4 md:p-6 lg:p-8 space-y-8">
-                    <div>
-                        <h2 className="text-2xl font-bold tracking-tight">
-                            Utility Management Dashboard
-                        </h2>
-                        <p className="text-muted-foreground">
-                            Monitor energy, water, and diesel consumption across your operations.
-                        </p>
-                        <div className="mt-2 text-sm text-muted-foreground">
-                            <span className="font-medium">Today&apos;s Totals:</span> {totalPower.toFixed(0)} kWh Power • {totalWater.toFixed(0)} m³ Water • {totalDiesel.toFixed(1)} L Diesel
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <h2 className="text-2xl font-bold tracking-tight">
+                                Utility Management Dashboard
+                            </h2>
+                            <p className="text-muted-foreground">
+                                Monitor energy, water, and diesel consumption across your operations.
+                            </p>
+                            <div className="mt-2 text-sm text-muted-foreground">
+                                <span className="font-medium">Today&apos;s Totals:</span> {totalPower.toFixed(0)} kWh Power • {totalWater.toFixed(0)} m³ Water • {totalDiesel.toFixed(1)} L Diesel
+                            </div>
+                            <div className="mt-1 text-xs text-muted-foreground">
+                                <span className="font-medium">Current Rates:</span> Electricity: KES {UTILITY_RATES.electricity}/kWh • Water: KES {UTILITY_RATES.water}/m³ • Diesel: KES {UTILITY_RATES.diesel}/L
+                            </div>
                         </div>
-                        <div className="mt-1 text-xs text-muted-foreground">
-                            <span className="font-medium">Current Rates:</span> Electricity: KES {UTILITY_RATES.electricity}/kWh • Water: KES {UTILITY_RATES.water}/m³ • Diesel: KES {UTILITY_RATES.diesel}/L
+                        <div className="flex items-center gap-2">
+                            <Button 
+                                onClick={() => fetchUtilityData()} 
+                                variant="outline" 
+                                size="sm" 
+                                disabled={isLoading}
+                            >
+                                Refresh
+                            </Button>
                         </div>
                     </div>
                     
@@ -502,6 +674,203 @@ export default function UtilityManagementPage() {
                             </Button>
                         </div>
                     )}
+
+                    {/* Filters and Export Card */}
+                    <Card>
+                        <CardHeader>
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <CardTitle className="flex items-center gap-2">
+                                        <Filter className="w-5 h-5" />
+                                        Data Filters & Export
+                                    </CardTitle>
+                                    <CardDescription>
+                                        Filter utility readings by date and export as CSV
+                                    </CardDescription>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    {hasActiveFilters && (
+                                        <Button 
+                                            onClick={clearFilters} 
+                                            variant="outline" 
+                                            size="sm"
+                                        >
+                                            <X className="w-4 h-4 mr-2" />
+                                            Clear Filters
+                                        </Button>
+                                    )}
+                                    <Button 
+                                        onClick={downloadUtilityReadingsCSV} 
+                                        disabled={filteredReadings.length === 0 || isLoading}
+                                    >
+                                        <Download className="w-4 h-4 mr-2" />
+                                        Export CSV ({filteredReadings.length})
+                                    </Button>
+                                </div>
+                            </div>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="space-y-4">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <Label htmlFor="utility-type">Utility Type</Label>
+                                        <Select value={utilityTypeFilter} onValueChange={(value: any) => setUtilityTypeFilter(value)}>
+                                            <SelectTrigger id="utility-type">
+                                                <SelectValue placeholder="Select utility type" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="all">All Utilities</SelectItem>
+                                                <SelectItem value="electricity">Electricity Only</SelectItem>
+                                                <SelectItem value="water">Water Only</SelectItem>
+                                                <SelectItem value="diesel">Diesel Only</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    
+                                    <div>
+                                        <Label htmlFor="date-filter">Date Filter</Label>
+                                        <Select value={dateFilter} onValueChange={(value: any) => setDateFilter(value)}>
+                                            <SelectTrigger id="date-filter">
+                                                <SelectValue placeholder="Select date filter" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="all">All Dates</SelectItem>
+                                                <SelectItem value="specific">Specific Date</SelectItem>
+                                                <SelectItem value="range">Date Range</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </div>
+
+                                {dateFilter === 'specific' && (
+                                    <div className="p-4 border rounded-lg">
+                                        <Label htmlFor="specific-date">Select Date</Label>
+                                        <div className="flex items-center gap-2 mt-2">
+                                            <Input
+                                                id="specific-date"
+                                                type="date"
+                                                value={specificDate}
+                                                onChange={(e) => setSpecificDate(e.target.value)}
+                                                className="flex-1"
+                                            />
+                                            {specificDate && (
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    onClick={() => setSpecificDate('')}
+                                                    className="h-10 w-10 p-0"
+                                                >
+                                                    <X className="h-4 w-4" />
+                                                </Button>
+                                            )}
+                                        </div>
+                                        <p className="text-sm text-muted-foreground mt-2">
+                                            Filter readings recorded on this specific date
+                                        </p>
+                                    </div>
+                                )}
+
+                                {dateFilter === 'range' && (
+                                    <div className="p-4 border rounded-lg">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div>
+                                                <Label htmlFor="start-date">Start Date</Label>
+                                                <div className="flex items-center gap-2 mt-2">
+                                                    <Input
+                                                        id="start-date"
+                                                        type="date"
+                                                        value={startDate}
+                                                        onChange={(e) => setStartDate(e.target.value)}
+                                                        className="flex-1"
+                                                    />
+                                                    {startDate && (
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            onClick={() => setStartDate('')}
+                                                            className="h-10 w-10 p-0"
+                                                        >
+                                                            <X className="h-4 w-4" />
+                                                        </Button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <Label htmlFor="end-date">End Date</Label>
+                                                <div className="flex items-center gap-2 mt-2">
+                                                    <Input
+                                                        id="end-date"
+                                                        type="date"
+                                                        value={endDate}
+                                                        onChange={(e) => setEndDate(e.target.value)}
+                                                        className="flex-1"
+                                                    />
+                                                    {endDate && (
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            onClick={() => setEndDate('')}
+                                                            className="h-10 w-10 p-0"
+                                                        >
+                                                            <X className="h-4 w-4" />
+                                                        </Button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <p className="text-sm text-muted-foreground mt-2">
+                                            Filter readings recorded between these dates
+                                        </p>
+                                    </div>
+                                )}
+
+                                <div className="text-sm text-muted-foreground">
+                                    Showing {filteredReadings.length} of {readings.length} utility readings
+                                    {dateFilter === 'specific' && specificDate && (
+                                        <span> • Filtered by date: {new Date(specificDate).toLocaleDateString('en-GB')}</span>
+                                    )}
+                                    {dateFilter === 'range' && startDate && endDate && (
+                                        <span> • Filtered from {new Date(startDate).toLocaleDateString('en-GB')} to {new Date(endDate).toLocaleDateString('en-GB')}</span>
+                                    )}
+                                    {utilityTypeFilter !== 'all' && (
+                                        <span> • Showing {utilityTypeFilter} only</span>
+                                    )}
+                                </div>
+
+                                {filteredReadings.length > 0 && (
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t">
+                                        <div className="text-center p-3 border rounded-lg">
+                                            <div className="text-sm text-gray-500 mb-1">Filtered Power</div>
+                                            <div className="text-2xl font-bold text-blue-600">
+                                                {filteredTotals.powerTotal.toFixed(0)} kWh
+                                            </div>
+                                            <div className="text-xs text-gray-500 mt-1">
+                                                {(filteredTotals.powerTotal * UTILITY_RATES.electricity).toLocaleString('en-KE', { style: 'currency', currency: 'KES' })}
+                                            </div>
+                                        </div>
+                                        <div className="text-center p-3 border rounded-lg">
+                                            <div className="text-sm text-gray-500 mb-1">Filtered Water</div>
+                                            <div className="text-2xl font-bold text-cyan-600">
+                                                {filteredTotals.waterTotal.toFixed(0)} m³
+                                            </div>
+                                            <div className="text-xs text-gray-500 mt-1">
+                                                {(filteredTotals.waterTotal * UTILITY_RATES.water).toLocaleString('en-KE', { style: 'currency', currency: 'KES' })}
+                                            </div>
+                                        </div>
+                                        <div className="text-center p-3 border rounded-lg">
+                                            <div className="text-sm text-gray-500 mb-1">Filtered Diesel</div>
+                                            <div className="text-2xl font-bold text-amber-600">
+                                                {filteredTotals.dieselTotal.toFixed(1)} L
+                                            </div>
+                                            <div className="text-xs text-gray-500 mt-1">
+                                                {(filteredTotals.dieselTotal * UTILITY_RATES.diesel).toLocaleString('en-KE', { style: 'currency', currency: 'KES' })}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </CardContent>
+                    </Card>
 
                     <UtilityMonitors onSaveSuccess={handleRefreshData} />
 
@@ -648,6 +1017,7 @@ export default function UtilityManagementPage() {
                             </div>
                             <div className="flex items-center gap-4">
                                 <span>Last updated: {lastUpdated}</span>
+                                <span>Total readings: {readings.length}</span>
                                 <button 
                                     onClick={fetchUtilityData}
                                     disabled={isLoading}
