@@ -627,6 +627,19 @@ model packaging_materials {
   @@map("packaging_materials")
 }
 
+model User {
+  id          String    @id @default(cuid())
+  email       String    @unique
+  name        String?
+  password    String?
+  roleId      String?   @db.VarChar(20)
+  role        UserRole? @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  @@map("users")
+}
+
 model UserRole {
   id          String    @id @default(cuid()) @db.VarChar(20)
   name        String    @unique @db.VarChar(100)
@@ -635,8 +648,8 @@ model UserRole {
   isDefault   Boolean   @default(false)
   createdAt   DateTime  @default(now()) @db.DateTime(0)
   updatedAt   DateTime  @updatedAt @db.DateTime(0)
-  users       User[]    // You'll need to add a User model for this relationship
-
+  users       User[]    // Now this references an actual model
+  
   @@map("user_roles")
 }
 
