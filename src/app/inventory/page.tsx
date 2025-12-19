@@ -12,7 +12,7 @@ import { FreshViewLogo } from '@/components/icons';
 import { SidebarNav } from '@/components/layout/sidebar-nav';
 import { Header } from '@/components/layout/header';
 import { Button } from '@/components/ui/button';
-import { Check, ListTodo, PlusCircle, Package as PackageIcon, Loader2, AlertCircle, RefreshCw, Boxes, TrendingUp, AlertTriangle, Truck, Warehouse, Snowflake, Package, Minus, Plus, BarChart, Download, Calendar, Filter } from 'lucide-react';
+import { Check, ListTodo, PlusCircle, Package as PackageIcon, Loader2, AlertCircle, RefreshCw, Boxes, TrendingUp, AlertTriangle, Truck, Warehouse, Snowflake, Package, Minus, Plus, BarChart, Download, Calendar, Filter, X } from 'lucide-react';
 import { OverviewCard } from '@/components/dashboard/overview-card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -24,7 +24,6 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ScrollArea } from '@/components/ui/scroll-area';
-
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 // Avocado Inventory Types
@@ -87,9 +86,10 @@ export default function InventoryPage() {
   const [selectedMaterialId, setSelectedMaterialId] = useState<string>('');
   
   // Date filter states
-  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month' | 'custom'>('all');
-  const [customStartDate, setCustomStartDate] = useState<Date | undefined>(undefined);
-  const [customEndDate, setCustomEndDate] = useState<Date | undefined>(undefined);
+  const [dateFilter, setDateFilter] = useState<'all' | 'specific' | 'range'>('all');
+  const [specificDate, setSpecificDate] = useState<string>('');
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
   
   const { toast } = useToast();
@@ -340,20 +340,17 @@ export default function InventoryPage() {
     if (dateFilter !== 'all') {
       filtered = filtered.filter(material => {
         const materialDate = material.createdAt ? new Date(material.createdAt) : new Date(material.lastUsedDate);
-        const now = new Date();
         
         switch (dateFilter) {
-          case 'today':
-            return materialDate.toDateString() === now.toDateString();
-          case 'week':
-            const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-            return materialDate >= oneWeekAgo;
-          case 'month':
-            const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-            return materialDate >= oneMonthAgo;
-          case 'custom':
-            if (!customStartDate || !customEndDate) return true;
-            return materialDate >= customStartDate && materialDate <= customEndDate;
+          case 'specific':
+            if (!specificDate) return true;
+            const specific = new Date(specificDate);
+            return materialDate.toDateString() === specific.toDateString();
+          case 'range':
+            if (!startDate || !endDate) return true;
+            const start = new Date(startDate);
+            const end = new Date(endDate);
+            return materialDate >= start && materialDate <= end;
           default:
             return true;
         }
@@ -404,8 +401,8 @@ export default function InventoryPage() {
       material.currentStock <= material.reorderLevel ? 'Low Stock' : 'In Stock',
       material.consumptionRate,
       material.dimensions || 'N/A',
-      new Date(material.lastUsedDate).toLocaleDateString(),
-      material.createdAt ? new Date(material.createdAt).toLocaleDateString() : 'N/A'
+      new Date(material.lastUsedDate).toLocaleDateString('en-GB'),
+      material.createdAt ? new Date(material.createdAt).toLocaleDateString('en-GB') : 'N/A'
     ]);
     
     // Combine headers and rows
@@ -421,12 +418,13 @@ export default function InventoryPage() {
     
     // Generate filename with date range
     let fileName = 'packaging-materials';
-    if (dateFilter === 'custom' && customStartDate && customEndDate) {
-      const startStr = customStartDate.toISOString().split('T')[0];
-      const endStr = customEndDate.toISOString().split('T')[0];
+    if (dateFilter === 'specific' && specificDate) {
+      const dateStr = new Date(specificDate).toISOString().split('T')[0];
+      fileName += `_${dateStr}`;
+    } else if (dateFilter === 'range' && startDate && endDate) {
+      const startStr = new Date(startDate).toISOString().split('T')[0];
+      const endStr = new Date(endDate).toISOString().split('T')[0];
       fileName += `_${startStr}_to_${endStr}`;
-    } else if (dateFilter !== 'all') {
-      fileName += `_${dateFilter}`;
     }
     fileName += `_${new Date().toISOString().split('T')[0]}.csv`;
     
@@ -440,6 +438,15 @@ export default function InventoryPage() {
       title: 'CSV Downloaded',
       description: `Downloaded ${filteredMaterials.length} packaging materials`,
     });
+  };
+
+  // Clear all filters
+  const clearFilters = () => {
+    setDateFilter('all');
+    setSpecificDate('');
+    setStartDate('');
+    setEndDate('');
+    setSearchTerm('');
   };
 
   // Prepare KPI data for OverviewCards
@@ -525,6 +532,9 @@ export default function InventoryPage() {
 
   // Get filtered materials for display
   const filteredPackagingMaterials = getFilteredPackagingMaterials();
+
+  // Check if any filters are active
+  const hasActiveFilters = dateFilter !== 'all' || searchTerm.trim() !== '';
 
   if (isLoading) {
     return (
@@ -842,14 +852,26 @@ export default function InventoryPage() {
                             Filter packaging materials by date and export as CSV
                           </CardDescription>
                         </div>
-                        <Button 
-                          onClick={downloadPackagingCSV} 
-                          disabled={filteredPackagingMaterials.length === 0}
-                          className="ml-2"
-                        >
-                          <Download className="w-4 h-4 mr-2" />
-                          Export CSV ({filteredPackagingMaterials.length})
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          {hasActiveFilters && (
+                            <Button 
+                              onClick={clearFilters} 
+                              variant="outline" 
+                              size="sm"
+                            >
+                              <X className="w-4 h-4 mr-2" />
+                              Clear Filters
+                            </Button>
+                          )}
+                          <Button 
+                            onClick={downloadPackagingCSV} 
+                            disabled={filteredPackagingMaterials.length === 0}
+                            className="ml-2"
+                          >
+                            <Download className="w-4 h-4 mr-2" />
+                            Export CSV ({filteredPackagingMaterials.length})
+                          </Button>
+                        </div>
                       </div>
                     </CardHeader>
                     <CardContent>
@@ -873,82 +895,106 @@ export default function InventoryPage() {
                             <Label htmlFor="date-filter">Date Filter</Label>
                             <Select value={dateFilter} onValueChange={(value: any) => setDateFilter(value)}>
                               <SelectTrigger id="date-filter">
-                                <SelectValue placeholder="Select date range" />
+                                <SelectValue placeholder="Select date filter" />
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="all">All Time</SelectItem>
-                                <SelectItem value="today">Today</SelectItem>
-                                <SelectItem value="week">Last 7 Days</SelectItem>
-                                <SelectItem value="month">Last 30 Days</SelectItem>
-                                <SelectItem value="custom">Custom Range</SelectItem>
+                                <SelectItem value="all">All Dates</SelectItem>
+                                <SelectItem value="specific">Specific Date</SelectItem>
+                                <SelectItem value="range">Date Range</SelectItem>
                               </SelectContent>
                             </Select>
                           </div>
                         </div>
 
-                        {dateFilter === 'custom' && (
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 border rounded-lg">
-                            <div>
-                              <Label htmlFor="start-date">Start Date</Label>
-                              <Popover>
-                                <PopoverTrigger asChild>
-                                  <Button
-                                    variant="outline"
-                                    className="w-full justify-start text-left font-normal"
+                        {dateFilter === 'specific' && (
+                          <div className="p-4 border rounded-lg">
+                            <Label htmlFor="specific-date">Select Date</Label>
+                            <div className="flex items-center gap-2 mt-2">
+                              <Input
+                                id="specific-date"
+                                type="date"
+                                value={specificDate}
+                                onChange={(e) => setSpecificDate(e.target.value)}
+                                className="flex-1"
+                              />
+                              {specificDate && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setSpecificDate('')}
+                                  className="h-10 w-10 p-0"
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              )}
+                            </div>
+                            <p className="text-sm text-muted-foreground mt-2">
+                              Filter materials added/used on this specific date
+                            </p>
+                          </div>
+                        )}
+
+                        {dateFilter === 'range' && (
+                          <div className="p-4 border rounded-lg">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div>
+                                <Label htmlFor="start-date">Start Date</Label>
+                                <div className="flex items-center gap-2 mt-2">
+                                  <Input
                                     id="start-date"
-                                  >
-                                    <Calendar className="mr-2 h-4 w-4" />
-                                    {customStartDate ? (
-                                      customStartDate.toLocaleDateString()
-                                    ) : (
-                                      <span>Pick a date</span>
-                                    )}
-                                  </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-0">
-                                  <DatePicker
-                                    mode="single"
-                                    selected={customStartDate}
-                                    onSelect={setCustomStartDate}
-                                    initialFocus
+                                    type="date"
+                                    value={startDate}
+                                    onChange={(e) => setStartDate(e.target.value)}
+                                    className="flex-1"
                                   />
-                                </PopoverContent>
-                              </Popover>
-                            </div>
-                            <div>
-                              <Label htmlFor="end-date">End Date</Label>
-                              <Popover>
-                                <PopoverTrigger asChild>
-                                  <Button
-                                    variant="outline"
-                                    className="w-full justify-start text-left font-normal"
+                                  {startDate && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => setStartDate('')}
+                                      className="h-10 w-10 p-0"
+                                    >
+                                      <X className="h-4 w-4" />
+                                    </Button>
+                                  )}
+                                </div>
+                              </div>
+                              <div>
+                                <Label htmlFor="end-date">End Date</Label>
+                                <div className="flex items-center gap-2 mt-2">
+                                  <Input
                                     id="end-date"
-                                  >
-                                    <Calendar className="mr-2 h-4 w-4" />
-                                    {customEndDate ? (
-                                      customEndDate.toLocaleDateString()
-                                    ) : (
-                                      <span>Pick a date</span>
-                                    )}
-                                  </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-0">
-                                  <DatePicker
-                                    mode="single"
-                                    selected={customEndDate}
-                                    onSelect={setCustomEndDate}
-                                    initialFocus
+                                    type="date"
+                                    value={endDate}
+                                    onChange={(e) => setEndDate(e.target.value)}
+                                    className="flex-1"
                                   />
-                                </PopoverContent>
-                              </Popover>
+                                  {endDate && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => setEndDate('')}
+                                      className="h-10 w-10 p-0"
+                                    >
+                                      <X className="h-4 w-4" />
+                                    </Button>
+                                  )}
+                                </div>
+                              </div>
                             </div>
+                            <p className="text-sm text-muted-foreground mt-2">
+                              Filter materials added/used between these dates
+                            </p>
                           </div>
                         )}
 
                         <div className="text-sm text-muted-foreground">
                           Showing {filteredPackagingMaterials.length} of {packagingMaterials.length} packaging materials
-                          {dateFilter !== 'all' && (
-                            <span> • Filtered by {dateFilter}</span>
+                          {dateFilter === 'specific' && specificDate && (
+                            <span> • Filtered by date: {new Date(specificDate).toLocaleDateString('en-GB')}</span>
+                          )}
+                          {dateFilter === 'range' && startDate && endDate && (
+                            <span> • Filtered from {new Date(startDate).toLocaleDateString('en-GB')} to {new Date(endDate).toLocaleDateString('en-GB')}</span>
                           )}
                         </div>
                       </div>
@@ -1035,7 +1081,8 @@ export default function InventoryPage() {
                       </CardTitle>
                       <CardDescription>
                         Current stock levels and consumption rates
-                        {dateFilter !== 'all' && ` • Filtered by ${dateFilter}`}
+                        {dateFilter === 'specific' && specificDate && ` • Filtered by date: ${new Date(specificDate).toLocaleDateString('en-GB')}`}
+                        {dateFilter === 'range' && startDate && endDate && ` • Filtered from ${new Date(startDate).toLocaleDateString('en-GB')} to ${new Date(endDate).toLocaleDateString('en-GB')}`}
                       </CardDescription>
                     </CardHeader>
                     <CardContent>
@@ -1044,7 +1091,7 @@ export default function InventoryPage() {
                           <PackageIcon className="w-12 h-12 mx-auto text-gray-300 mb-3" />
                           <p className="text-gray-500 font-medium">No packaging materials found</p>
                           <p className="text-sm text-gray-400 mt-1">
-                            {searchTerm ? 'Try adjusting your search' : 'Add packaging materials to get started'}
+                            {searchTerm || dateFilter !== 'all' ? 'Try adjusting your filters' : 'Add packaging materials to get started'}
                           </p>
                         </div>
                       ) : (
@@ -1060,6 +1107,7 @@ export default function InventoryPage() {
                                 <TableHead>Status</TableHead>
                                 <TableHead>Rate</TableHead>
                                 <TableHead>Last Used</TableHead>
+                                <TableHead>Created</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -1108,7 +1156,13 @@ export default function InventoryPage() {
                                     </Badge>
                                   </TableCell>
                                   <TableCell className="text-sm">
-                                    {new Date(material.lastUsedDate).toLocaleDateString()}
+                                    {new Date(material.lastUsedDate).toLocaleDateString('en-GB')}
+                                  </TableCell>
+                                  <TableCell className="text-sm">
+                                    {material.createdAt 
+                                      ? new Date(material.createdAt).toLocaleDateString('en-GB')
+                                      : 'N/A'
+                                    }
                                   </TableCell>
                                 </TableRow>
                               ))}
@@ -1181,15 +1235,37 @@ export default function InventoryPage() {
                         <div className="text-sm font-medium mb-2">Current Filter</div>
                         <div className="space-y-1">
                           <div className="flex justify-between items-center">
-                            <span className="text-sm">Date Range:</span>
+                            <span className="text-sm">Date Filter:</span>
                             <span className="text-sm font-medium">
-                              {dateFilter === 'all' ? 'All Time' : 
-                               dateFilter === 'today' ? 'Today' : 
-                               dateFilter === 'week' ? 'Last 7 Days' : 
-                               dateFilter === 'month' ? 'Last 30 Days' : 
-                               dateFilter === 'custom' ? 'Custom Range' : 'All Time'}
+                              {dateFilter === 'all' ? 'All Dates' : 
+                               dateFilter === 'specific' ? 'Specific Date' : 
+                               'Date Range'}
                             </span>
                           </div>
+                          {dateFilter === 'specific' && specificDate && (
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm">Date:</span>
+                              <span className="text-sm font-medium">
+                                {new Date(specificDate).toLocaleDateString('en-GB')}
+                              </span>
+                            </div>
+                          )}
+                          {dateFilter === 'range' && startDate && endDate && (
+                            <>
+                              <div className="flex justify-between items-center">
+                                <span className="text-sm">From:</span>
+                                <span className="text-sm font-medium">
+                                  {new Date(startDate).toLocaleDateString('en-GB')}
+                                </span>
+                              </div>
+                              <div className="flex justify-between items-center">
+                                <span className="text-sm">To:</span>
+                                <span className="text-sm font-medium">
+                                  {new Date(endDate).toLocaleDateString('en-GB')}
+                                </span>
+                              </div>
+                            </>
+                          )}
                           <div className="flex justify-between items-center">
                             <span className="text-sm">Showing:</span>
                             <span className="text-sm font-medium">
