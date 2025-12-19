@@ -24,11 +24,22 @@ export async function GET(request: NextRequest) {
     let roles;
     
     if (search) {
-      // For MySQL: Use raw SQL for case-insensitive search, or filter in JavaScript
-      // Option 1: Filter in JavaScript (simpler for now)
-      const allRoles = await prisma.userRole.findMany({
+      roles = await prisma.userRole.findMany({
+        where: {
+          OR: [
+            { name: { contains: search, mode: 'insensitive' } },
+            { description: { contains: search, mode: 'insensitive' } },
+          ],
+        },
         include: {
-          users: includeUsers ? true : false,
+          users: includeUsers ? {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              createdAt: true,
+            }
+          } : false,
           _count: {
             select: {
               users: true,
@@ -39,18 +50,17 @@ export async function GET(request: NextRequest) {
           createdAt: 'desc',
         },
       });
-      
-      // Filter in JavaScript for case-insensitive search
-      const searchLower = search.toLowerCase();
-      roles = allRoles.filter(role =>
-        role.name.toLowerCase().includes(searchLower) ||
-        (role.description && role.description.toLowerCase().includes(searchLower))
-      );
     } else {
-      // No search term, get all roles
       roles = await prisma.userRole.findMany({
         include: {
-          users: includeUsers ? true : false,
+          users: includeUsers ? {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              createdAt: true,
+            }
+          } : false,
           _count: {
             select: {
               users: true,
@@ -63,12 +73,12 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Format response with user count
+    // Parse permissions from string to array
     const formattedRoles = roles.map(role => ({
       id: role.id,
       name: role.name,
       description: role.description,
-      permissions: role.permissions as string[],
+      permissions: JSON.parse(role.permissions || '[]') as string[],
       isDefault: role.isDefault,
       createdAt: role.createdAt,
       updatedAt: role.updatedAt,
@@ -129,15 +139,21 @@ export async function POST(request: NextRequest) {
       data: {
         name: validatedData.name,
         description: validatedData.description || null,
-        permissions: validatedData.permissions || [],
+        permissions: JSON.stringify(validatedData.permissions), // Stringify the array
         isDefault: validatedData.isDefault,
       },
     });
     
+    // Parse permissions for response
+    const roleWithParsedPermissions = {
+      ...role,
+      permissions: JSON.parse(role.permissions || '[]') as string[],
+    };
+    
     return NextResponse.json(
       { 
         success: true, 
-        role,
+        role: roleWithParsedPermissions,
         message: 'Role created successfully' 
       },
       { status: 201 }
@@ -169,7 +185,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// DELETE /api/user-roles - Bulk delete (optional, for completeness)
+// DELETE /api/user-roles - Bulk delete
 export async function DELETE(request: NextRequest) {
   try {
     const { ids } = await request.json();
@@ -238,7 +254,7 @@ export async function DELETE(request: NextRequest) {
   }
 }
 
-// PATCH /api/user-roles - Bulk update (optional)
+// PATCH /api/user-roles - Bulk update
 export async function PATCH(request: NextRequest) {
   try {
     const { ids, data } = await request.json();
@@ -256,12 +272,18 @@ export async function PATCH(request: NextRequest) {
     // Validate update data
     const validatedData = updateRoleSchema.parse(data);
     
+    // Stringify permissions if provided
+    const updateData: any = { ...validatedData };
+    if (updateData.permissions) {
+      updateData.permissions = JSON.stringify(updateData.permissions);
+    }
+    
     // If setting roles as default, unset other defaults first
     if (validatedData.isDefault === true) {
       await prisma.userRole.updateMany({
         where: { 
           isDefault: true,
-          id: { notIn: ids } // Don't unset the roles we're updating
+          id: { notIn: ids }
         },
         data: { isDefault: false },
       });
@@ -271,7 +293,7 @@ export async function PATCH(request: NextRequest) {
       where: {
         id: { in: ids },
       },
-      data: validatedData,
+      data: updateData,
     });
     
     return NextResponse.json(

@@ -120,7 +120,7 @@ export async function POST(request: NextRequest) {
           data: {
             name: role.name,
             description: role.description,
-            permissions: role.permissions,
+            permissions: JSON.stringify(role.permissions), // Stringify permissions
             isDefault: role.isDefault,
           },
         })
