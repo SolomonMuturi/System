@@ -415,16 +415,14 @@ model RejectionRecord {
 }
 
 model utility_readings {
-  id            Int      @id @default(autoincrement())
-  date          DateTime @default(now())
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  powerOpening  String
-  powerClosing  String
-  powerConsumed String
-  waterOpening  String
-  waterClosing  String
-  waterConsumed String
+  id             Int      @id @default(autoincrement())
+  date           DateTime @default(now())
+  powerOpening   String
+  powerClosing   String
+  powerConsumed  String
+  waterOpening   String
+  waterClosing   String
+  waterConsumed  String
   generatorStart String
   generatorStop  String
   timeConsumed   String
@@ -433,6 +431,8 @@ model utility_readings {
   recordedBy     String
   shift          String?
   notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }
 
 model cold_room_boxes {
@@ -628,28 +628,29 @@ model packaging_materials {
 }
 
 model User {
-  id          String    @id @default(cuid())
-  email       String    @unique
-  name        String?
-  password    String?
-  roleId      String?   @db.VarChar(10)  // Match the length
-  role        UserRole? @relation(fields: [roleId], references: [id], onDelete: SetNull)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  
+  id        String    @id @default(cuid())
+  email     String    @unique
+  name      String?
+  password  String?
+  roleId    String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  role      UserRole? @relation(fields: [roleId], references: [id])
+
+  @@index([roleId], map: "users_roleId_fkey")
   @@map("users")
 }
 
 model UserRole {
-  id          String    @id @default(nanoid(8)) @db.VarChar(10)  // 8-char IDs
-  name        String    @unique @db.VarChar(100)
-  description String?   @db.Text
-  permissions Json      @default("[]")
-  isDefault   Boolean   @default(false)
-  createdAt   DateTime  @default(now()) @db.DateTime(0)
-  updatedAt   DateTime  @updatedAt @db.DateTime(0)
+  id          String   @id @default(nanoid(8))
+  name        String   @unique @db.VarChar(100)
+  description String?  @db.Text
+  permissions String   @db.LongText
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now()) @db.DateTime(0)
+  updatedAt   DateTime @updatedAt @db.DateTime(0)
   users       User[]
-  
+
   @@map("user_roles")
 }
 
