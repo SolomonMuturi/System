@@ -12,7 +12,7 @@ import { FreshViewLogo } from '@/components/icons';
 import { SidebarNav } from '@/components/layout/sidebar-nav';
 import { Header } from '@/components/layout/header';
 import { Button } from '@/components/ui/button';
-import { Check, ListTodo, PlusCircle, Package as PackageIcon, Loader2, AlertCircle, RefreshCw, Boxes, TrendingUp, AlertTriangle, Truck, Warehouse, Snowflake, Package, Minus, Plus, BarChart } from 'lucide-react';
+import { Check, ListTodo, PlusCircle, Package as PackageIcon, Loader2, AlertCircle, RefreshCw, Boxes, TrendingUp, AlertTriangle, Truck, Warehouse, Snowflake, Package, Minus, Plus, BarChart, Download, Calendar, Filter } from 'lucide-react';
 import { OverviewCard } from '@/components/dashboard/overview-card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -24,6 +24,8 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ScrollArea } from '@/components/ui/scroll-area';
+
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 // Avocado Inventory Types
 interface ColdRoomBox {
@@ -50,6 +52,8 @@ interface PackagingMaterial {
   dimensions?: string;
   lastUsedDate: string;
   consumptionRate: 'high' | 'medium' | 'low';
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 interface InventoryKPIs {
@@ -81,6 +85,12 @@ export default function InventoryPage() {
   const [error, setError] = useState<string | null>(null);
   const [bulkUpdateQuantity, setBulkUpdateQuantity] = useState<number>(0);
   const [selectedMaterialId, setSelectedMaterialId] = useState<string>('');
+  
+  // Date filter states
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month' | 'custom'>('all');
+  const [customStartDate, setCustomStartDate] = useState<Date | undefined>(undefined);
+  const [customEndDate, setCustomEndDate] = useState<Date | undefined>(undefined);
+  const [searchTerm, setSearchTerm] = useState('');
   
   const { toast } = useToast();
 
@@ -322,6 +332,116 @@ export default function InventoryPage() {
     }
   };
 
+  // Filter packaging materials based on date filter, search term, etc.
+  const getFilteredPackagingMaterials = () => {
+    let filtered = [...packagingMaterials];
+
+    // Apply date filter
+    if (dateFilter !== 'all') {
+      filtered = filtered.filter(material => {
+        const materialDate = material.createdAt ? new Date(material.createdAt) : new Date(material.lastUsedDate);
+        const now = new Date();
+        
+        switch (dateFilter) {
+          case 'today':
+            return materialDate.toDateString() === now.toDateString();
+          case 'week':
+            const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+            return materialDate >= oneWeekAgo;
+          case 'month':
+            const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+            return materialDate >= oneMonthAgo;
+          case 'custom':
+            if (!customStartDate || !customEndDate) return true;
+            return materialDate >= customStartDate && materialDate <= customEndDate;
+          default:
+            return true;
+        }
+      });
+    }
+
+    // Apply search filter
+    if (searchTerm) {
+      const searchLower = searchTerm.toLowerCase();
+      filtered = filtered.filter(material => 
+        material.name.toLowerCase().includes(searchLower) ||
+        material.category.toLowerCase().includes(searchLower) ||
+        material.unit.toLowerCase().includes(searchLower) ||
+        material.consumptionRate.toLowerCase().includes(searchLower)
+      );
+    }
+
+    return filtered;
+  };
+
+  // Download packaging materials as CSV
+  const downloadPackagingCSV = () => {
+    const filteredMaterials = getFilteredPackagingMaterials();
+    
+    // CSV headers
+    const headers = [
+      'ID',
+      'Name',
+      'Category',
+      'Unit',
+      'Current Stock',
+      'Reorder Level',
+      'Status',
+      'Consumption Rate',
+      'Dimensions',
+      'Last Used Date',
+      'Created Date'
+    ];
+    
+    // CSV rows
+    const rows = filteredMaterials.map(material => [
+      material.id,
+      material.name,
+      material.category,
+      material.unit,
+      material.currentStock,
+      material.reorderLevel,
+      material.currentStock <= material.reorderLevel ? 'Low Stock' : 'In Stock',
+      material.consumptionRate,
+      material.dimensions || 'N/A',
+      new Date(material.lastUsedDate).toLocaleDateString(),
+      material.createdAt ? new Date(material.createdAt).toLocaleDateString() : 'N/A'
+    ]);
+    
+    // Combine headers and rows
+    const csvContent = [headers, ...rows]
+      .map(row => row.map(cell => `"${cell}"`).join(','))
+      .join('\n');
+    
+    // Create and download file
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    
+    // Generate filename with date range
+    let fileName = 'packaging-materials';
+    if (dateFilter === 'custom' && customStartDate && customEndDate) {
+      const startStr = customStartDate.toISOString().split('T')[0];
+      const endStr = customEndDate.toISOString().split('T')[0];
+      fileName += `_${startStr}_to_${endStr}`;
+    } else if (dateFilter !== 'all') {
+      fileName += `_${dateFilter}`;
+    }
+    fileName += `_${new Date().toISOString().split('T')[0]}.csv`;
+    
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+    
+    toast({
+      title: 'CSV Downloaded',
+      description: `Downloaded ${filteredMaterials.length} packaging materials`,
+    });
+  };
+
   // Prepare KPI data for OverviewCards
   const inventoryKpis = {
     totalAvocadoBoxes: {
@@ -402,6 +522,9 @@ export default function InventoryPage() {
   const lowStockMaterials = packagingMaterials.filter(m => m.currentStock <= m.reorderLevel);
   const fastMovingPackaging = packagingMaterials.filter(m => m.consumptionRate === 'high');
   const deadStockPackaging = packagingMaterials.filter(m => m.consumptionRate === 'low');
+
+  // Get filtered materials for display
+  const filteredPackagingMaterials = getFilteredPackagingMaterials();
 
   if (isLoading) {
     return (
@@ -706,6 +829,132 @@ export default function InventoryPage() {
             <TabsContent value="packaging" className="mt-6">
               <div className="grid gap-6 md:gap-8 grid-cols-1 lg:grid-cols-3">
                 <div className="lg:col-span-2 space-y-6">
+                  {/* Filters and Download Section */}
+                  <Card>
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <CardTitle className="flex items-center gap-2">
+                            <Filter className="w-5 h-5" />
+                            Filters & Export
+                          </CardTitle>
+                          <CardDescription>
+                            Filter packaging materials by date and export as CSV
+                          </CardDescription>
+                        </div>
+                        <Button 
+                          onClick={downloadPackagingCSV} 
+                          disabled={filteredPackagingMaterials.length === 0}
+                          className="ml-2"
+                        >
+                          <Download className="w-4 h-4 mr-2" />
+                          Export CSV ({filteredPackagingMaterials.length})
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <Label htmlFor="search">Search Materials</Label>
+                            <div className="relative">
+                              <Filter className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                              <Input
+                                id="search"
+                                placeholder="Search by name, category..."
+                                className="pl-8"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                              />
+                            </div>
+                          </div>
+                          
+                          <div>
+                            <Label htmlFor="date-filter">Date Filter</Label>
+                            <Select value={dateFilter} onValueChange={(value: any) => setDateFilter(value)}>
+                              <SelectTrigger id="date-filter">
+                                <SelectValue placeholder="Select date range" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="all">All Time</SelectItem>
+                                <SelectItem value="today">Today</SelectItem>
+                                <SelectItem value="week">Last 7 Days</SelectItem>
+                                <SelectItem value="month">Last 30 Days</SelectItem>
+                                <SelectItem value="custom">Custom Range</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+
+                        {dateFilter === 'custom' && (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 border rounded-lg">
+                            <div>
+                              <Label htmlFor="start-date">Start Date</Label>
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    className="w-full justify-start text-left font-normal"
+                                    id="start-date"
+                                  >
+                                    <Calendar className="mr-2 h-4 w-4" />
+                                    {customStartDate ? (
+                                      customStartDate.toLocaleDateString()
+                                    ) : (
+                                      <span>Pick a date</span>
+                                    )}
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0">
+                                  <DatePicker
+                                    mode="single"
+                                    selected={customStartDate}
+                                    onSelect={setCustomStartDate}
+                                    initialFocus
+                                  />
+                                </PopoverContent>
+                              </Popover>
+                            </div>
+                            <div>
+                              <Label htmlFor="end-date">End Date</Label>
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    className="w-full justify-start text-left font-normal"
+                                    id="end-date"
+                                  >
+                                    <Calendar className="mr-2 h-4 w-4" />
+                                    {customEndDate ? (
+                                      customEndDate.toLocaleDateString()
+                                    ) : (
+                                      <span>Pick a date</span>
+                                    )}
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0">
+                                  <DatePicker
+                                    mode="single"
+                                    selected={customEndDate}
+                                    onSelect={setCustomEndDate}
+                                    initialFocus
+                                  />
+                                </PopoverContent>
+                              </Popover>
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="text-sm text-muted-foreground">
+                          Showing {filteredPackagingMaterials.length} of {packagingMaterials.length} packaging materials
+                          {dateFilter !== 'all' && (
+                            <span> • Filtered by {dateFilter}</span>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  
                   {/* Bulk Update Section */}
                   <Card>
                     <CardHeader>
@@ -729,7 +978,7 @@ export default function InventoryPage() {
                               <SelectContent>
                                 {packagingMaterials.map(material => (
                                   <SelectItem key={material.id} value={material.id}>
-                                    <div className="flex  items-center justify-between">
+                                    <div className="flex items-center justify-between">
                                       <span className="truncate">{material.name}</span>
                                       <span className="text-sm text-muted-foreground ml-2">
                                         {material.currentStock} {material.unit}
@@ -786,15 +1035,16 @@ export default function InventoryPage() {
                       </CardTitle>
                       <CardDescription>
                         Current stock levels and consumption rates
+                        {dateFilter !== 'all' && ` • Filtered by ${dateFilter}`}
                       </CardDescription>
                     </CardHeader>
                     <CardContent>
-                      {packagingMaterials.length === 0 ? (
+                      {filteredPackagingMaterials.length === 0 ? (
                         <div className="text-center py-8">
                           <PackageIcon className="w-12 h-12 mx-auto text-gray-300 mb-3" />
-                          <p className="text-gray-500 font-medium">No packaging materials</p>
+                          <p className="text-gray-500 font-medium">No packaging materials found</p>
                           <p className="text-sm text-gray-400 mt-1">
-                            Add packaging materials to get started
+                            {searchTerm ? 'Try adjusting your search' : 'Add packaging materials to get started'}
                           </p>
                         </div>
                       ) : (
@@ -809,10 +1059,11 @@ export default function InventoryPage() {
                                 <TableHead className="text-right">Reorder Level</TableHead>
                                 <TableHead>Status</TableHead>
                                 <TableHead>Rate</TableHead>
+                                <TableHead>Last Used</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
-                              {packagingMaterials.map((material) => (
+                              {filteredPackagingMaterials.map((material) => (
                                 <TableRow key={material.id}>
                                   <TableCell className="font-medium">
                                     {material.name}
@@ -855,6 +1106,9 @@ export default function InventoryPage() {
                                     >
                                       {material.consumptionRate}
                                     </Badge>
+                                  </TableCell>
+                                  <TableCell className="text-sm">
+                                    {new Date(material.lastUsedDate).toLocaleDateString()}
                                   </TableCell>
                                 </TableRow>
                               ))}
@@ -919,6 +1173,28 @@ export default function InventoryPage() {
                             <Badge variant="destructive">
                               {lowStockMaterials.length} items
                             </Badge>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <div className="text-sm font-medium mb-2">Current Filter</div>
+                        <div className="space-y-1">
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm">Date Range:</span>
+                            <span className="text-sm font-medium">
+                              {dateFilter === 'all' ? 'All Time' : 
+                               dateFilter === 'today' ? 'Today' : 
+                               dateFilter === 'week' ? 'Last 7 Days' : 
+                               dateFilter === 'month' ? 'Last 30 Days' : 
+                               dateFilter === 'custom' ? 'Custom Range' : 'All Time'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm">Showing:</span>
+                            <span className="text-sm font-medium">
+                              {filteredPackagingMaterials.length} of {packagingMaterials.length}
+                            </span>
                           </div>
                         </div>
                       </div>
