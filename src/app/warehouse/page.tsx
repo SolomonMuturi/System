@@ -28,11 +28,13 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { 
   HardHat, Scale, Package, Truck, ChevronDown, CheckCircle, AlertCircle, 
   RefreshCw, Calculator, Box, History, Search, Calendar, Filter, X, 
-  BarChart3, Users, PackageOpen, TrendingUp, XCircle, AlertTriangle, Check
+  BarChart3, Users, PackageOpen, TrendingUp, XCircle, AlertTriangle, Check,
+  Download, FileSpreadsheet
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { CountingFormData, CountingRecord } from '@/types/counting';
+import { format } from 'date-fns';
 
 interface SupplierIntakeRecord {
   id: string;
@@ -124,6 +126,27 @@ interface RejectionRecord {
   original_counting_id: string;
 }
 
+interface CSVRow {
+  date: string;
+  supplier_name: string;
+  region: string;
+  pallet_id: string;
+  driver_name: string;
+  vehicle_plate: string;
+  intake_weight_kg: number;
+  counted_weight_kg: number;
+  rejected_weight_kg: number;
+  weight_variance_kg: number;
+  variance_level: string;
+  fuerte_4kg_boxes: number;
+  fuerte_10kg_crates: number;
+  hass_4kg_boxes: number;
+  hass_10kg_crates: number;
+  total_boxes: number;
+  processed_by: string;
+  notes: string;
+}
+
 const processingStages = [
   { id: 'intake', name: 'Intake', icon: Truck, description: 'Supplier intake & initial check-in.', tag: 'Pallet ID' },
   { id: 'quality', name: 'Quality Control', icon: Scale, description: 'Quality assessment and packability checks.', tag: 'QC Assessment' },
@@ -192,6 +215,28 @@ const getBoxesSummary = (countingTotals: CountingTotals | string | null): {
   const total = fuerte_4kg + fuerte_10kg + hass_4kg + hass_10kg;
   
   return { fuerte_4kg, fuerte_10kg, hass_4kg, hass_10kg, total };
+};
+
+// Function to get supplier info from counting data
+const getSupplierInfoFromCountingData = (countingData: any) => {
+  if (!countingData) return { driver_name: '', vehicle_plate: '' };
+  
+  if (typeof countingData === 'string') {
+    try {
+      const parsed = JSON.parse(countingData);
+      return {
+        driver_name: parsed.driver_name || '',
+        vehicle_plate: parsed.vehicle_plate || ''
+      };
+    } catch (e) {
+      return { driver_name: '', vehicle_plate: '' };
+    }
+  }
+  
+  return {
+    driver_name: countingData.driver_name || '',
+    vehicle_plate: countingData.vehicle_plate || ''
+  };
 };
 
 export default function WarehousePage() {
@@ -1046,6 +1091,124 @@ export default function WarehousePage() {
   // Clear search filter
   const clearSearchFilter = () => {
     setSearchTerm('');
+  };
+
+  // Function to generate CSV data from rejection records
+  const generateCSVData = (records: RejectionRecord[]): CSVRow[] => {
+    return records.map(record => {
+      const boxesSummary = getBoxesSummary(record.counting_totals);
+      const supplierInfo = getSupplierInfoFromCountingData(record.counting_data);
+      
+      return {
+        date: format(new Date(record.submitted_at), 'yyyy-MM-dd HH:mm:ss'),
+        supplier_name: record.supplier_name,
+        region: record.region,
+        pallet_id: record.pallet_id,
+        driver_name: supplierInfo.driver_name,
+        vehicle_plate: supplierInfo.vehicle_plate,
+        intake_weight_kg: record.total_intake_weight,
+        counted_weight_kg: record.total_counted_weight,
+        rejected_weight_kg: record.total_rejected_weight,
+        weight_variance_kg: record.weight_variance,
+        variance_level: record.variance_level.toUpperCase(),
+        fuerte_4kg_boxes: boxesSummary.fuerte_4kg,
+        fuerte_10kg_crates: boxesSummary.fuerte_10kg,
+        hass_4kg_boxes: boxesSummary.hass_4kg,
+        hass_10kg_crates: boxesSummary.hass_10kg,
+        total_boxes: boxesSummary.total,
+        processed_by: record.processed_by,
+        notes: record.notes || ''
+      };
+    });
+  };
+
+  // Function to download CSV
+  const downloadCSV = (records: RejectionRecord[]) => {
+    if (records.length === 0) {
+      toast({
+        title: 'No Data',
+        description: 'No records available to download',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
+    const csvData = generateCSVData(records);
+    
+    // Create CSV headers
+    const headers = [
+      'Date',
+      'Supplier Name',
+      'Region',
+      'Pallet ID',
+      'Driver Name',
+      'Vehicle Plate',
+      'Intake Weight (kg)',
+      'Counted Weight (kg)',
+      'Rejected Weight (kg)',
+      'Weight Variance (kg)',
+      'Variance Level',
+      'Fuerte 4kg Boxes',
+      'Fuerte 10kg Crates',
+      'Hass 4kg Boxes',
+      'Hass 10kg Crates',
+      'Total Boxes',
+      'Processed By',
+      'Notes'
+    ];
+    
+    // Create CSV rows
+    const rows = csvData.map(row => [
+      row.date,
+      `"${row.supplier_name}"`,
+      `"${row.region}"`,
+      row.pallet_id,
+      `"${row.driver_name}"`,
+      `"${row.vehicle_plate}"`,
+      row.intake_weight_kg.toFixed(2),
+      row.counted_weight_kg.toFixed(2),
+      row.rejected_weight_kg.toFixed(2),
+      row.weight_variance_kg.toFixed(2),
+      row.variance_level,
+      row.fuerte_4kg_boxes,
+      row.fuerte_10kg_crates,
+      row.hass_4kg_boxes,
+      row.hass_10kg_crates,
+      row.total_boxes,
+      `"${row.processed_by}"`,
+      `"${row.notes.replace(/"/g, '""')}"` // Escape quotes in notes
+    ]);
+    
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.join(','))
+    ].join('\n');
+    
+    // Create and download file
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `warehouse_history_${format(new Date(), 'yyyy-MM-dd')}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    toast({
+      title: 'CSV Downloaded',
+      description: `${records.length} records exported successfully`,
+    });
+  };
+
+  // Download all history
+  const downloadAllHistory = () => {
+    downloadCSV(rejectionRecords);
+  };
+
+  // Download filtered history
+  const downloadFilteredHistory = () => {
+    downloadCSV(filteredHistory);
   };
 
   // Render size input grid
@@ -2144,15 +2307,37 @@ export default function WarehousePage() {
             <TabsContent value="history" className="space-y-6">
               <Card>
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <History className="w-5 h-5" />
-                    Processing History
+                  <CardTitle className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <History className="w-5 h-5" />
+                      Processing History & Export
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={downloadFilteredHistory}
+                        disabled={filteredHistory.length === 0 || isLoading.rejections}
+                        className="gap-2"
+                      >
+                        <Download className="w-4 h-4" />
+                        Export Filtered
+                      </Button>
+                      <Button
+                        onClick={downloadAllHistory}
+                        disabled={rejectionRecords.length === 0 || isLoading.rejections}
+                        variant="outline"
+                        className="gap-2"
+                      >
+                        <FileSpreadsheet className="w-4 h-4" />
+                        Export All
+                      </Button>
+                    </div>
                   </CardTitle>
                   <CardDescription>
                     {filteredHistory.length} completed processing record(s)
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
+
                   {/* Filters */}
                   <div className="space-y-4 mb-6">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -2208,6 +2393,7 @@ export default function WarehousePage() {
                       <div className="text-sm text-muted-foreground">
                         Showing {filteredHistory.length} of {rejectionRecords.length} records
                         {(startDate || endDate) && ' • Date filter applied'}
+                        {searchTerm && ' • Search filter applied'}
                       </div>
                       <div className="flex gap-2">
                         {(startDate || endDate) && (
@@ -2251,6 +2437,7 @@ export default function WarehousePage() {
                       <div className="space-y-3">
                         {filteredHistory.map((record) => {
                           const boxesSummary = getBoxesSummary(record.counting_totals);
+                          const supplierInfo = getSupplierInfoFromCountingData(record.counting_data);
                           return (
                             <Collapsible
                               key={record.id}
@@ -2301,6 +2488,14 @@ export default function WarehousePage() {
                                     <div>
                                       <div className="text-gray-500">Processed By</div>
                                       <div className="font-medium">{record.processed_by}</div>
+                                    </div>
+                                    <div>
+                                      <div className="text-gray-500">Driver</div>
+                                      <div className="font-medium">{supplierInfo.driver_name || 'N/A'}</div>
+                                    </div>
+                                    <div>
+                                      <div className="text-gray-500">Vehicle Plate</div>
+                                      <div className="font-medium">{supplierInfo.vehicle_plate || 'N/A'}</div>
                                     </div>
                                   </div>
 

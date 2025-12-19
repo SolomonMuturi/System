@@ -24,7 +24,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar as CalendarComponent } from '@/components/ui/calendar';
-import { format } from 'date-fns';
+import { format, isSameDay, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
 
 // Define types based on your schema
@@ -184,11 +184,11 @@ export default function WeightCapturePage() {
   
   const { toast } = useToast();
 
-  // Fetch weight entries from database
+  // Fetch ALL weight entries from database
   const fetchWeights = async () => {
     try {
       setError(null);
-      const response = await fetch('/api/weights?limit=50&order=desc');
+      const response = await fetch('/api/weights?limit=1000&order=desc');
       
       if (!response.ok) {
         throw new Error(`Failed to fetch weights: ${response.statusText}`);
@@ -266,57 +266,35 @@ export default function WeightCapturePage() {
     }
   };
 
-  // Fetch history weights by date
+  // Fetch history weights by date - client-side filtering
   const fetchHistoryWeights = async (date: Date) => {
     if (!date) return;
     
     setIsHistoryLoading(true);
     try {
-      const formattedDate = format(date, 'yyyy-MM-dd');
-      const response = await fetch(`/api/weights/history?date=${formattedDate}`);
+      // Instead of calling a non-existent API endpoint, we'll filter the existing weights client-side
+      // We already have all weights loaded from fetchWeights()
       
-      if (!response.ok) {
-        throw new Error('Failed to fetch history data');
+      // Filter weights by selected date
+      const filteredWeights = weights.filter(entry => {
+        const entryDate = new Date(entry.created_at);
+        return isSameDay(entryDate, date);
+      });
+      
+      setHistoryWeights(filteredWeights);
+      
+      if (filteredWeights.length === 0) {
+        toast({
+          title: 'No Data Found',
+          description: `No weight entries found for ${format(date, 'MMMM d, yyyy')}`,
+          variant: 'default',
+        });
       }
-      
-      const data: WeightEntryAPI[] = await response.json();
-      
-      // Transform to match WeightEntry type
-      const transformedWeights: WeightEntry[] = data.map(entry => ({
-        id: entry.id,
-        pallet_id: entry.pallet_id,
-        product: entry.product,
-        weight: entry.weight,
-        unit: entry.unit,
-        timestamp: entry.timestamp,
-        supplier: entry.supplier,
-        supplier_id: entry.supplier_id,
-        supplier_phone: entry.supplier_phone,
-        fruit_variety: entry.fruit_variety || [],
-        number_of_crates: entry.number_of_crates,
-        region: entry.region,
-        image_url: entry.image_url,
-        driver_name: entry.driver_name,
-        driver_phone: entry.driver_phone,
-        driver_id_number: entry.driver_id_number,
-        vehicle_plate: entry.vehicle_plate,
-        truck_id: entry.truck_id,
-        driver_id: entry.driver_id,
-        gross_weight: entry.gross_weight,
-        tare_weight: entry.tare_weight,
-        net_weight: entry.net_weight,
-        declared_weight: entry.declared_weight,
-        rejected_weight: entry.rejected_weight,
-        notes: entry.notes,
-        created_at: entry.created_at,
-      }));
-      
-      setHistoryWeights(transformedWeights);
     } catch (error: any) {
-      console.error('Error fetching history:', error);
+      console.error('Error filtering history:', error);
       toast({
         title: 'Error',
-        description: 'Failed to load history data',
+        description: 'Failed to filter history data',
         variant: 'destructive',
       });
       setHistoryWeights([]);
@@ -351,7 +329,7 @@ export default function WeightCapturePage() {
       const todayEntries = weights.filter(entry => {
         const entryDate = new Date(entry.created_at);
         const today = new Date();
-        return entryDate.toDateString() === today.toDateString();
+        return isSameDay(entryDate, today);
       });
       
       let calculatedDiscrepancy = 0;
@@ -458,7 +436,7 @@ export default function WeightCapturePage() {
     if (activeTab === 'history' && historyDate) {
       fetchHistoryWeights(historyDate);
     }
-  }, [historyDate, activeTab]);
+  }, [historyDate, activeTab, weights]); // Added weights to dependencies
 
   // Function to refresh all data
   const refreshAllData = async () => {
@@ -708,19 +686,24 @@ export default function WeightCapturePage() {
     
     weights.forEach(entry => {
       const date = new Date(entry.created_at).toISOString().split('T')[0];
-      const key = `${date}_${entry.supplier_id || entry.supplier}`;
+      const supplierKey = entry.supplier || entry.driver_name || 'Unknown';
+      const phoneKey = entry.supplier_phone || entry.driver_phone || '';
+      const vehicleKey = entry.vehicle_plate || '';
+      const regionKey = entry.region || '';
+      
+      const key = `${date}_${supplierKey}_${vehicleKey}`;
       
       if (!supplierMap.has(key)) {
         supplierMap.set(key, {
           date,
-          supplier_name: entry.supplier || '',
-          phone_number: entry.supplier_phone || entry.driver_phone || '',
-          vehicle_plate_number: entry.vehicle_plate || '',
+          supplier_name: supplierKey,
+          phone_number: phoneKey,
+          vehicle_plate_number: vehicleKey,
           fuerte_weight: 0,
           hass_weight: 0,
           fuerte_crates_in: 0,
           hass_crates_in: 0,
-          region: entry.region || ''
+          region: regionKey
         });
       }
       
@@ -752,12 +735,13 @@ export default function WeightCapturePage() {
         row.hass_crates_in += crates;
       }
       
-      // If no specific variety detected, distribute evenly or assign based on product name
+      // If no specific variety detected, distribute based on product name
       if (!hasFuerte && !hasHass) {
-        if (entry.product?.toLowerCase().includes('fuerte')) {
+        const productName = entry.product?.toLowerCase() || '';
+        if (productName.includes('fuerte')) {
           row.fuerte_weight += weight;
           row.fuerte_crates_in += crates;
-        } else if (entry.product?.toLowerCase().includes('hass')) {
+        } else if (productName.includes('hass')) {
           row.hass_weight += weight;
           row.hass_crates_in += crates;
         } else {
@@ -881,9 +865,7 @@ export default function WeightCapturePage() {
   const totalWeightToday = weights
     .filter(w => {
       const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const entryDate = new Date(w.created_at);
-      return entryDate >= today;
+      return isSameDay(new Date(w.created_at), today);
     })
     .reduce((sum, w) => sum + (w.net_weight || 0), 0);
 
@@ -891,9 +873,7 @@ export default function WeightCapturePage() {
     weights
       .filter(w => {
         const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const entryDate = new Date(w.created_at);
-        return entryDate >= today && w.supplier_id;
+        return isSameDay(new Date(w.created_at), today) && w.supplier_id;
       })
       .map(w => w.supplier_id)
   ).size;
@@ -967,8 +947,7 @@ export default function WeightCapturePage() {
                   <p className="text-sm font-medium text-gray-500">Pallets Today</p>
                   <h3 className="text-2xl font-bold mt-1">{weights.filter(w => {
                     const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    return new Date(w.created_at) >= today;
+                    return isSameDay(new Date(w.created_at), today);
                   }).length}</h3>
                   <div className="flex items-center mt-1 text-sm text-gray-500">
                     <Boxes className="h-4 w-4 mr-1 text-blue-500" />
@@ -1290,14 +1269,14 @@ export default function WeightCapturePage() {
                     </div>
 
                     {/* CSV Preview Header */}
-                    <div className="bg-gray-50 p-4 rounded-lg">
+                    <div className="bg-black-50 p-4 rounded-lg">
                       <div className="flex items-center gap-2 mb-2">
                         <FileSpreadsheet className="w-5 h-5 text-green-600" />
                         <span className="font-medium">CSV Format Preview</span>
                       </div>
                       <div className="text-sm text-gray-600">
                         <p>Your download will include the following columns:</p>
-                        <div className="grid grid-cols-9 gap-1 mt-2 text-xs font-mono bg-white p-2 rounded border">
+                        <div className="grid grid-cols-9 gap-1 mt-2 text-xs font-mono bg-black p-2 rounded border">
                           <span className="font-semibold">Date</span>
                           <span className="font-semibold">Supplier Name</span>
                           <span className="font-semibold">Phone Number</span>
@@ -1313,7 +1292,7 @@ export default function WeightCapturePage() {
 
                     {/* History Table */}
                     <div className="border rounded-lg overflow-hidden">
-                      <div className="bg-gray-50 px-4 py-3 border-b">
+                      <div className="bg-black-50 px-4 py-3 border-b">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             <Calendar className="w-4 h-4" />
@@ -1343,7 +1322,7 @@ export default function WeightCapturePage() {
                         <div className="overflow-x-auto">
                           <table className="w-full">
                             <thead>
-                              <tr className="bg-gray-50 border-b">
+                              <tr className="bg-black-50 border-b">
                                 <th className="text-left p-3 text-sm font-semibold text-gray-700">Time</th>
                                 <th className="text-left p-3 text-sm font-semibold text-gray-700">Supplier</th>
                                 <th className="text-left p-3 text-sm font-semibold text-gray-700">Driver</th>
@@ -1363,7 +1342,7 @@ export default function WeightCapturePage() {
                                     : [];
                                 
                                 return (
-                                  <tr key={entry.id} className="border-b hover:bg-gray-50">
+                                  <tr key={entry.id} className="border-b hover:bg-black-50">
                                     <td className="p-3">
                                       {new Date(entry.created_at).toLocaleTimeString([], { 
                                         hour: '2-digit', 
