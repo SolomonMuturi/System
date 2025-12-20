@@ -10,12 +10,14 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, LogIn, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
-import Link from 'next/link';
+import { Checkbox } from '@/components/ui/checkbox';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
+  const [rememberPassword, setRememberPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const router = useRouter();
@@ -26,6 +28,19 @@ export default function LoginPage() {
     e.preventDefault();
     setError('');
     setIsLoading(true);
+
+    // Store remember preferences in localStorage if checked
+    if (rememberMe) {
+      localStorage.setItem('rememberedEmail', email);
+    } else {
+      localStorage.removeItem('rememberedEmail');
+    }
+
+    if (rememberPassword) {
+      localStorage.setItem('rememberedPassword', password);
+    } else {
+      localStorage.removeItem('rememberedPassword');
+    }
 
     try {
       const result = await signIn('credentials', {
@@ -56,6 +71,22 @@ export default function LoginPage() {
       setIsLoading(false);
     }
   };
+
+  // Load remembered credentials on component mount
+  useState(() => {
+    const rememberedEmail = localStorage.getItem('rememberedEmail');
+    const rememberedPassword = localStorage.getItem('rememberedPassword');
+    
+    if (rememberedEmail) {
+      setEmail(rememberedEmail);
+      setRememberMe(true);
+    }
+    
+    if (rememberedPassword) {
+      setPassword(rememberedPassword);
+      setRememberPassword(true);
+    }
+  });
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background to-muted p-4">
@@ -93,15 +124,7 @@ export default function LoginPage() {
             </div>
             
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="password">Password</Label>
-                <Link
-                  href="/forgot-password"
-                  className="text-sm text-primary hover:underline"
-                >
-                  Forgot password?
-                </Link>
-              </div>
+              <Label htmlFor="password">Password</Label>
               <div className="relative">
                 <Input
                   id="password"
@@ -129,6 +152,38 @@ export default function LoginPage() {
                 </Button>
               </div>
             </div>
+
+            <div className="flex flex-col space-y-3">
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="remember-me"
+                  checked={rememberMe}
+                  onCheckedChange={(checked) => setRememberMe(checked as boolean)}
+                  disabled={isLoading}
+                />
+                <Label
+                  htmlFor="remember-me"
+                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                >
+                  Remember me
+                </Label>
+              </div>
+              
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="remember-password"
+                  checked={rememberPassword}
+                  onCheckedChange={(checked) => setRememberPassword(checked as boolean)}
+                  disabled={isLoading}
+                />
+                <Label
+                  htmlFor="remember-password"
+                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                >
+                  Remember my password
+                </Label>
+              </div>
+            </div>
             
             <Button
               type="submit"
@@ -149,27 +204,8 @@ export default function LoginPage() {
             </Button>
           </form>
         </CardContent>
-        <CardFooter className="flex flex-col space-y-4">
-          <div className="text-center text-sm text-muted-foreground">
-            By signing in, you agree to our{' '}
-            <Link href="/terms" className="underline underline-offset-4 hover:text-primary">
-              Terms of Service
-            </Link>{' '}
-            and{' '}
-            <Link href="/privacy" className="underline underline-offset-4 hover:text-primary">
-              Privacy Policy
-            </Link>
-            .
-          </div>
-          
-          <div className="text-center">
-            <p className="text-sm text-muted-foreground">
-              Need help?{' '}
-              <Link href="/contact" className="text-primary hover:underline">
-                Contact Support
-              </Link>
-            </p>
-          </div>
+        <CardFooter className="flex justify-center">
+          {/* Removed: Terms/Privacy links and support link */}
         </CardFooter>
       </Card>
     </div>
