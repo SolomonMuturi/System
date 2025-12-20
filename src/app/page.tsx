@@ -8,13 +8,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, LogIn } from 'lucide-react';
+import { Loader2, LogIn, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 import Link from 'next/link';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const router = useRouter();
@@ -27,25 +28,24 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
-      // Use NextAuth's signIn function instead of custom API call
       const result = await signIn('credentials', {
         email,
         password,
-        redirect: false, // We handle redirect manually
+        redirect: false,
         callbackUrl: callbackUrl,
       });
 
       if (result?.error) {
+        // Show the actual error message from authorize function
         const errorMessage = result.error === 'CredentialsSignin' 
           ? 'Invalid email or password' 
-          : 'Login failed. Please try again.';
+          : result.error;
         setError(errorMessage);
         toast.error(errorMessage);
       } else {
         toast.success('Login successful!');
-        // Redirect to the callback URL or dashboard
         router.push(callbackUrl);
-        router.refresh(); // Important: refresh to update session state
+        router.refresh();
       }
     } catch (error) {
       console.error('Login error:', error);
@@ -102,15 +102,32 @@ export default function LoginPage() {
                   Forgot password?
                 </Link>
               </div>
-              <Input
-                id="password"
-                type="password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.value)}
-                required
-                disabled={isLoading}
-              />
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  disabled={isLoading}
+                  className="pr-10"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                  onClick={() => setShowPassword(!showPassword)}
+                  disabled={isLoading}
+                >
+                  {showPassword ? (
+                    <EyeOff className="h-4 w-4 text-muted-foreground" />
+                  ) : (
+                    <Eye className="h-4 w-4 text-muted-foreground" />
+                  )}
+                </Button>
+              </div>
             </div>
             
             <Button
