@@ -1,4 +1,4 @@
-// src/app/page.tsx
+// src/app/page.tsx - COMPLETE REPLACEMENT
 'use client';
 
 import { Suspense, useState, useEffect } from 'react';
@@ -13,11 +13,16 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Loader2, LogIn, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 
-// Separate component that uses useSearchParams
-function LoginFormContent() {
+// Wrapper component that handles search params
+function LoginFormWrapper() {
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
   
+  return <LoginFormContent callbackUrl={callbackUrl} />;
+}
+
+// Main form component without useSearchParams
+function LoginFormContent({ callbackUrl }: { callbackUrl: string }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -115,7 +120,6 @@ function LoginFormContent() {
               </Alert>
             )}
             
-            {/* Form fields remain the same as above */}
             <div className="space-y-2">
               <Label htmlFor="email">Email Address</Label>
               <Input
@@ -230,15 +234,18 @@ function LoginFormContent() {
   );
 }
 
-// Main page component with Suspense
+// Main page component
 export default function HomePage() {
   return (
     <Suspense fallback={
       <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin" />
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading login page...</p>
+        </div>
       </div>
     }>
-      <LoginFormContent />
+      <LoginFormWrapper />
     </Suspense>
   );
 }
