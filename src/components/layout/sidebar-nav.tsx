@@ -44,8 +44,8 @@ const allNavItems: NavItem[] = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, permission: 'dashboard.view' },
   
   // Analytics
-  { name: 'Analytics', href: '/analytics', icon: BarChart3, permission: 'dashboard.analytics' },
-  { name: 'BI Features', href: '/bi-features', icon: BrainCircuit, permission: 'dashboard.analytics' },
+  // { name: 'Analytics', href: '/analytics', icon: BarChart3, permission: 'dashboard.analytics' },
+  // { name: 'BI Features', href: '/bi-features', icon: BrainCircuit, permission: 'dashboard.analytics' },
   
   // Suppliers
   { name: 'Suppliers', href: '/suppliers', icon: Grape, permissions: ['suppliers.view', 'suppliers.manage'] },
