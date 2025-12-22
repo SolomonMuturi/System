@@ -182,8 +182,8 @@ export default function OutboundManifestPage() {
                   <div className="flex items-center gap-4">
                     <FreshTraceLogo className="h-12 w-12 text-primary" />
                     <div>
-                      <h3 className="text-xl font-bold">FreshTrace Inc.</h3>
-                      <p className="text-sm text-muted-foreground">info@freshtrace.co.ke | www.freshtrace.co.ke</p>
+                      <h3 className="text-xl font-bold">Harir Int.</h3>
+                      <p className="text-sm text-muted-foreground">info@harirint.com | www.harirint.com</p>
                     </div>
                   </div>
                   <div className="flex items-start gap-4">
@@ -283,7 +283,7 @@ export default function OutboundManifestPage() {
                   <div className="grid grid-cols-2 gap-16">
                     <div className="text-center">
                       <div className="border-b-2 border-dashed pb-8"></div>
-                      <p className="text-sm mt-2">Dispatch Officer (FreshTrace)</p>
+                      <p className="text-sm mt-2">Dispatch Officer (Harir International)</p>
                       <p className="font-semibold">[Officer Name]</p>
                     </div>
                     <div className="text-center">

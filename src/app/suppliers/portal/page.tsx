@@ -61,7 +61,7 @@ export default function SupplierPortalPage() {
     const newShipment: Shipment = {
         id: `ship-${Date.now()}`,
         shipmentId: `SH-${Math.floor(10000 + Math.random() * 90000)}`,
-        customer: 'FreshTrace Warehouse',
+        customer: 'Harir International Warehouse',
         origin: supplier.location, // Use supplier's location as origin
         destination: 'Nairobi HQ',
         status: 'Receiving',

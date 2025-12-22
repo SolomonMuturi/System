@@ -44,7 +44,7 @@ export default function ShipmentDetailsPage() {
             <div className="container mx-auto flex items-center gap-4">
                 <FreshViewLogo className="w-8 h-8 text-primary" />
                 <h1 className="text-xl font-headline font-bold text-foreground">
-                FreshTrace - Shipment Tracking
+                Harir International - Shipment Tracking
                 </h1>
             </div>
         </header>

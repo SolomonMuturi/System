@@ -167,7 +167,7 @@ export default function QualityControlPage() {
           <div className="flex items-center gap-2 p-2">
             <FreshViewLogo className="w-8 h-8 text-primary" />
             <h1 className="text-xl font-headline font-bold text-sidebar-foreground">
-              FreshTrace
+              Harir International
             </h1>
           </div>
         </SidebarHeader>

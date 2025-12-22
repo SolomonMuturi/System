@@ -108,7 +108,7 @@ export default function NewQuotePage() {
             <div className="flex items-center gap-2 p-2">
               <FreshTraceLogo className="w-8 h-8 text-primary" />
               <h1 className="text-xl font-headline font-bold text-sidebar-foreground">
-                FreshTrace
+                Harir International
               </h1>
             </div>
           </SidebarHeader>
@@ -166,9 +166,9 @@ export default function NewQuotePage() {
                   <div className="flex items-center gap-4">
                     <FreshTraceLogo className="h-12 w-12 text-primary" />
                     <div>
-                      <h3 className="text-xl font-bold">FreshTrace Inc.</h3>
+                      <h3 className="text-xl font-bold">Harir Int.</h3>
                       <p className="text-sm text-muted-foreground">
-                        info@freshtrace.co.ke | www.freshtrace.co.ke
+                        info@harirint.com | www.harirint.com
                       </p>
                     </div>
                   </div>
