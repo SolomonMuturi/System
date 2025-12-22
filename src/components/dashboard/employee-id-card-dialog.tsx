@@ -119,7 +119,7 @@ export function EmployeeIdCardDialog({ isOpen, onOpenChange, employee, onEdit }:
                     <div className="id-header" style={{ backgroundColor: '#0f172a', color: 'white', padding: '4px 8px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '4px' }}>
                         <FreshTraceLogo className="id-logo" style={{ width: '24px', height: '24px', flexShrink: 0, color: '#22c55e' }} />
                         <div className="id-company-details" style={{ fontSize: '8px', lineHeight: 1.2 }}>
-                            <p className="id-company" style={{ fontWeight: 'bold', fontSize: '10px' }}>FreshTrace Inc.</p>
+                            <p className="id-company" style={{ fontWeight: 'bold', fontSize: '10px' }}>Harir Int.</p>
                             <p>P.O. Box 12345 - 00100, Nairobi | Tel: +254 20 1234567</p>
                             <p>If found, please return to the address above.</p>
                         </div>
@@ -173,7 +173,7 @@ export function EmployeeIdCardDialog({ isOpen, onOpenChange, employee, onEdit }:
             <div className="id-header">
                 <FreshTraceLogo className="id-logo" />
                  <div className="id-company-details">
-                    <p className="id-company">FreshTrace Inc.</p>
+                    <p className="id-company">Harir Int.</p>
                     <p>P.O. Box 12345 - 00100, Nairobi | Tel: +254 20 1234567</p>
                     <p>If found, please return to the address above.</p>
                 </div>
