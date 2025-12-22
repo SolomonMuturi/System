@@ -140,7 +140,7 @@ export default function SupplierPortalPage() {
             <Card>
                 <CardHeader>
                     <CardTitle>Pre-register an Incoming Shipment</CardTitle>
-                    <CardDescription>Log a new delivery you are sending to FreshTrace.</CardDescription>
+                    <CardDescription>Log a new delivery you are sending to Harir International.</CardDescription>
                 </CardHeader>
                 <CardContent>
                     <form onSubmit={handleRegisterShipment} className="space-y-4">
