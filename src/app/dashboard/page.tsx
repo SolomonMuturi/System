@@ -549,7 +549,7 @@ const AdminDashboard = () => {
           <div className="flex items-center gap-2 p-2">
             <FreshTraceLogo className="w-8 h-8 text-primary" />
             <h1 className="text-xl font-headline font-bold text-sidebar-foreground">
-              FreshTrace
+              Harir International
             </h1>
           </div>
         </SidebarHeader>
@@ -564,7 +564,7 @@ const AdminDashboard = () => {
             {/* Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
-                <h2 className="text-2xl font-bold tracking-tight">FreshTrace Operations Dashboard</h2>
+                <h2 className="text-2xl font-bold tracking-tight">Harir International Operations Dashboard</h2>
                 <p className="text-muted-foreground">
                   Real-time monitoring of supply chain operations, intake, processing, and dispatch
                 </p>
