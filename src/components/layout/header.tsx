@@ -17,10 +17,13 @@ import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
+import { useEffect, useRef } from 'react'; // Added imports
 
 export function Header() {
   const { data: session } = useSession();
   const router = useRouter();
+  const logoutTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const INACTIVITY_TIMEOUT = 10 * 60 * 1000; // 10 minutes in milliseconds
 
   // Get initials from name
   const getInitials = (name: string = '') => {
@@ -46,6 +49,67 @@ export function Header() {
       toast.error('Failed to logout');
     }
   };
+
+  const resetLogoutTimer = () => {
+    // Clear existing timer
+    if (logoutTimerRef.current) {
+      clearTimeout(logoutTimerRef.current);
+    }
+    
+    // Set new timer for 10 minutes
+    logoutTimerRef.current = setTimeout(() => {
+      toast.warning('Session expired due to inactivity');
+      handleLogout();
+    }, INACTIVITY_TIMEOUT);
+  };
+
+  // Function to track user activity
+  const setupActivityListeners = () => {
+    const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
+    
+    const handleUserActivity = () => {
+      resetLogoutTimer();
+    };
+    
+    // Add event listeners
+    events.forEach(event => {
+      window.addEventListener(event, handleUserActivity);
+    });
+    
+    // Cleanup function
+    return () => {
+      events.forEach(event => {
+        window.removeEventListener(event, handleUserActivity);
+      });
+    };
+  };
+
+  useEffect(() => {
+    if (session?.user) {
+      // Initialize the logout timer
+      resetLogoutTimer();
+      
+      // Setup activity listeners
+      const cleanup = setupActivityListeners();
+      
+      // Cleanup on unmount
+      return () => {
+        cleanup();
+        if (logoutTimerRef.current) {
+          clearTimeout(logoutTimerRef.current);
+        }
+      };
+    }
+  }, [session?.user]);
+
+  // Clear timer when component unmounts
+  useEffect(() => {
+    return () => {
+      if (logoutTimerRef.current) {
+        clearTimeout(logoutTimerRef.current);
+      }
+    };
+  }, []);
 
   const user = session?.user;
   const userRole = (user as any)?.role || 'No Role';
