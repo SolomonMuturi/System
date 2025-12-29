@@ -13,20 +13,17 @@ import { SidebarNav } from '@/components/layout/sidebar-nav';
 import { Header } from '@/components/layout/header';
 import { OverviewCard } from '@/components/dashboard/overview-card';
 import {
-  PackageSearch,
   Thermometer,
   Users,
   Truck,
   Scale,
   Package,
   HardHat,
-  QrCode,
   AlertTriangle,
   TrendingUp,
   TrendingDown,
   Clock,
   CheckCircle,
-  XCircle,
   DollarSign,
   BarChart3,
   Calendar,
@@ -35,23 +32,31 @@ import {
   Activity,
   ClipboardCheck,
   FileText,
-  Wifi,
-  WifiOff,
   User,
-  Briefcase,
   Building,
   Percent,
   Snowflake,
-  Database,
   Warehouse,
+  ArrowUpRight,
+  ArrowDownRight,
+  TrendingUp as TrendingUpIcon,
+  TrendingDown as TrendingDownIcon,
+  Droplets,
+  Target,
+  Shield,
+  Clock as ClockIcon,
+  Percent as PercentIcon,
+  PackageOpen,
+  Box,
+  Layers,
+  ThermometerSnowflake,
+  Home,
 } from 'lucide-react';
 import { ColdChainChart } from '@/components/dashboard/cold-chain-chart';
 import { RecentAlerts } from '@/components/dashboard/recent-alerts';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useUser } from '@/hooks/use-user';
-import { ShipmentDataTable } from '@/components/dashboard/shipment-data-table';
-import { ProcessingStationStatus } from '@/components/dashboard/processing-station-status';
 import { useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { Badge } from '@/components/ui/badge';
@@ -60,6 +65,23 @@ import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { 
+  AreaChart, 
+  Area, 
+  BarChart, 
+  Bar, 
+  LineChart, 
+  Line, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  Legend
+} from 'recharts';
 
 // Types
 interface DashboardStats {
@@ -116,7 +138,7 @@ interface DashboardStats {
     time: string;
   }>;
   
-  // Cold Chain Data - Updated to use real data structure
+  // Cold Chain Data
   coldChainData: Array<{
     id: string;
     name: string;
@@ -145,13 +167,18 @@ interface DashboardStats {
     }>;
   };
   
-  // VMS/IoT Data
-  vmsIotData: Array<{
-    id: string;
-    device: string;
-    location: string;
-    status: 'online' | 'offline';
-    lastUpdate: string;
+  // Additional Metrics
+  weeklyIntakeTrend: Array<{
+    day: string;
+    pallets: number;
+    weight: number;
+  }>;
+  
+  supplierPerformance: Array<{
+    name: string;
+    intake: number;
+    quality: number;
+    onTime: number;
   }>;
 }
 
@@ -250,6 +277,25 @@ const AdminDashboard = () => {
     }
   };
   
+  // Format time ago
+  const timeAgo = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+    
+    let interval = seconds / 31536000;
+    if (interval > 1) return Math.floor(interval) + " years ago";
+    interval = seconds / 2592000;
+    if (interval > 1) return Math.floor(interval) + " months ago";
+    interval = seconds / 86400;
+    if (interval > 1) return Math.floor(interval) + " days ago";
+    interval = seconds / 3600;
+    if (interval > 1) return Math.floor(interval) + " hours ago";
+    interval = seconds / 60;
+    if (interval > 1) return Math.floor(interval) + " minutes ago";
+    return Math.floor(seconds) + " seconds ago";
+  };
+  
   // Fetch cold room data
   const fetchColdRoomData = async () => {
     try {
@@ -277,7 +323,7 @@ const AdminDashboard = () => {
       if (tempResponse.ok) {
         const result = await tempResponse.json();
         if (result.success && Array.isArray(result.data)) {
-          tempLogs = result.data.slice(0, 10); // Get last 10 logs
+          tempLogs = result.data.slice(0, 10);
         }
       }
       
@@ -332,14 +378,12 @@ const AdminDashboard = () => {
         // Determine status based on temperature
         let status: 'optimal' | 'warning' | 'normal' = 'normal';
         if (room.id === 'coldroom1') {
-          // Cold Room 1: 3-5°C range
           if (latestTempLog && latestTempLog.temperature >= 3 && latestTempLog.temperature <= 5) {
             status = 'optimal';
           } else if (latestTempLog && (latestTempLog.temperature < 2 || latestTempLog.temperature > 6)) {
             status = 'warning';
           }
         } else if (room.id === 'coldroom2') {
-          // Cold Room 2: 5°C range (based on your data)
           if (latestTempLog && latestTempLog.temperature >= 4 && latestTempLog.temperature <= 6) {
             status = 'optimal';
           } else if (latestTempLog && (latestTempLog.temperature < 3 || latestTempLog.temperature > 7)) {
@@ -349,7 +393,7 @@ const AdminDashboard = () => {
         
         return {
           ...room,
-          humidity: 75, // Default humidity
+          humidity: 75,
           last_temperature_log: latestTempLog?.timestamp,
           status
         };
@@ -372,7 +416,6 @@ const AdminDashboard = () => {
     } catch (error) {
       console.error('❌ Error fetching cold room data:', error);
       
-      // Return default data on error
       return {
         rooms: [
           {
@@ -401,6 +444,26 @@ const AdminDashboard = () => {
         totalWeightLoadedToday: 0
       };
     }
+  };
+  
+  // Generate sample data for charts
+  const generateWeeklyTrend = () => {
+    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    return days.map(day => ({
+      day,
+      pallets: Math.floor(Math.random() * 30) + 20,
+      weight: Math.floor(Math.random() * 10000) + 5000,
+    }));
+  };
+  
+  const generateSupplierPerformance = () => {
+    const suppliers = ['AgriFresh Co.', 'Green Valley Farms', 'Sunshine Produce', 'Mountain Harvest', 'Riverbend Fruits'];
+    return suppliers.map(name => ({
+      name,
+      intake: Math.floor(Math.random() * 100) + 70,
+      quality: Math.floor(Math.random() * 15) + 85,
+      onTime: Math.floor(Math.random() * 20) + 80,
+    }));
   };
   
   // Fetch all dashboard data including warehouse data
@@ -476,10 +539,10 @@ const AdminDashboard = () => {
       }).length;
       
       // Process operational statistics
-      const palletsWeighedToday = supplierIntakeRecords.length; // Use actual intake records
+      const palletsWeighedToday = supplierIntakeRecords.length;
       const totalWeightToday = supplierIntakeRecords.reduce((sum, record) => sum + record.total_weight, 0);
       
-      // Calculate cold room capacity based on actual data
+      // Calculate cold room capacity
       const coldRoomCapacity = coldRoomData.rooms.reduce((total, room) => {
         if (room.capacity > 0) {
           return Math.round((room.occupied / room.capacity) * 100);
@@ -498,7 +561,7 @@ const AdminDashboard = () => {
         const recordDate = new Date(record.submitted_at).toISOString().split('T')[0];
         return recordDate === today && record.status === 'processed';
       }).length;
-      const todayDispatched = 0; // You would need a separate API for this
+      const todayDispatched = 0;
       
       // Process financial statistics
       const todayOperationalCost = 0;
@@ -511,7 +574,7 @@ const AdminDashboard = () => {
       const processingEfficiency = todayProcessed > 0 ? 88 : 0;
       const dispatchAccuracy = 96;
       
-      // Generate recent alerts from various sources
+      // Generate recent alerts
       const recentAlerts = generateRecentAlerts(
         employeesData,
         attendanceData,
@@ -521,7 +584,7 @@ const AdminDashboard = () => {
         coldRoomData.tempLogs
       );
       
-      // Cold chain data - using REAL data from cold rooms
+      // Cold chain data
       const coldChainData = coldRoomData.rooms.map(room => ({
         id: room.id,
         name: room.name,
@@ -533,7 +596,7 @@ const AdminDashboard = () => {
         lastUpdate: room.last_temperature_log || new Date().toISOString()
       }));
       
-      // Calculate pallet counts from boxes
+      // Calculate pallet counts
       const calculatePallets = (boxes: number, boxType: '4kg' | '10kg') => {
         if (boxType === '4kg') {
           return Math.floor(boxes / 288);
@@ -558,14 +621,9 @@ const AdminDashboard = () => {
         }))
       };
       
-      // VMS/IoT data
-      const vmsIotData = [
-        { id: 'device-1', device: 'Temperature Sensor #1', location: 'Cold Room 1', status: 'online' as const, lastUpdate: '2 min ago' },
-        { id: 'device-2', device: 'Weight Scale #2', location: 'Weighing Station', status: 'online' as const, lastUpdate: '5 min ago' },
-        { id: 'device-3', device: 'GPS Tracker #15', location: 'Vehicle KAB 123X', status: 'online' as const, lastUpdate: '30 sec ago' },
-        { id: 'device-4', device: 'Humidity Sensor #3', location: 'Cold Room 3', status: 'offline' as const, lastUpdate: '1 hour ago' },
-        { id: 'device-5', device: 'Door Sensor #4', location: 'Loading Bay', status: 'online' as const, lastUpdate: '10 min ago' },
-      ];
+      // Generate sample data for charts
+      const weeklyIntakeTrend = generateWeeklyTrend();
+      const supplierPerformance = generateSupplierPerformance();
       
       const dashboardStats: DashboardStats = {
         // Employee Stats
@@ -611,14 +669,15 @@ const AdminDashboard = () => {
         // Recent Alerts
         recentAlerts,
         
-        // Cold Chain Data - REAL DATA
+        // Cold Chain Data
         coldChainData,
         
         // Cold Room Statistics
         coldRoomStats,
         
-        // VMS/IoT Data
-        vmsIotData,
+        // Additional Metrics
+        weeklyIntakeTrend,
+        supplierPerformance,
       };
       
       setStats(dashboardStats);
@@ -689,7 +748,6 @@ const AdminDashboard = () => {
         if (result.success) {
           setCountingRecords(result.data || []);
           
-          // Calculate warehouse stats
           const totalProcessed = result.data.filter((r: any) => r.status === 'processed').length;
           const pendingRejections = result.data.filter((r: any) => r.status === 'pending').length;
           
@@ -709,7 +767,7 @@ const AdminDashboard = () => {
     }
   };
   
-  // Generate recent alerts from various data sources - UPDATED with cold room alerts
+  // Generate recent alerts
   const generateRecentAlerts = (
     employees: any[],
     attendance: any[],
@@ -721,7 +779,7 @@ const AdminDashboard = () => {
     const alerts = [];
     const now = new Date();
     
-    // Temperature alerts from cold rooms
+    // Temperature alerts
     coldRooms.forEach(room => {
       const latestTempLog = tempLogs
         .filter(log => log.cold_room_id === room.id)
@@ -764,7 +822,7 @@ const AdminDashboard = () => {
       }
     });
     
-    // Attendance alerts (employees missing check-in after 9 AM)
+    // Attendance alerts
     if (now.getHours() >= 9) {
       const today = new Date().toISOString().split('T')[0];
       const checkedInEmployees = attendance
@@ -786,7 +844,7 @@ const AdminDashboard = () => {
       }
     }
     
-    // Vehicle alerts (vehicles pending exit for > 2 hours)
+    // Vehicle alerts
     const pendingExitVehicles = vehicles.filter((v: any) => 
       v.vehicle_status === 'Pending Exit'
     );
@@ -801,7 +859,7 @@ const AdminDashboard = () => {
       });
     }
     
-    // Supplier alerts (inactive suppliers)
+    // Supplier alerts
     const inactiveSuppliers = suppliers.filter((s: any) => 
       s.status === 'Inactive'
     );
@@ -816,7 +874,7 @@ const AdminDashboard = () => {
       });
     }
     
-    // Add warehouse alerts
+    // Warehouse alerts
     if (countingRecords.length > 0) {
       const pendingCounting = countingRecords.filter(r => r.status === 'pending').length;
       if (pendingCounting > 0) {
@@ -830,7 +888,7 @@ const AdminDashboard = () => {
       }
     }
     
-    // Return only the 5 most recent alerts, sorted by severity (high first)
+    // Return sorted alerts
     return alerts.sort((a, b) => {
       const severityOrder = { high: 0, medium: 1, low: 2 };
       return severityOrder[a.severity] - severityOrder[b.severity];
@@ -854,7 +912,7 @@ const AdminDashboard = () => {
     });
   };
   
-  // Calculate accepted suppliers (intake + QC approved)
+  // Calculate accepted suppliers
   const getAcceptedSuppliers = () => {
     return supplierIntakeRecords.filter(intake => {
       const qc = qualityChecks.find(q => q.weight_entry_id === intake.id);
@@ -897,69 +955,20 @@ const AdminDashboard = () => {
     );
   }
   
-  // Overview cards configuration - UPDATED with cold room data
-  const overviewCards = [
-    {
-      id: 'employees',
-      title: 'Employees Present',
-      value: `${stats.employeesPresentToday}/${stats.totalEmployees}`,
-      change: `${stats.attendanceRate}% attendance rate`,
-      changeType: stats.attendanceRate > 85 ? 'increase' : 'decrease' as const,
-      icon: Users,
-      link: '/employees',
-      color: 'bg-blue-500',
-    },
-    {
-      id: 'suppliers',
-      title: 'Active Suppliers',
-      value: String(stats.activeSuppliers),
-      change: `${stats.totalSuppliers} total suppliers`,
-      changeType: 'increase' as const,
-      icon: Building,
-      link: '/suppliers',
-      color: 'bg-green-500',
-    },
-    {
-      id: 'coldroom',
-      title: 'Cold Room Status',
-      value: `${stats.coldRoomCapacity}% occupied`,
-      change: `${stats.coldRoomStats.totalBoxesLoadedToday} boxes loaded today`,
-      changeType: stats.coldRoomCapacity > 90 ? 'increase' : 'normal' as const,
-      icon: Snowflake,
-      link: '/cold-room',
-      color: 'bg-cyan-500',
-    },
-    {
-      id: 'pallets',
-      title: 'Pallets Today',
-      value: String(stats.palletsWeighedToday),
-      change: `${stats.totalWeightToday} kg total`,
-      changeType: stats.palletsWeighedToday > 40 ? 'increase' : 'decrease' as const,
-      icon: Package,
-      link: '/weight-capture',
-      color: 'bg-purple-500',
-    },
-    {
-      id: 'quality',
-      title: 'Quality Pass Rate',
-      value: `${stats.qualityCheckPassRate}%`,
-      change: 'Today',
-      changeType: stats.qualityCheckPassRate > 90 ? 'increase' : 'decrease' as const,
-      icon: CheckCircle,
-      link: '/quality-control',
-      color: 'bg-emerald-500',
-    },
-    {
-      id: 'warehouse',
-      title: "Today's Intake",
-      value: String(stats.todayIntakes),
-      change: `${stats.todayProcessed} processed, ${stats.todayDispatched} dispatched`,
-      changeType: 'increase' as const,
-      icon: Warehouse,
-      link: '/warehouse',
-      color: 'bg-indigo-500',
-    },
+  // Data for pie chart - Employee distribution
+  const employeeDistributionData = [
+    { name: 'Full-time', value: stats.employeesByContract.fullTime, color: '#3b82f6' },
+    { name: 'Part-time', value: stats.employeesByContract.partTime, color: '#10b981' },
+    { name: 'Contract', value: stats.employeesByContract.contract, color: '#8b5cf6' },
   ];
+  
+  // Data for bar chart - Cold room occupancy
+  const coldRoomOccupancyData = stats.coldChainData.map(room => ({
+    name: room.name,
+    occupied: room.occupied,
+    capacity: room.capacity,
+    occupancyRate: Math.round((room.occupied / room.capacity) * 100),
+  }));
 
   return (
     <SidebarProvider>
@@ -979,17 +988,23 @@ const AdminDashboard = () => {
       <SidebarInset>
         <Header />
         <main className="p-4 md:p-6 lg:p-8">
-          <div className="space-y-6">
-            {/* Header */}
+          <div className="space-y-8">
+            {/* Header Section */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
-                <h2 className="text-2xl font-bold tracking-tight">Harir International Operations Dashboard</h2>
+                <div className="flex items-center gap-3 mb-2">
+                  <h2 className="text-2xl font-bold tracking-tight">Operations Dashboard</h2>
+                  <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20">
+                    Live
+                  </Badge>
+                </div>
                 <p className="text-muted-foreground">
-                  Real-time monitoring of supply chain operations, intake, processing, and dispatch
+                  Comprehensive overview of warehouse operations, cold chain status, and performance metrics
                 </p>
               </div>
               <div className="flex items-center gap-3">
-                <div className="text-sm text-muted-foreground">
+                <div className="text-sm text-muted-foreground flex items-center gap-2">
+                  <Clock className="w-4 h-4" />
                   Updated: {lastUpdated}
                 </div>
                 <Button 
@@ -997,282 +1012,395 @@ const AdminDashboard = () => {
                   size="sm" 
                   onClick={handleRefresh}
                   disabled={isRefreshing}
+                  className="gap-2"
                 >
                   {isRefreshing ? (
-                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
-                    <RefreshCw className="w-4 h-4 mr-2" />
+                    <RefreshCw className="w-4 h-4" />
                   )}
                   Refresh
                 </Button>
               </div>
             </div>
 
-            {/* Tabs for different views */}
+            {/* Main Dashboard Content */}
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
               <TabsList className="grid w-full grid-cols-4">
-                <TabsTrigger value="overview">Overview</TabsTrigger>
-                <TabsTrigger value="operations">Operations</TabsTrigger>
-                <TabsTrigger value="coldchain">Cold Chain</TabsTrigger>
-                <TabsTrigger value="warehouse">Warehouse</TabsTrigger>
+                <TabsTrigger value="overview" className="gap-2">
+                  <Home className="w-4 h-4" />
+                  Overview
+                </TabsTrigger>
+                <TabsTrigger value="operations" className="gap-2">
+                  <Activity className="w-4 h-4" />
+                  Operations
+                </TabsTrigger>
+                <TabsTrigger value="coldchain" className="gap-2">
+                  <ThermometerSnowflake className="w-4 h-4" />
+                  Cold Chain
+                </TabsTrigger>
+                <TabsTrigger value="analytics" className="gap-2">
+                  <BarChart3 className="w-4 h-4" />
+                  Analytics
+                </TabsTrigger>
               </TabsList>
 
-              {/* Overview Tab */}
-              <TabsContent value="overview" className="mt-6 space-y-6">
-                {/* Quick Stats */}
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                  {overviewCards.map((card) => (
-                    <Link key={card.id} href={card.link} className="block transition-transform hover:scale-[1.02]">
-                      <OverviewCard 
-                        data={{ 
-                          title: card.title, 
-                          value: card.value, 
-                          change: card.change, 
-                          changeType: card.changeType 
-                        }} 
-                        icon={card.icon} 
-                      />
-                    </Link>
-                  ))}
+              {/* Overview Tab - Redesigned */}
+              <TabsContent value="overview" className="mt-6 space-y-8">
+                {/* Key Metrics Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                  {/* Today's Intake */}
+                  <Link href="/warehouse" className="block transition-all hover:scale-[1.02]">
+                    <Card className="border-l-4 border-l-blue-500 hover:shadow-lg transition-shadow">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-sm font-medium flex items-center justify-between">
+                          <span className="text-muted-foreground">Today's Intake</span>
+                          <Package className="w-4 h-4 text-blue-500" />
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-2">
+                          <div className="text-3xl font-bold">{stats.todayIntakes}</div>
+                          <div className="flex items-center gap-2 text-sm">
+                            <span className="text-muted-foreground">{stats.totalWeightToday.toLocaleString()} kg</span>
+                            <Badge variant="outline" className="ml-auto">
+                              {stats.palletsWeighedToday} pallets
+                            </Badge>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </Link>
+
+                  {/* Cold Room Status */}
+                  <Link href="/cold-room" className="block transition-all hover:scale-[1.02]">
+                    <Card className="border-l-4 border-l-cyan-500 hover:shadow-lg transition-shadow">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-sm font-medium flex items-center justify-between">
+                          <span className="text-muted-foreground">Cold Room Status</span>
+                          <Snowflake className="w-4 h-4 text-cyan-500" />
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-2">
+                          <div className="text-3xl font-bold">
+                            {stats.coldRoomCapacity}%
+                          </div>
+                          <div className="flex items-center gap-2 text-sm">
+                            <span className="text-muted-foreground">
+                              {stats.coldRoomStats.total4kgBoxes + stats.coldRoomStats.total10kgBoxes} boxes
+                            </span>
+                            <div className="ml-auto flex items-center gap-1">
+                              {stats.coldChainData.every(room => room.status === 'optimal') ? (
+                                <Badge variant="default" className="bg-green-100 text-green-800 hover:bg-green-100">
+                                  Optimal
+                                </Badge>
+                              ) : (
+                                <Badge variant="destructive">Check Alerts</Badge>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </Link>
+
+                  {/* Quality Pass Rate */}
+                  <Link href="/quality-control" className="block transition-all hover:scale-[1.02]">
+                    <Card className="border-l-4 border-l-emerald-500 hover:shadow-lg transition-shadow">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-sm font-medium flex items-center justify-between">
+                          <span className="text-muted-foreground">Quality Pass Rate</span>
+                          <CheckCircle className="w-4 h-4 text-emerald-500" />
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-2">
+                          <div className="text-3xl font-bold">{stats.qualityCheckPassRate}%</div>
+                          <div className="flex items-center gap-2 text-sm">
+                            <span className="text-muted-foreground">This week</span>
+                            <div className="ml-auto flex items-center gap-1">
+                              {stats.qualityCheckPassRate >= 95 ? (
+                                <>
+                                  <ArrowUpRight className="w-4 h-4 text-emerald-600" />
+                                  <span className="text-emerald-600">+2.5%</span>
+                                </>
+                              ) : (
+                                <>
+                                  <ArrowDownRight className="w-4 h-4 text-red-600" />
+                                  <span className="text-red-600">-1.2%</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </Link>
+
+                  {/* Active Resources */}
+                  <Link href="/employees" className="block transition-all hover:scale-[1.02]">
+                    <Card className="border-l-4 border-l-purple-500 hover:shadow-lg transition-shadow">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-sm font-medium flex items-center justify-between">
+                          <span className="text-muted-foreground">Active Resources</span>
+                          <Users className="w-4 h-4 text-purple-500" />
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-2">
+                          <div className="text-3xl font-bold">
+                            {stats.employeesPresentToday}/{stats.totalEmployees}
+                          </div>
+                          <div className="flex items-center gap-2 text-sm">
+                            <span className="text-muted-foreground">{stats.attendanceRate}% attendance</span>
+                            <Badge variant="outline" className="ml-auto">
+                              {stats.vehiclesOnSite} vehicles
+                            </Badge>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </Link>
                 </div>
 
-                {/* Main Dashboard Grid */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  {/* Left Column */}
-                  <div className="lg:col-span-2 space-y-6">
+                {/* Main Content Grid */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                  {/* Left Column - Performance & Alerts */}
+                  <div className="lg:col-span-2 space-y-8">
                     {/* Performance Metrics */}
                     <Card>
                       <CardHeader>
                         <CardTitle className="flex items-center gap-2">
-                          <Activity className="w-5 h-5" />
-                          Operational Performance
+                          <Target className="w-5 h-5" />
+                          Performance Metrics
                         </CardTitle>
                         <CardDescription>
-                          Today's key performance indicators
+                          Key operational indicators and trends
                         </CardDescription>
                       </CardHeader>
                       <CardContent>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="space-y-2">
-                            <div className="flex justify-between text-sm">
-                              <span>Intake Efficiency</span>
-                              <span className="font-semibold">{stats.intakeEfficiency}%</span>
+                        <div className="space-y-6">
+                          {/* Efficiency Metrics */}
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-sm font-medium">Intake Efficiency</span>
+                                <Percent className="w-4 h-4 text-blue-500" />
+                              </div>
+                              <div className="text-2xl font-bold">{stats.intakeEfficiency}%</div>
+                              <Progress value={stats.intakeEfficiency} className="h-2" />
                             </div>
-                            <Progress value={stats.intakeEfficiency} className="h-2" />
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-sm font-medium">Processing</span>
+                                <Activity className="w-4 h-4 text-green-500" />
+                              </div>
+                              <div className="text-2xl font-bold">{stats.processingEfficiency}%</div>
+                              <Progress value={stats.processingEfficiency} className="h-2" />
+                            </div>
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-sm font-medium">Dispatch Accuracy</span>
+                                <ClipboardCheck className="w-4 h-4 text-purple-500" />
+                              </div>
+                              <div className="text-2xl font-bold">{stats.dispatchAccuracy}%</div>
+                              <Progress value={stats.dispatchAccuracy} className="h-2" />
+                            </div>
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-sm font-medium">Quality Rate</span>
+                                <Shield className="w-4 h-4 text-emerald-500" />
+                              </div>
+                              <div className="text-2xl font-bold">{stats.qualityCheckPassRate}%</div>
+                              <Progress value={stats.qualityCheckPassRate} className="h-2" />
+                            </div>
                           </div>
-                          <div className="space-y-2">
-                            <div className="flex justify-between text-sm">
-                              <span>Processing Efficiency</span>
-                              <span className="font-semibold">{stats.processingEfficiency}%</span>
+
+                          {/* Weekly Intake Trend */}
+                          <div>
+                            <h3 className="text-sm font-medium mb-4">Weekly Intake Trend</h3>
+                            <div className="h-64">
+                              <ResponsiveContainer width="100%" height="100%">
+                                <AreaChart data={stats.weeklyIntakeTrend}>
+                                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                                  <XAxis dataKey="day" />
+                                  <YAxis />
+                                  <Tooltip />
+                                  <Area 
+                                    type="monotone" 
+                                    dataKey="pallets" 
+                                    stroke="#3b82f6" 
+                                    fill="#3b82f6" 
+                                    fillOpacity={0.2}
+                                    name="Pallets"
+                                  />
+                                  <Area 
+                                    type="monotone" 
+                                    dataKey="weight" 
+                                    stroke="#10b981" 
+                                    fill="#10b981" 
+                                    fillOpacity={0.2}
+                                    name="Weight (kg)"
+                                  />
+                                </AreaChart>
+                              </ResponsiveContainer>
                             </div>
-                            <Progress value={stats.processingEfficiency} className="h-2" />
-                          </div>
-                          <div className="space-y-2">
-                            <div className="flex justify-between text-sm">
-                              <span>Dispatch Accuracy</span>
-                              <span className="font-semibold">{stats.dispatchAccuracy}%</span>
-                            </div>
-                            <Progress value={stats.dispatchAccuracy} className="h-2" />
-                          </div>
-                          <div className="space-y-2">
-                            <div className="flex justify-between text-sm">
-                              <span>Quality Pass Rate</span>
-                              <span className="font-semibold">{stats.qualityCheckPassRate}%</span>
-                            </div>
-                            <Progress value={stats.qualityCheckPassRate} className="h-2" />
                           </div>
                         </div>
                       </CardContent>
                     </Card>
 
-                    {/* WAREHOUSE PROCESSING OVERVIEW */}
+                    {/* Warehouse Processing Overview */}
                     <Card>
-                      <CardHeader className="pb-3">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <CardTitle className="flex items-center gap-2">
-                              <HardHat className="w-5 h-5" />
-                              Warehouse Processing
-                            </CardTitle>
-                            <CardDescription>
-                              {acceptedSuppliers.length} suppliers pending counting • {warehouseStats.pending_rejections} need variance
-                            </CardDescription>
-                          </div>
-                          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                            Live Updates
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <Warehouse className="w-5 h-5" />
+                          Warehouse Processing
+                          <Badge variant="outline" className="ml-2">
+                            {acceptedSuppliers.length} pending
                           </Badge>
-                        </div>
+                        </CardTitle>
+                        <CardDescription>
+                          Real-time processing status and pipeline overview
+                        </CardDescription>
                       </CardHeader>
                       <CardContent>
-                        <div className="space-y-4">
-                          {/* Stats Overview */}
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                            <div className="bg-blue-50 p-3 rounded-lg border border-blue-100">
-                              <div className="text-2xl font-bold text-blue-700">{acceptedSuppliers.length}</div>
-                              <div className="text-sm text-blue-600">Pending Counting</div>
+                        <div className="space-y-6">
+                          {/* Processing Pipeline */}
+                          <div className="grid grid-cols-4 gap-4">
+                            <div className="text-center">
+                              <div className="text-2xl font-bold text-blue-600">{supplierIntakeRecords.length}</div>
+                              <div className="text-sm text-muted-foreground">Intake</div>
+                              <div className="text-xs text-blue-500 mt-1">Received</div>
                             </div>
-                            <div className="bg-orange-50 p-3 rounded-lg border border-orange-100">
-                              <div className="text-2xl font-bold text-orange-700">{warehouseStats.pending_rejections}</div>
-                              <div className="text-sm text-orange-600">Need Variance</div>
-                            </div>
-                            <div className="bg-green-50 p-3 rounded-lg border border-green-100">
-                              <div className="text-2xl font-bold text-green-700">{warehouseStats.total_processed}</div>
-                              <div className="text-sm text-green-600">Total Processed</div>
-                            </div>
-                            <div className="bg-purple-50 p-3 rounded-lg border border-purple-100">
-                              <div className="text-2xl font-bold text-purple-700">
-                                {supplierIntakeRecords.length}
+                            <div className="text-center">
+                              <div className="text-2xl font-bold text-amber-600">
+                                {qualityChecks.filter(q => q.overall_status === 'approved').length}
                               </div>
-                              <div className="text-sm text-purple-600">Total Intakes</div>
+                              <div className="text-sm text-muted-foreground">QC Check</div>
+                              <div className="text-xs text-amber-500 mt-1">Approved</div>
+                            </div>
+                            <div className="text-center">
+                              <div className="text-2xl font-bold text-green-600">
+                                {countingRecords.filter(r => r.status === 'processed').length}
+                              </div>
+                              <div className="text-sm text-muted-foreground">Counting</div>
+                              <div className="text-xs text-green-500 mt-1">Completed</div>
+                            </div>
+                            <div className="text-center">
+                              <div className="text-2xl font-bold text-purple-600">
+                                {acceptedSuppliers.length}
+                              </div>
+                              <div className="text-sm text-muted-foreground">To Cold Room</div>
+                              <div className="text-xs text-purple-500 mt-1">Ready</div>
                             </div>
                           </div>
 
-                          {/* Active Suppliers List */}
+                          {/* Recent Activity */}
                           <div>
-                            <h4 className="font-medium mb-2 text-sm text-gray-500">Recent Intake (Last 24 hours)</h4>
-                            <div className="space-y-2 max-h-64 overflow-y-auto pr-2">
-                              {supplierIntakeRecords.slice(0, 5).map((supplier, index) => {
+                            <h3 className="text-sm font-medium mb-3">Recent Supplier Intake</h3>
+                            <div className="space-y-3 max-h-64 overflow-y-auto pr-2">
+                              {supplierIntakeRecords.slice(0, 4).map((supplier) => {
                                 const qc = qualityChecks.find(q => q.weight_entry_id === supplier.id);
-                                const isAccepted = acceptedSuppliers.some(s => s.id === supplier.id);
-                                const hasVariance = countingRecords.some(r => r.supplier_id === supplier.id);
                                 
                                 return (
-                                  <div key={supplier.id} className="p-3 border rounded-lg hover:bg-gray-50">
-                                    <div className="flex justify-between items-start">
-                                      <div className="flex-1">
+                                  <div key={supplier.id} className="p-3 border rounded-lg hover:bg-gray-50 transition-colors">
+                                    <div className="flex items-start justify-between">
+                                      <div>
                                         <div className="font-medium">{supplier.supplier_name}</div>
-                                        <div className="text-sm text-gray-500 mt-1 space-y-1">
+                                        <div className="text-sm text-gray-500 mt-1">
                                           <div className="flex items-center gap-4">
-                                            <span>📍 {supplier.region}</span>
-                                            <span>📞 {supplier.driver_name || "No contact"}</span>
-                                          </div>
-                                          <div className="flex items-center gap-4">
-                                            <span>🚚 {supplier.vehicle_plate || "No plate"}</span>
+                                            <span>🚚 {supplier.vehicle_plate || 'No plate'}</span>
                                             <span>⚖️ {supplier.total_weight} kg</span>
                                             <span>📦 {supplier.fruit_varieties.length} varieties</span>
                                           </div>
                                         </div>
                                       </div>
                                       <div className="flex flex-col items-end gap-1">
-                                        <Badge variant="outline" className={`
-                                          ${isAccepted ? 'bg-green-50 text-green-700 border-green-200' : 
-                                            hasVariance ? 'bg-orange-50 text-orange-700 border-orange-200' : 
-                                            qc?.overall_status === 'approved' ? 'bg-blue-50 text-blue-700 border-blue-200' : 
-                                            'bg-gray-50 text-gray-700 border-gray-200'}
-                                        `}>
-                                          {isAccepted ? 'Ready for Counting' : 
-                                           hasVariance ? 'Needs Variance' : 
-                                           qc?.overall_status === 'approved' ? 'QC Approved' : 'Intake Complete'}
+                                        <Badge variant={
+                                          qc?.overall_status === 'approved' ? 'default' : 'secondary'
+                                        }>
+                                          {qc?.overall_status === 'approved' ? 'QC Approved' : 'Intake Complete'}
                                         </Badge>
                                         <div className="text-xs text-gray-400">
                                           {formatDate(supplier.timestamp)}
                                         </div>
                                       </div>
                                     </div>
-                                    
-                                    {/* Fruit Varieties */}
-                                    {supplier.fruit_varieties.length > 0 && (
-                                      <div className="mt-2 flex flex-wrap gap-1">
-                                        {supplier.fruit_varieties.map((fruit, idx) => (
-                                          <span key={idx} className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-700">
-                                            {fruit.name}: {fruit.weight}kg ({fruit.crates} crates)
-                                          </span>
-                                        ))}
-                                      </div>
-                                    )}
                                   </div>
                                 );
                               })}
-                              
-                              {supplierIntakeRecords.length === 0 && (
-                                <div className="text-center py-4 text-gray-500">
-                                  No supplier intake records found
-                                </div>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Quick Actions */}
-                          <div className="pt-4 border-t">
-                            <div className="flex gap-2">
-                              <Button 
-                                variant="outline" 
-                                size="sm" 
-                                className="flex-1"
-                                onClick={() => router.push('/warehouse')}
-                              >
-                                <Scale className="w-4 h-4 mr-2" />
-                                Go to Warehouse
-                              </Button>
-                              <Button 
-                                variant="outline" 
-                                size="sm" 
-                                className="flex-1"
-                                onClick={() => router.push('/warehouse?tab=counting')}
-                              >
-                                <Package className="w-4 h-4 mr-2" />
-                                Start Counting
-                              </Button>
-                              <Button 
-                                variant="outline" 
-                                size="sm" 
-                                className="flex-1"
-                                onClick={() => router.push('/warehouse?tab=reject')}
-                              >
-                                <AlertTriangle className="w-4 h-4 mr-2" />
-                                Handle Variance
-                              </Button>
                             </div>
                           </div>
                         </div>
                       </CardContent>
+                      <CardFooter>
+                        <Button 
+                          variant="outline" 
+                          className="w-full"
+                          onClick={() => router.push('/warehouse')}
+                        >
+                          <Warehouse className="w-4 h-4 mr-2" />
+                          Go to Warehouse Management
+                        </Button>
+                      </CardFooter>
                     </Card>
                   </div>
 
-                  {/* Right Column */}
-                  <div className="space-y-6">
-                    {/* Cold Chain Status - USING REAL DATA */}
+                  {/* Right Column - Cold Chain & Alerts */}
+                  <div className="space-y-8">
+                    {/* Cold Chain Status */}
                     <Card>
                       <CardHeader>
                         <CardTitle className="flex items-center gap-2">
-                          <Thermometer className="w-5 h-5" />
-                          Cold Chain Monitoring
+                          <ThermometerSnowflake className="w-5 h-5" />
+                          Cold Chain Status
+                          <Badge variant="outline" className="ml-2">
+                            Live
+                          </Badge>
                         </CardTitle>
                         <CardDescription>
-                          Real-time temperature and humidity from cold rooms
+                          Real-time temperature monitoring
                         </CardDescription>
                       </CardHeader>
                       <CardContent>
                         <ColdChainChart data={stats.coldChainData} />
                         
-                        {/* Cold Room Status Details */}
-                        <div className="mt-4 space-y-3">
-                          {stats.coldChainData.map((room) => (
-                            <div key={room.id} className="flex items-center justify-between p-3 border rounded-lg">
-                              <div className="flex items-center gap-3">
-                                <div className={`w-3 h-3 rounded-full ${
-                                  room.status === 'optimal' ? 'bg-green-500' :
-                                  room.status === 'warning' ? 'bg-yellow-500' :
-                                  'bg-blue-500'
-                                }`} />
-                                <div>
-                                  <div className="font-medium">{room.name}</div>
+                        {/* Cold Room Details */}
+                        <div className="space-y-3 mt-4">
+                          {stats.coldChainData.map((room) => {
+                            const occupancyRate = Math.round((room.occupied / room.capacity) * 100);
+                            return (
+                              <div key={room.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 transition-colors">
+                                <div className="flex items-center gap-3">
+                                  <div className={`w-3 h-3 rounded-full ${
+                                    room.status === 'optimal' ? 'bg-green-500' :
+                                    room.status === 'warning' ? 'bg-yellow-500' :
+                                    'bg-blue-500'
+                                  }`} />
+                                  <div>
+                                    <div className="font-medium">{room.name}</div>
+                                    <div className="text-xs text-muted-foreground">
+                                      {room.occupied}/{room.capacity} pallets
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <div className="font-bold text-lg flex items-center gap-1">
+                                    {room.temperature}°C
+                                    <Droplets className="w-4 h-4 text-blue-500" />
+                                  </div>
                                   <div className="text-xs text-muted-foreground">
-                                    {room.occupied}/{room.capacity} pallets • {formatDate(room.lastUpdate)}
+                                    {occupancyRate}% occupied
                                   </div>
                                 </div>
                               </div>
-                              <div className="text-right">
-                                <div className="font-bold text-lg">{room.temperature}°C</div>
-                                <div className="text-xs text-muted-foreground">
-                                  {room.humidity}% humidity
-                                </div>
-                              </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </CardContent>
-                      <CardFooter className="pt-0">
+                      <CardFooter>
                         <Button 
                           variant="outline" 
                           size="sm" 
@@ -1280,7 +1408,7 @@ const AdminDashboard = () => {
                           onClick={() => router.push('/cold-room')}
                         >
                           <Snowflake className="w-4 h-4 mr-2" />
-                          View Cold Room Details
+                          Manage Cold Rooms
                         </Button>
                       </CardFooter>
                     </Card>
@@ -1293,7 +1421,7 @@ const AdminDashboard = () => {
                           Recent Alerts
                           {stats.recentAlerts.filter(a => a.severity === 'high').length > 0 && (
                             <Badge variant="destructive" className="ml-2">
-                              {stats.recentAlerts.filter(a => a.severity === 'high').length} Critical
+                              {stats.recentAlerts.filter(a => a.severity === 'high').length}
                             </Badge>
                           )}
                         </CardTitle>
@@ -1309,25 +1437,33 @@ const AdminDashboard = () => {
                               alert.severity === 'medium' ? 'bg-yellow-50 border-yellow-200' :
                               'bg-blue-50 border-blue-200'
                             }`}>
-                              <div className="flex items-start justify-between">
-                                <div className="flex items-start gap-3">
-                                  {alert.type === 'temperature' && <Thermometer className="w-4 h-4" />}
-                                  {alert.type === 'weight' && <Scale className="w-4 h-4" />}
-                                  {alert.type === 'vehicle' && <Truck className="w-4 h-4" />}
-                                  {alert.type === 'quality' && <ClipboardCheck className="w-4 h-4" />}
-                                  {alert.type === 'attendance' && <User className="w-4 h-4" />}
-                                  <div className="flex-1">
-                                    <div className="font-medium text-sm">{alert.message}</div>
-                                    <div className="flex items-center gap-2 mt-1">
-                                      <Badge className={`text-xs ${
-                                        alert.severity === 'high' ? 'bg-red-100 text-red-800 border-red-200' :
-                                        alert.severity === 'medium' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' :
-                                        'bg-blue-100 text-blue-800 border-blue-200'
-                                      }`}>
-                                        {alert.severity.toUpperCase()}
-                                      </Badge>
-                                      <span className="text-xs text-muted-foreground">{alert.time}</span>
-                                    </div>
+                              <div className="flex items-start gap-3">
+                                {alert.type === 'temperature' && (
+                                  <Thermometer className="w-4 h-4 text-red-500" />
+                                )}
+                                {alert.type === 'weight' && (
+                                  <Scale className="w-4 h-4 text-blue-500" />
+                                )}
+                                {alert.type === 'vehicle' && (
+                                  <Truck className="w-4 h-4 text-amber-500" />
+                                )}
+                                {alert.type === 'quality' && (
+                                  <Shield className="w-4 h-4 text-emerald-500" />
+                                )}
+                                {alert.type === 'attendance' && (
+                                  <User className="w-4 h-4 text-purple-500" />
+                                )}
+                                <div className="flex-1">
+                                  <div className="font-medium text-sm">{alert.message}</div>
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <Badge className={`text-xs ${
+                                      alert.severity === 'high' ? 'bg-red-100 text-red-800' :
+                                      alert.severity === 'medium' ? 'bg-yellow-100 text-yellow-800' :
+                                      'bg-blue-100 text-blue-800'
+                                    }`}>
+                                      {alert.severity.toUpperCase()}
+                                    </Badge>
+                                    <span className="text-xs text-muted-foreground">{alert.time}</span>
                                   </div>
                                 </div>
                               </div>
@@ -1335,10 +1471,10 @@ const AdminDashboard = () => {
                           ))}
                           
                           {stats.recentAlerts.length === 0 && (
-                            <div className="text-center py-4">
+                            <div className="text-center py-4 border rounded-lg bg-green-50">
                               <CheckCircle className="w-8 h-8 text-green-500 mx-auto mb-2" />
                               <p className="text-sm text-green-600">No active alerts</p>
-                              <p className="text-xs text-muted-foreground mt-1">All systems are operating normally</p>
+                              <p className="text-xs text-green-500 mt-1">All systems operational</p>
                             </div>
                           )}
                         </div>
@@ -1346,41 +1482,6 @@ const AdminDashboard = () => {
                     </Card>
                   </div>
                 </div>
-
-                {/* Resource Summary */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Users className="w-5 h-5" />
-                      Resource Summary
-                    </CardTitle>
-                    <CardDescription>
-                      Active personnel and suppliers
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      <div className="text-center p-4 border rounded-lg">
-                        <div className="text-2xl font-bold text-blue-600">{stats.totalSuppliers}</div>
-                        <div className="text-sm text-muted-foreground">Total Suppliers</div>
-                      </div>
-                      <div className="text-center p-4 border rounded-lg">
-                        <div className="text-2xl font-bold text-green-600">{stats.totalEmployees}</div>
-                        <div className="text-sm text-muted-foreground">Total Employees</div>
-                      </div>
-                      <div className="text-center p-4 border rounded-lg">
-                        <div className="text-2xl font-bold text-cyan-600">
-                          {stats.coldRoomStats.total4kgBoxes + stats.coldRoomStats.total10kgBoxes}
-                        </div>
-                        <div className="text-sm text-muted-foreground">Boxes in Cold Rooms</div>
-                      </div>
-                      <div className="text-center p-4 border rounded-lg">
-                        <div className="text-2xl font-bold text-amber-600">{stats.vehiclesCompletedToday}</div>
-                        <div className="text-sm text-muted-foreground">Deliveries Today</div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
               </TabsContent>
 
               {/* Operations Tab */}
@@ -1508,7 +1609,6 @@ const AdminDashboard = () => {
                   </CardHeader>
                   <CardContent>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      {/* Cold Room Status Cards */}
                       <div className="space-y-4">
                         <h3 className="font-semibold">Cold Room Status</h3>
                         {stats.coldChainData.map((room) => {
@@ -1545,7 +1645,7 @@ const AdminDashboard = () => {
                                   </div>
                                   <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-2">
-                                      <Database className="w-4 h-4" />
+                                      <Layers className="w-4 h-4" />
                                       <span>Capacity</span>
                                     </div>
                                     <span className="font-medium">{room.occupied}/{room.capacity} pallets</span>
@@ -1560,7 +1660,6 @@ const AdminDashboard = () => {
                         })}
                       </div>
                       
-                      {/* Cold Room Statistics */}
                       <div className="space-y-4">
                         <h3 className="font-semibold">Cold Room Statistics</h3>
                         <Card>
@@ -1612,188 +1711,147 @@ const AdminDashboard = () => {
                           </CardContent>
                         </Card>
                         
-                        {/* Recent Temperature Logs */}
                         <Card>
                           <CardHeader className="pb-2">
-                            <CardTitle className="text-sm">Recent Temperature Logs</CardTitle>
+                            <CardTitle className="text-sm">Cold Room Occupancy</CardTitle>
                           </CardHeader>
                           <CardContent>
-                            <div className="space-y-2">
-                              {stats.coldRoomStats.recentTemperatureLogs.map((log) => (
-                                <div key={log.id} className="flex items-center justify-between p-2 border rounded">
-                                  <div className="flex items-center gap-2">
-                                    <div className={`w-2 h-2 rounded-full ${
-                                      log.status === 'normal' ? 'bg-green-500' :
-                                      log.status === 'warning' ? 'bg-yellow-500' :
-                                      'bg-red-500'
-                                    }`} />
-                                    <span className="text-sm">
-                                      {log.cold_room_id === 'coldroom1' ? 'Cold Room 1' : 'Cold Room 2'}
-                                    </span>
-                                  </div>
-                                  <div className="text-right">
-                                    <div className="font-medium">{log.temperature}°C</div>
-                                    <div className="text-xs text-muted-foreground">
-                                      {formatDate(log.timestamp).split(' ')[0]}
-                                    </div>
-                                  </div>
-                                </div>
-                              ))}
-                              
-                              {stats.coldRoomStats.recentTemperatureLogs.length === 0 && (
-                                <div className="text-center py-4 text-muted-foreground">
-                                  No temperature logs available
-                                </div>
-                              )}
+                            <div className="h-64">
+                              <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={coldRoomOccupancyData}>
+                                  <CartesianGrid strokeDasharray="3 3" />
+                                  <XAxis dataKey="name" />
+                                  <YAxis />
+                                  <Tooltip />
+                                  <Bar 
+                                    dataKey="occupied" 
+                                    name="Occupied Pallets" 
+                                    fill="#3b82f6" 
+                                    radius={[4, 4, 0, 0]}
+                                  />
+                                </BarChart>
+                              </ResponsiveContainer>
                             </div>
                           </CardContent>
                         </Card>
                       </div>
                     </div>
                   </CardContent>
-                  <CardFooter>
-                    <Button 
-                      className="w-full" 
-                      onClick={() => router.push('/cold-room')}
-                    >
-                      <Snowflake className="w-4 h-4 mr-2" />
-                      Go to Cold Room Management
-                    </Button>
-                  </CardFooter>
                 </Card>
               </TabsContent>
 
-              {/* Warehouse Tab */}
-              <TabsContent value="warehouse" className="mt-6 space-y-6">
+              {/* Analytics Tab */}
+              <TabsContent value="analytics" className="mt-6 space-y-6">
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Employee Distribution */}
                   <Card>
                     <CardHeader>
                       <CardTitle className="flex items-center gap-2">
-                        <Warehouse className="w-5 h-5" />
-                        Warehouse Processing Status
+                        <Users className="w-5 h-5" />
+                        Employee Distribution
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie
+                              data={employeeDistributionData}
+                              cx="50%"
+                              cy="50%"
+                              labelLine={false}
+                              label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                              outerRadius={80}
+                              fill="#8884d8"
+                              dataKey="value"
+                            >
+                              {employeeDistributionData.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={entry.color} />
+                              ))}
+                            </Pie>
+                            <Tooltip />
+                            <Legend />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Supplier Performance */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Building className="w-5 h-5" />
+                        Supplier Performance
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
                       <div className="space-y-4">
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="p-3 border rounded-lg">
-                            <div className="text-2xl font-bold">{acceptedSuppliers.length}</div>
-                            <div className="text-sm text-muted-foreground">Ready for Counting</div>
+                        {stats.supplierPerformance.map((supplier) => (
+                          <div key={supplier.name} className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm font-medium">{supplier.name}</span>
+                              <Badge variant="outline">{supplier.intake}%</Badge>
+                            </div>
+                            <div className="grid grid-cols-3 gap-2">
+                              <div className="text-center">
+                                <div className="text-xs text-muted-foreground">Intake</div>
+                                <div className="font-semibold">{supplier.intake}%</div>
+                              </div>
+                              <div className="text-center">
+                                <div className="text-xs text-muted-foreground">Quality</div>
+                                <div className="font-semibold">{supplier.quality}%</div>
+                              </div>
+                              <div className="text-center">
+                                <div className="text-xs text-muted-foreground">On Time</div>
+                                <div className="font-semibold">{supplier.onTime}%</div>
+                              </div>
+                            </div>
+                            <Progress value={supplier.intake} className="h-1" />
                           </div>
-                          <div className="p-3 border rounded-lg">
-                            <div className="text-2xl font-bold text-green-600">{warehouseStats.total_processed}</div>
-                            <div className="text-sm text-muted-foreground">Processed Today</div>
-                          </div>
-                        </div>
-                        <Separator />
-                        <div>
-                          <h4 className="font-medium mb-2">Processing Pipeline</h4>
-                          <div className="space-y-2">
-                            <div className="flex justify-between">
-                              <span>Intake Received</span>
-                              <span className="font-semibold">{supplierIntakeRecords.length}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span>QC Approved</span>
-                              <span className="font-semibold">
-                                {qualityChecks.filter(q => q.overall_status === 'approved').length}
-                              </span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span>Counting Completed</span>
-                              <span className="font-semibold">
-                                {countingRecords.filter(r => r.status === 'processed').length}
-                              </span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span>To Cold Room</span>
-                              <span className="font-semibold text-blue-600">
-                                {acceptedSuppliers.length}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
+                        ))}
                       </div>
                     </CardContent>
-                    <CardFooter>
-                      <Button className="w-full" onClick={() => router.push('/warehouse')}>
-                        View Warehouse Management
-                      </Button>
-                    </CardFooter>
-                  </Card>
-
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Supplier Overview</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-4">
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="p-3 border rounded-lg">
-                            <div className="text-2xl font-bold">{stats.totalSuppliers}</div>
-                            <div className="text-sm text-muted-foreground">Total Suppliers</div>
-                          </div>
-                          <div className="p-3 border rounded-lg">
-                            <div className="text-2xl font-bold text-green-600">{stats.activeSuppliers}</div>
-                            <div className="text-sm text-muted-foreground">Active</div>
-                          </div>
-                        </div>
-                        <Separator />
-                        <div className="space-y-2">
-                          <div className="flex justify-between">
-                            <span>Active Suppliers</span>
-                            <span className="font-semibold">{stats.activeSuppliers}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>Inactive Suppliers</span>
-                            <span className="font-semibold">{stats.inactiveSuppliers}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>Onboarding</span>
-                            <span className="font-semibold">{stats.suppliersOnboarding}</span>
-                          </div>
-                        </div>
-                      </div>
-                    </CardContent>
-                    <CardFooter>
-                      <Button className="w-full" onClick={() => router.push('/suppliers')}>
-                        View Supplier Management
-                      </Button>
-                    </CardFooter>
                   </Card>
                 </div>
 
-                {/* Recent Warehouse Activity */}
+                {/* Operational Trends */}
                 <Card>
                   <CardHeader>
-                    <CardTitle>Recent Warehouse Activity</CardTitle>
+                    <CardTitle>Operational Trends</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="space-y-3">
-                      {supplierIntakeRecords.slice(0, 3).map((intake) => (
-                        <div key={intake.id} className="flex items-center justify-between p-3 border rounded">
-                          <div>
-                            <div className="font-medium">{intake.supplier_name}</div>
-                            <div className="text-sm text-muted-foreground">
-                              {intake.vehicle_plate} • {intake.total_weight} kg
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <Badge variant="outline">
-                              {formatDate(intake.timestamp).split(',')[0]}
-                            </Badge>
-                            <div className="text-xs text-muted-foreground mt-1">
-                              {formatDate(intake.timestamp).split(',')[1]}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                      
-                      {supplierIntakeRecords.length === 0 && (
-                        <div className="text-center py-4 text-muted-foreground">
-                          No recent intake activity
-                        </div>
-                      )}
+                    <div className="h-80">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={stats.weeklyIntakeTrend}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                          <XAxis dataKey="day" />
+                          <YAxis yAxisId="left" />
+                          <YAxis yAxisId="right" orientation="right" />
+                          <Tooltip />
+                          <Legend />
+                          <Line
+                            yAxisId="left"
+                            type="monotone"
+                            dataKey="pallets"
+                            stroke="#3b82f6"
+                            strokeWidth={2}
+                            name="Pallets"
+                            dot={{ r: 4 }}
+                            activeDot={{ r: 6 }}
+                          />
+                          <Line
+                            yAxisId="right"
+                            type="monotone"
+                            dataKey="weight"
+                            stroke="#10b981"
+                            strokeWidth={2}
+                            name="Weight (kg)"
+                            dot={{ r: 4 }}
+                            activeDot={{ r: 6 }}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
                     </div>
                   </CardContent>
                 </Card>
@@ -1806,90 +1864,8 @@ const AdminDashboard = () => {
   );
 };
 
-// Warehouse Dashboard Component
-const WarehouseDashboard = () => {
-  const router = useRouter();
-  const [stats, setStats] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    fetchWarehouseData();
-  }, []);
-
-  const fetchWarehouseData = async () => {
-    try {
-      // Fetch relevant data for warehouse dashboard
-      const [shipmentsRes, employeesRes] = await Promise.all([
-        fetch('/api/shipments'),
-        fetch('/api/employees'),
-      ]);
-
-      // Process data...
-      // For now, use mock data
-      setStats({
-        palletsWeighedToday: 47,
-        totalWeightToday: 14250,
-        qualityCheckPassRate: 94.5,
-        processingEfficiency: 88,
-        pendingShipments: 5,
-      });
-    } catch (error) {
-      console.error('Error fetching warehouse data:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  if (isLoading) {
-    return <div>Loading warehouse dashboard...</div>;
-  }
-
-  return (
-    <div className="space-y-6">
-      {/* Warehouse dashboard content */}
-    </div>
-  );
-};
-
-// Driver Dashboard Component
-const DriverDashboard = () => {
-  const router = useRouter();
-  const { user } = useUser();
-  const [driverData, setDriverData] = useState<any>(null);
-
-  // Fetch driver-specific data
-  useEffect(() => {
-    fetchDriverData();
-  }, []);
-
-  const fetchDriverData = async () => {
-    // Fetch driver's shipments, schedule, etc.
-  };
-
-  return (
-    <div className="space-y-6">
-      {/* Driver dashboard content */}
-    </div>
-  );
-};
-
-// Main Dashboard Component
 export default function DashboardPage() {
   const { user } = useUser();
 
-  const renderDashboard = () => {
-    switch (user?.role) {
-      case 'Admin':
-      case 'Manager':
-        return <AdminDashboard />;
-      case 'Warehouse':
-        return <WarehouseDashboard />;
-      case 'Driver':
-        return <DriverDashboard />;
-      default:
-        return <AdminDashboard />;
-    }
-  };
-
-  return renderDashboard();
+  return <AdminDashboard />;
 }
