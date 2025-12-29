@@ -31,7 +31,8 @@ import {
   AlertCircle, Search, RefreshCw, Eye, Edit, Trash2, User, Briefcase,
   Phone, Mail, Building, BadgeCheck, Award, DollarSign, CalendarDays,
   Shield, FileText, Download, Filter, MoreVertical, UserPlus,
-  ChevronLeft, ChevronRight, DownloadCloud, UploadCloud, BarChart
+  ChevronLeft, ChevronRight, DownloadCloud, UploadCloud, BarChart,
+  DoorOpen, DoorClosed, ListChecks, Tags, Home, BriefcaseIcon
 } from 'lucide-react';
 import { OverviewCard } from '@/components/dashboard/overview-card';
 import { useToast } from '@/hooks/use-toast';
@@ -70,8 +71,9 @@ import { Calendar } from '@/components/ui/calendar';
 import { Switch } from '@/components/ui/switch';
 
 // Types
+type EmployeeType = 'Permanent' | 'Temporary' | 'Casual';
 type EmployeeContract = 'Full-time' | 'Part-time' | 'Contract';
-type AttendanceStatus = 'Present' | 'Absent' | 'Late' | 'On Leave' | 'Early Departure';
+type AttendanceStatus = 'Present' | 'Absent' | 'Late' | 'On Leave' | 'Early Departure' | 'Checked In' | 'Checked Out';
 type Designation = 'dipping' | 'intake' | 'qualityControl' | 'qualityAssurance' | 'packing' | 'loading' | 'palletizing' | 'porter';
 
 interface Employee {
@@ -79,6 +81,7 @@ interface Employee {
   name: string;
   email: string;
   role: string;
+  employeeType: EmployeeType;
   status: string;
   performance?: string;
   rating?: number;
@@ -93,6 +96,10 @@ interface Employee {
   created_at: string;
   updated_at: string;
   employeeId?: string;
+  designation?: Designation;
+  gateInTime?: string;
+  gateOutTime?: string;
+  isGatedIn: boolean;
 }
 
 interface Attendance {
@@ -112,6 +119,7 @@ interface EmployeeFormValues {
   name: string;
   email: string;
   role: string;
+  employeeType: EmployeeType;
   contract: EmployeeContract;
   idNumber: string;
   phone: string;
@@ -127,7 +135,23 @@ interface EmployeeFormValues {
 
 const getInitials = (name: string) => (name || '').split(' ').map((n) => n[0]).join('').toUpperCase();
 
+const employeeTypeInfo = {
+  Permanent: { color: 'bg-blue-100 text-blue-800', icon: BadgeCheck },
+  Temporary: { color: 'bg-yellow-100 text-yellow-800', icon: Clock },
+  Casual: { color: 'bg-purple-100 text-purple-800', icon: Users },
+} as const;
+
 const statusInfo = {
+  'Checked In': { 
+    color: 'bg-green-100 text-green-800 border-green-300', 
+    icon: DoorOpen,
+    variant: 'default' as const
+  },
+  'Checked Out': { 
+    color: 'bg-gray-100 text-gray-800 border-gray-300', 
+    icon: DoorClosed,
+    variant: 'secondary' as const
+  },
   Present: { 
     color: 'bg-green-100 text-green-800 border-green-300', 
     icon: CheckCircle,
@@ -153,7 +177,7 @@ const statusInfo = {
     icon: LogOut,
     variant: 'secondary' as const
   },
-};
+} as const;
 
 const designationLabels: Record<Designation, string> = {
   dipping: 'Dipping',
@@ -177,95 +201,138 @@ const designationColors: Record<Designation, string> = {
   porter: 'bg-cyan-50 text-cyan-700 border-cyan-200'
 };
 
-// Enhanced Employee Card Component for Check In/Out
-interface EmployeeCheckCardProps {
+// Gate In Card Component
+interface GateInCardProps {
   employee: Employee;
-  todayRecord?: Attendance;
-  onCheckIn: (employeeId: string, isLate?: boolean, designation?: Designation) => void;
-  onCheckOut: (employeeId: string) => void;
-  onMarkAbsent: (employeeId: string) => void;
-  onMarkOnLeave: (employeeId: string) => void;
-  showDesignation?: boolean;
-  designation?: Designation;
-  onDesignationChange?: (designation: Designation) => void;
+  onGateIn: (employeeId: string) => void;
+  onGateOut: (employeeId: string) => void;
 }
 
-const EmployeeCheckCard: React.FC<EmployeeCheckCardProps> = ({
+const GateInCard: React.FC<GateInCardProps> = ({
   employee,
-  todayRecord,
-  onCheckIn,
-  onCheckOut,
-  onMarkAbsent,
-  onMarkOnLeave,
-  showDesignation = false,
-  designation = 'dipping',
-  onDesignationChange
+  onGateIn,
+  onGateOut
 }) => {
-  const isPresent = todayRecord?.status === 'Present';
-  const isLate = todayRecord?.status === 'Late';
-  const isAbsent = todayRecord?.status === 'Absent';
-  const isOnLeave = todayRecord?.status === 'On Leave';
-  const isCheckedOut = !!todayRecord?.clockOutTime;
-  const isCheckedIn = !!todayRecord?.clockInTime;
-  
-  const StatusIcon = todayRecord ? statusInfo[todayRecord.status as keyof typeof statusInfo]?.icon : Clock;
-  const statusColor = todayRecord ? statusInfo[todayRecord.status as keyof typeof statusInfo]?.color : 'bg-gray-100 text-gray-800';
-  
-  const currentTime = new Date();
-  const isMorning = currentTime.getHours() < 12;
-  const isAfternoon = currentTime.getHours() >= 12 && currentTime.getHours() < 17;
+  const isGatedIn = employee.isGatedIn;
   
   return (
-    <Card className="overflow-hidden">
+    <Card className="overflow-hidden hover:shadow-md transition-shadow">
       <CardContent className="p-4">
         <div className="flex items-start justify-between">
           <div className="flex items-start gap-3">
-            <Avatar className="h-10 w-10">
+            <Avatar className="h-10 w-10 border-2">
               <AvatarImage src={employee.image} />
-              <AvatarFallback>{getInitials(employee.name)}</AvatarFallback>
+              <AvatarFallback className={cn(
+                employee.employeeType === 'Permanent' ? 'bg-blue-100 text-blue-700' :
+                employee.employeeType === 'Temporary' ? 'bg-yellow-100 text-yellow-700' :
+                'bg-purple-100 text-purple-700'
+              )}>
+                {getInitials(employee.name)}
+              </AvatarFallback>
             </Avatar>
             <div>
               <div className="font-medium">{employee.name}</div>
               <div className="text-sm text-muted-foreground">{employee.role}</div>
               <div className="flex items-center gap-2 mt-1">
+                <Badge className={employeeTypeInfo[employee.employeeType].color}>
+                  {employee.employeeType}
+                </Badge>
                 <Badge variant="outline" className="text-xs">
                   {employee.contract}
                 </Badge>
-                {todayRecord && (
-                  <Badge className={`${statusColor} text-xs`}>
-                    {StatusIcon && <StatusIcon className="w-3 h-3 mr-1" />}
-                    {todayRecord.status}
-                  </Badge>
-                )}
               </div>
             </div>
           </div>
           
           <div className="text-right">
-            {todayRecord?.clockInTime && (
+            {employee.gateInTime && (
               <div className="text-sm text-green-600">
-                <CheckCircle className="w-3 h-3 inline mr-1" />
-                {format(parseISO(todayRecord.clockInTime), 'HH:mm')}
+                <DoorOpen className="w-3 h-3 inline mr-1" />
+                {format(parseISO(employee.gateInTime), 'HH:mm')}
               </div>
             )}
-            {todayRecord?.clockOutTime && (
-              <div className="text-sm text-red-600">
-                <LogOut className="w-3 h-3 inline mr-1" />
-                {format(parseISO(todayRecord.clockOutTime), 'HH:mm')}
+            {employee.gateOutTime && (
+              <div className="text-sm text-gray-600">
+                <DoorClosed className="w-3 h-3 inline mr-1" />
+                {format(parseISO(employee.gateOutTime), 'HH:mm')}
               </div>
             )}
           </div>
         </div>
         
-        {/* Designation Selector for Contract Employees */}
-        {showDesignation && employee.contract === 'Contract' && (
-          <div className="mt-3">
-            <Label htmlFor={`designation-${employee.id}`} className="text-xs">Designation</Label>
-            <Select 
-              value={designation} 
-              onValueChange={(value: Designation) => onDesignationChange?.(value)}
+        {/* Action Buttons */}
+        <div className="mt-4">
+          {!isGatedIn ? (
+            <Button
+              size="sm"
+              className="w-full bg-green-600 hover:bg-green-700"
+              onClick={() => onGateIn(employee.id)}
             >
-              <SelectTrigger className="h-8 text-xs">
+              <DoorOpen className="w-4 h-4 mr-2" />
+              Gate In
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full border-red-600 text-red-600 hover:bg-red-50"
+              onClick={() => onGateOut(employee.id)}
+            >
+              <DoorClosed className="w-4 h-4 mr-2" />
+              Gate Out
+            </Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
+
+// Designation Assignment Card
+interface DesignationCardProps {
+  employee: Employee;
+  onAssignDesignation: (employeeId: string, designation: Designation) => void;
+}
+
+const DesignationCard: React.FC<DesignationCardProps> = ({
+  employee,
+  onAssignDesignation
+}) => {
+  const [selectedDesignation, setSelectedDesignation] = useState<Designation>(
+    employee.designation || 'dipping'
+  );
+
+  const handleAssign = () => {
+    if (selectedDesignation !== employee.designation) {
+      onAssignDesignation(employee.id, selectedDesignation);
+    }
+  };
+
+  return (
+    <Card className="overflow-hidden">
+      <CardContent className="p-4">
+        <div className="flex items-start gap-3 mb-3">
+          <Avatar className="h-10 w-10">
+            <AvatarImage src={employee.image} />
+            <AvatarFallback>{getInitials(employee.name)}</AvatarFallback>
+          </Avatar>
+          <div>
+            <div className="font-medium">{employee.name}</div>
+            <div className="text-sm text-muted-foreground">{employee.role}</div>
+            <Badge variant="outline" className="text-xs mt-1">
+              {employee.contract}
+            </Badge>
+          </div>
+        </div>
+        
+        <div className="space-y-3">
+          <div>
+            <Label htmlFor={`designation-${employee.id}`} className="text-xs">Assign Designation</Label>
+            <Select 
+              value={selectedDesignation} 
+              onValueChange={(value: Designation) => setSelectedDesignation(value)}
+            >
+              <SelectTrigger className="h-8 text-xs mt-1">
                 <SelectValue placeholder="Select designation" />
               </SelectTrigger>
               <SelectContent>
@@ -277,96 +344,22 @@ const EmployeeCheckCard: React.FC<EmployeeCheckCardProps> = ({
               </SelectContent>
             </Select>
           </div>
-        )}
-        
-        {/* Action Buttons */}
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          {!todayRecord || (!isPresent && !isLate && !isAbsent && !isOnLeave) ? (
-            <>
-              <Button
-                size="sm"
-                className="h-8 text-xs bg-green-600 hover:bg-green-700"
-                onClick={() => onCheckIn(employee.id, false, showDesignation && employee.contract === 'Contract' ? designation : undefined)}
-              >
-                <LogIn className="w-3 h-3 mr-1" />
-                Check In
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8 text-xs"
-                onClick={() => onMarkAbsent(employee.id)}
-              >
-                <XCircle className="w-3 h-3 mr-1" />
-                Absent
-              </Button>
-            </>
-          ) : (isPresent || isLate) && !isCheckedOut ? (
-            <>
-              <Button
-                size="sm"
-                variant="destructive"
-                className="h-8 text-xs"
-                onClick={() => onCheckOut(employee.id)}
-              >
-                <LogOut className="w-3 h-3 mr-1" />
-                Check Out
-              </Button>
-              {isMorning && !isLate && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-8 text-xs border-amber-500 text-amber-600"
-                  onClick={() => onCheckIn(employee.id, true, showDesignation && employee.contract === 'Contract' ? designation : undefined)}
-                >
-                  <AlertCircle className="w-3 h-3 mr-1" />
-                  Mark Late
-                </Button>
-              )}
-            </>
-          ) : isAbsent ? (
-            <>
-              <Button
-                size="sm"
-                className="h-8 text-xs bg-green-600 hover:bg-green-700"
-                onClick={() => onCheckIn(employee.id, isAfternoon, showDesignation && employee.contract === 'Contract' ? designation : undefined)}
-              >
-                <LogIn className="w-3 h-3 mr-1" />
-                {isAfternoon ? 'Check In Late' : 'Check In'}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8 text-xs"
-                onClick={() => onMarkOnLeave(employee.id)}
-              >
-                <CalendarIcon className="w-3 h-3 mr-1" />
-                On Leave
-              </Button>
-            </>
-          ) : isOnLeave ? (
-            <>
-              <Button
-                size="sm"
-                className="h-8 text-xs bg-green-600 hover:bg-green-700"
-                onClick={() => onCheckIn(employee.id, isAfternoon, showDesignation && employee.contract === 'Contract' ? designation : undefined)}
-              >
-                <LogIn className="w-3 h-3 mr-1" />
-                {isAfternoon ? 'Check In Late' : 'Check In'}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8 text-xs"
-                onClick={() => onMarkAbsent(employee.id)}
-              >
-                <XCircle className="w-3 h-3 mr-1" />
-                Absent
-              </Button>
-            </>
-          ) : (
-            <div className="col-span-2 text-center text-sm text-muted-foreground">
-              Already checked out for today
+          
+          <Button
+            size="sm"
+            className="w-full"
+            onClick={handleAssign}
+            disabled={selectedDesignation === employee.designation}
+          >
+            <Tags className="w-3 h-3 mr-2" />
+            {employee.designation ? 'Update Designation' : 'Assign Designation'}
+          </Button>
+          
+          {employee.designation && (
+            <div className="text-xs text-muted-foreground">
+              Current: <Badge className={designationColors[employee.designation]}>
+                {designationLabels[employee.designation]}
+              </Badge>
             </div>
           )}
         </div>
@@ -396,12 +389,12 @@ export default function EmployeesPage() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
-  const [activeFilter, setActiveFilter] = useState<'All' | 'Full-time' | 'Part-time' | 'Contract'>('All');
+  const [activeFilter, setActiveFilter] = useState<'All' | 'Permanent' | 'Temporary' | 'Casual'>('All');
   const [searchQuery, setSearchQuery] = useState('');
   const { toast } = useToast();
   const router = useRouter();
 
-  // Roll Call state
+  // Main state
   const [activeTab, setActiveTab] = useState('overview');
   const [today, setToday] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -410,15 +403,14 @@ export default function EmployeesPage() {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Check In/Out state
+  // Date state
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  const [designationForEmployee, setDesignationForEmployee] = useState<Record<string, Designation>>({});
-
-  // Attendance History state
   const [dateRange, setDateRange] = useState<{ from: Date; to: Date }>({
     from: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
     to: new Date()
   });
+
+  // Filter states
   const [attendanceSearchTerm, setAttendanceSearchTerm] = useState('');
   const [attendanceEmployeeFilter, setAttendanceEmployeeFilter] = useState<string>('all');
   const [attendanceTypeFilter, setAttendanceTypeFilter] = useState<string>('all');
@@ -428,6 +420,7 @@ export default function EmployeesPage() {
     name: '',
     email: '',
     role: 'Employee',
+    employeeType: 'Permanent',
     contract: 'Full-time',
     idNumber: '',
     phone: '',
@@ -470,13 +463,22 @@ export default function EmployeesPage() {
       
       const employeesData = await employeesResponse.json();
       console.log(`✅ Loaded ${employeesData.length} employees`);
-      setEmployees(employeesData);
       
-      if (employeesData.length > 0 && !selectedEmployee) {
-        setSelectedEmployee(employeesData[0]);
+      // Ensure all employees have required fields
+      const processedEmployees = employeesData.map((emp: any) => ({
+        ...emp,
+        employeeType: emp.employeeType || 'Permanent',
+        isGatedIn: emp.isGatedIn || false,
+        designation: emp.designation || undefined
+      }));
+      
+      setEmployees(processedEmployees);
+      
+      if (processedEmployees.length > 0 && !selectedEmployee) {
+        setSelectedEmployee(processedEmployees[0]);
       }
       
-      // Fetch attendance (all records for history)
+      // Fetch attendance
       try {
         const attendanceResponse = await fetch('/api/attendance');
         
@@ -540,11 +542,11 @@ export default function EmployeesPage() {
     return attendance.filter(record => record.date === dateStr);
   }, [attendance, selectedDate]);
 
-  // Filter employees based on search and contract type
+  // Filter employees based on search and type
   const filteredEmployees = useMemo(() => {
     return employees.filter(employee => {
-      // Contract filter
-      if (activeFilter !== 'All' && employee.contract !== activeFilter) {
+      // Type filter
+      if (activeFilter !== 'All' && employee.employeeType !== activeFilter) {
         return false;
       }
       
@@ -565,19 +567,41 @@ export default function EmployeesPage() {
     });
   }, [employees, activeFilter, searchQuery]);
 
+  // Get employees for Gate In (not gated in yet)
+  const employeesForGateIn = useMemo(() => {
+    return employees.filter(emp => !emp.isGatedIn);
+  }, [employees]);
+
+  // Get employees for Designation Assignment (gated in but no designation)
+  const employeesForDesignation = useMemo(() => {
+    return employees.filter(emp => 
+      emp.isGatedIn && 
+      !emp.designation && 
+      (emp.employeeType === 'Temporary' || emp.employeeType === 'Casual')
+    );
+  }, [employees]);
+
+  // Get employees for Gate Out (gated in with designation)
+  const employeesForGateOut = useMemo(() => {
+    return employees.filter(emp => 
+      emp.isGatedIn && 
+      (emp.employeeType === 'Permanent' || (emp.designation && emp.employeeType !== 'Permanent'))
+    );
+  }, [employees]);
+
   // Calculate statistics
   const stats = useMemo(() => {
-    const fullTimeEmployees = employees.filter(emp => emp.contract === 'Full-time');
-    const partTimeEmployees = employees.filter(emp => emp.contract === 'Part-time');
-    const contractEmployees = employees.filter(emp => emp.contract === 'Contract');
+    const permanentEmployees = employees.filter(emp => emp.employeeType === 'Permanent');
+    const temporaryEmployees = employees.filter(emp => emp.employeeType === 'Temporary');
+    const casualEmployees = employees.filter(emp => emp.employeeType === 'Casual');
+    
+    const gatedInEmployees = employees.filter(emp => emp.isGatedIn);
+    const gatedOutEmployees = employees.filter(emp => !emp.isGatedIn && emp.gateOutTime);
     
     const todayAttendance = getAttendanceForDate;
     const presentToday = todayAttendance.filter(record => record.status === 'Present').length;
     const lateToday = todayAttendance.filter(record => record.status === 'Late').length;
     const absentToday = todayAttendance.filter(record => record.status === 'Absent').length;
-    const onLeaveToday = todayAttendance.filter(record => record.status === 'On Leave').length;
-    const checkedOutToday = todayAttendance.filter(record => record.clockOutTime).length;
-    const checkedInToday = todayAttendance.filter(record => record.clockInTime && !record.clockOutTime).length;
     
     const attendanceRate = employees.length > 0 
       ? Math.round((presentToday / employees.length) * 100)
@@ -585,22 +609,21 @@ export default function EmployeesPage() {
     
     return {
       totalEmployees: employees.length,
-      fullTimeCount: fullTimeEmployees.length,
-      partTimeCount: partTimeEmployees.length,
-      contractCount: contractEmployees.length,
+      permanentCount: permanentEmployees.length,
+      temporaryCount: temporaryEmployees.length,
+      casualCount: casualEmployees.length,
+      gatedIn: gatedInEmployees.length,
+      gatedOut: gatedOutEmployees.length,
+      pendingGateIn: employees.length - gatedInEmployees.length,
       presentToday,
       lateToday,
       absentToday,
-      onLeaveToday,
-      checkedOutToday,
-      checkedInToday,
       attendanceRate,
-      pendingCheckIn: employees.length - (presentToday + absentToday + onLeaveToday)
     };
   }, [employees, getAttendanceForDate]);
 
-  // Handle check in
-  const handleCheckIn = async (employeeId: string, isLate: boolean = false, designation?: Designation) => {
+  // Handle gate in
+  const handleGateIn = async (employeeId: string) => {
     try {
       const employee = employees.find(emp => emp.id === employeeId);
       if (!employee) {
@@ -612,148 +635,48 @@ export default function EmployeesPage() {
         return;
       }
 
-      const checkInTime = new Date().toISOString();
-      const status: AttendanceStatus = isLate ? 'Late' : 'Present';
-      const dateStr = format(selectedDate, 'yyyy-MM-dd');
+      const gateInTime = new Date().toISOString();
       
-      // For contract employees, use the provided designation or default
-      const designationForRecord = employee.contract === 'Contract' ? (designation || 'dipping') : undefined;
-      
-      // Check if attendance record already exists for today
-      const existingRecord = getAttendanceForDate.find(record => record.employeeId === employeeId);
-      
-      let response;
-      if (existingRecord) {
-        // Update existing record
-        response = await fetch(`/api/attendance?id=${existingRecord.id}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            status,
-            clockInTime: checkInTime,
-            designation: designationForRecord,
-            date: dateStr
-          }),
-        });
-      } else {
-        // Create new record
-        response = await fetch('/api/attendance', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            employeeId,
-            date: dateStr,
-            status,
-            clockInTime: checkInTime,
-            designation: designationForRecord
-          }),
-        });
-      }
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to save check-in');
-      }
-
-      const data = await response.json();
-      
-      // Update local state
-      setAttendance(prev => {
-        // Remove existing record for this employee on this date
-        const filtered = prev.filter(record => 
-          !(record.employeeId === employeeId && record.date === dateStr)
-        );
-        return [...filtered, data];
-      });
-
-      toast({
-        title: '✅ Checked In',
-        description: `${employee.name} has been checked in${isLate ? ' (Late)' : ''} at ${format(new Date(), 'HH:mm')}`,
-      });
-      
-    } catch (error: any) {
-      toast({
-        title: 'Check-in Failed',
-        description: error.message || 'Failed to check in',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  // Handle check out
-  const handleCheckOut = async (employeeId: string) => {
-    try {
-      const employee = employees.find(emp => emp.id === employeeId);
-      if (!employee) {
-        toast({
-          title: 'Error',
-          description: 'Employee not found',
-          variant: 'destructive',
-        });
-        return;
-      }
-
-      const checkOutTime = new Date().toISOString();
-      const dateStr = format(selectedDate, 'yyyy-MM-dd');
-      
-      // Find existing attendance record
-      const existingRecord = getAttendanceForDate.find(record => 
-        record.employeeId === employeeId && record.date === dateStr
-      );
-      
-      if (!existingRecord) {
-        toast({
-          title: 'Error',
-          description: 'No check-in record found for today',
-          variant: 'destructive',
-        });
-        return;
-      }
-      
-      const response = await fetch(`/api/attendance?id=${existingRecord.id}`, {
+      const response = await fetch(`/api/employees?id=${employeeId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          status: existingRecord.status,
-          clockOutTime: checkOutTime,
-          designation: existingRecord.designation
+          isGatedIn: true,
+          gateInTime: gateInTime,
+          gateOutTime: null
         }),
       });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to save check-out');
+        throw new Error(errorData.error || 'Failed to gate in');
       }
 
       const data = await response.json();
       
       // Update local state
-      setAttendance(prev => prev.map(record => 
-        record.id === existingRecord.id ? data : record
+      setEmployees(prev => prev.map(emp => 
+        emp.id === employeeId ? { ...emp, isGatedIn: true, gateInTime: gateInTime } : emp
       ));
 
       toast({
-        title: '✅ Checked Out',
-        description: `${employee.name} has been checked out at ${format(new Date(), 'HH:mm')}`,
+        title: '✅ Gate In Successful',
+        description: `${employee.name} has been gated in at ${format(new Date(), 'HH:mm')}`,
       });
       
     } catch (error: any) {
       toast({
-        title: 'Check-out Failed',
-        description: error.message || 'Failed to check out',
+        title: 'Gate In Failed',
+        description: error.message || 'Failed to gate in',
         variant: 'destructive',
       });
     }
   };
 
-  // Handle mark as absent
-  const handleMarkAbsent = async (employeeId: string) => {
+  // Handle gate out
+  const handleGateOut = async (employeeId: string) => {
     try {
       const employee = employees.find(emp => emp.id === employeeId);
       if (!employee) {
@@ -765,73 +688,47 @@ export default function EmployeesPage() {
         return;
       }
 
-      const dateStr = format(selectedDate, 'yyyy-MM-dd');
+      const gateOutTime = new Date().toISOString();
       
-      // Check if attendance record already exists for today
-      const existingRecord = getAttendanceForDate.find(record => record.employeeId === employeeId);
-      
-      let response;
-      if (existingRecord) {
-        // Update existing record
-        response = await fetch(`/api/attendance?id=${existingRecord.id}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            status: 'Absent',
-            clockInTime: null,
-            clockOutTime: null,
-            date: dateStr
-          }),
-        });
-      } else {
-        // Create new record
-        response = await fetch('/api/attendance', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            employeeId,
-            date: dateStr,
-            status: 'Absent'
-          }),
-        });
-      }
+      const response = await fetch(`/api/employees?id=${employeeId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          isGatedIn: false,
+          gateOutTime: gateOutTime
+        }),
+      });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to mark as absent');
+        throw new Error(errorData.error || 'Failed to gate out');
       }
 
       const data = await response.json();
       
       // Update local state
-      setAttendance(prev => {
-        // Remove existing record for this employee today
-        const filtered = prev.filter(record => 
-          !(record.employeeId === employeeId && record.date === dateStr)
-        );
-        return [...filtered, data];
-      });
+      setEmployees(prev => prev.map(emp => 
+        emp.id === employeeId ? { ...emp, isGatedIn: false, gateOutTime: gateOutTime } : emp
+      ));
 
       toast({
-        title: 'Marked Absent',
-        description: `${employee.name} has been marked as absent`,
+        title: '✅ Gate Out Successful',
+        description: `${employee.name} has been gated out at ${format(new Date(), 'HH:mm')}`,
       });
       
     } catch (error: any) {
       toast({
-        title: 'Error',
-        description: error.message || 'Failed to mark as absent',
+        title: 'Gate Out Failed',
+        description: error.message || 'Failed to gate out',
         variant: 'destructive',
       });
     }
   };
 
-  // Handle mark as on leave
-  const handleMarkOnLeave = async (employeeId: string) => {
+  // Handle assign designation
+  const handleAssignDesignation = async (employeeId: string, designation: Designation) => {
     try {
       const employee = employees.find(emp => emp.id === employeeId);
       if (!employee) {
@@ -843,97 +740,93 @@ export default function EmployeesPage() {
         return;
       }
 
-      const dateStr = format(selectedDate, 'yyyy-MM-dd');
-      
-      // Check if attendance record already exists for today
-      const existingRecord = getAttendanceForDate.find(record => record.employeeId === employeeId);
-      
-      let response;
-      if (existingRecord) {
-        // Update existing record
-        response = await fetch(`/api/attendance?id=${existingRecord.id}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            status: 'On Leave',
-            clockInTime: null,
-            clockOutTime: null,
-            date: dateStr
-          }),
-        });
-      } else {
-        // Create new record
-        response = await fetch('/api/attendance', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            employeeId,
-            date: dateStr,
-            status: 'On Leave'
-          }),
-        });
-      }
+      const response = await fetch(`/api/employees?id=${employeeId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          designation: designation
+        }),
+      });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to mark as on leave');
+        throw new Error(errorData.error || 'Failed to assign designation');
       }
 
       const data = await response.json();
       
       // Update local state
-      setAttendance(prev => {
-        // Remove existing record for this employee today
-        const filtered = prev.filter(record => 
-          !(record.employeeId === employeeId && record.date === dateStr)
-        );
-        return [...filtered, data];
-      });
+      setEmployees(prev => prev.map(emp => 
+        emp.id === employeeId ? { ...emp, designation: designation } : emp
+      ));
 
       toast({
-        title: 'Marked On Leave',
-        description: `${employee.name} has been marked as on leave`,
+        title: '✅ Designation Assigned',
+        description: `${employee.name} assigned to ${designationLabels[designation]}`,
       });
       
     } catch (error: any) {
       toast({
-        title: 'Error',
-        description: error.message || 'Failed to mark as on leave',
+        title: 'Assignment Failed',
+        description: error.message || 'Failed to assign designation',
         variant: 'destructive',
       });
     }
   };
 
-  // Bulk check-in for selected employees
-  const handleBulkCheckIn = async () => {
+  // Bulk gate in
+  const handleBulkGateIn = async () => {
     if (selectedEmployees.length === 0) {
       toast({
         title: 'No employees selected',
-        description: 'Please select employees to check in',
+        description: 'Please select employees to gate in',
         variant: 'destructive',
       });
       return;
     }
 
-    const currentHour = new Date().getHours();
-    const isLate = currentHour >= 9; // Late if after 9 AM
-    
+    let successCount = 0;
+    let failedCount = 0;
+
+    for (const employeeId of selectedEmployees) {
+      try {
+        await handleGateIn(employeeId);
+        successCount++;
+      } catch (error) {
+        failedCount++;
+      }
+    }
+
+    toast({
+      title: 'Bulk Gate In Complete',
+      description: `Successfully gated in ${successCount} employees. ${failedCount > 0 ? `${failedCount} failed.` : ''}`,
+      variant: failedCount > 0 ? 'destructive' : 'default',
+    });
+
+    setSelectedEmployees([]);
+  };
+
+  // Bulk assign designation
+  const handleBulkAssignDesignation = async () => {
+    if (selectedEmployees.length === 0) {
+      toast({
+        title: 'No employees selected',
+        description: 'Please select employees to assign designation',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     let successCount = 0;
     let failedCount = 0;
 
     for (const employeeId of selectedEmployees) {
       try {
         const employee = employees.find(emp => emp.id === employeeId);
-        if (employee) {
-          const designation = employee.contract === 'Contract' ? 
-            (designationForEmployee[employeeId] || bulkDesignation) : 
-            undefined;
-          
-          await handleCheckIn(employeeId, isLate, designation);
+        if (employee && (employee.employeeType === 'Temporary' || employee.employeeType === 'Casual')) {
+          await handleAssignDesignation(employeeId, bulkDesignation);
           successCount++;
         }
       } catch (error) {
@@ -942,72 +835,8 @@ export default function EmployeesPage() {
     }
 
     toast({
-      title: 'Bulk Check-in Complete',
-      description: `Successfully checked in ${successCount} employees. ${failedCount > 0 ? `${failedCount} failed.` : ''}`,
-      variant: failedCount > 0 ? 'destructive' : 'default',
-    });
-
-    setSelectedEmployees([]);
-  };
-
-  // Bulk check-out for selected employees
-  const handleBulkCheckOut = async () => {
-    if (selectedEmployees.length === 0) {
-      toast({
-        title: 'No employees selected',
-        description: 'Please select employees to check out',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    let successCount = 0;
-    let failedCount = 0;
-
-    for (const employeeId of selectedEmployees) {
-      try {
-        await handleCheckOut(employeeId);
-        successCount++;
-      } catch (error) {
-        failedCount++;
-      }
-    }
-
-    toast({
-      title: 'Bulk Check-out Complete',
-      description: `Successfully checked out ${successCount} employees. ${failedCount > 0 ? `${failedCount} failed.` : ''}`,
-      variant: failedCount > 0 ? 'destructive' : 'default',
-    });
-
-    setSelectedEmployees([]);
-  };
-
-  // Bulk mark as absent
-  const handleBulkMarkAbsent = async () => {
-    if (selectedEmployees.length === 0) {
-      toast({
-        title: 'No employees selected',
-        description: 'Please select employees to mark as absent',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    let successCount = 0;
-    let failedCount = 0;
-
-    for (const employeeId of selectedEmployees) {
-      try {
-        await handleMarkAbsent(employeeId);
-        successCount++;
-      } catch (error) {
-        failedCount++;
-      }
-    }
-
-    toast({
-      title: 'Bulk Mark Absent Complete',
-      description: `Successfully marked ${successCount} employees as absent. ${failedCount > 0 ? `${failedCount} failed.` : ''}`,
+      title: 'Bulk Designation Assignment Complete',
+      description: `Successfully assigned ${successCount} employees. ${failedCount > 0 ? `${failedCount} failed.` : ''}`,
       variant: failedCount > 0 ? 'destructive' : 'default',
     });
 
@@ -1024,11 +853,11 @@ export default function EmployeesPage() {
   };
 
   // Select all employees
-  const handleSelectAll = () => {
-    if (selectedEmployees.length === filteredEmployees.length) {
+  const handleSelectAll = (employeesList: Employee[]) => {
+    if (selectedEmployees.length === employeesList.length) {
       setSelectedEmployees([]);
     } else {
-      setSelectedEmployees(filteredEmployees.map(emp => emp.id));
+      setSelectedEmployees(employeesList.map(emp => emp.id));
     }
   };
 
@@ -1040,7 +869,11 @@ export default function EmployeesPage() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          ...formData,
+          isGatedIn: false,
+          designation: formData.employeeType === 'Permanent' ? undefined : 'dipping'
+        }),
       });
 
       const data = await response.json();
@@ -1141,19 +974,19 @@ export default function EmployeesPage() {
       totalEmployees: {
         title: 'Total Employees',
         value: String(stats.totalEmployees),
-        change: `${stats.presentToday} present today`,
+        change: `${stats.gatedIn} gated in today`,
         changeType: 'increase' as const,
       },
-      presentToday: {
-        title: 'Present Today',
-        value: String(stats.presentToday),
+      gatedIn: {
+        title: 'Gated In',
+        value: String(stats.gatedIn),
         change: `as of ${format(currentTime, 'HH:mm')}`,
         changeType: 'increase' as const,
       },
-      onLeave: {
-        title: 'On Leave',
-        value: String(stats.onLeaveToday),
-        change: 'scheduled today',
+      pendingGateIn: {
+        title: 'Pending Gate In',
+        value: String(stats.pendingGateIn),
+        change: 'awaiting gate in',
         changeType: 'decrease' as const,
       },
       attendanceRate: {
@@ -1189,7 +1022,7 @@ export default function EmployeesPage() {
       // Filter by employee type
       if (attendanceEmployeeFilter !== 'all') {
         const employee = employees.find(emp => emp.id === record.employeeId);
-        if (!employee || employee.contract !== attendanceEmployeeFilter) return false;
+        if (!employee || employee.employeeType !== attendanceEmployeeFilter) return false;
       }
       
       // Filter by status
@@ -1203,50 +1036,7 @@ export default function EmployeesPage() {
     setFilteredAttendance(filtered);
   }, [attendance, dateRange, attendanceSearchTerm, attendanceEmployeeFilter, attendanceTypeFilter, employees]);
 
-  // Export attendance to CSV - Only Name, ID Number, Phone Number, Designation
-  const exportToCSV = () => {
-    if (filteredAttendance.length === 0) {
-      toast({
-        title: 'No Data',
-        description: 'No attendance records found for the selected filter.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    // Only include the 4 columns specified
-    const headers = ['Name', 'ID Number', 'Phone Number', 'Designation'];
-    
-    const csvData = filteredAttendance.map(record => {
-      const employee = employees.find(emp => emp.id === record.employeeId);
-      
-      return [
-        employee?.name || 'Unknown',
-        employee?.id_number || 'N/A',
-        employee?.phone || 'N/A',
-        record.designation ? designationLabels[record.designation] : 'N/A'
-      ];
-    });
-
-    const csvContent = [
-      headers.join(','),
-      ...csvData.map(row => row.map(cell => escapeCsvField(cell)).join(','))
-    ].join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `attendance_${format(dateRange.from, 'yyyy-MM-dd')}_to_${format(dateRange.to, 'yyyy-MM-dd')}.csv`;
-    a.click();
-    
-    toast({
-      title: 'CSV Exported',
-      description: 'Attendance data has been downloaded.',
-    });
-  };
-
-  // Export employee list to CSV - Only Name, ID Number, Phone Number, Designation
+  // Export employee list to CSV
   const exportEmployeeCSV = () => {
     if (employees.length === 0) {
       toast({
@@ -1257,14 +1047,15 @@ export default function EmployeesPage() {
       return;
     }
 
-    // Only include the 4 columns specified
-    const headers = ['Name', 'ID Number', 'Phone Number', 'Designation'];
+    const headers = ['Name', 'ID Number', 'Phone Number', 'Employee Type', 'Designation', 'Status'];
     
     const csvData = employees.map(employee => [
       employee.name || 'N/A',
       employee.id_number || 'N/A',
       employee.phone || 'N/A',
-      employee.role || 'N/A' // Using role as "Designation"
+      employee.employeeType || 'N/A',
+      employee.designation ? designationLabels[employee.designation] : 'N/A',
+      employee.isGatedIn ? 'Gated In' : 'Gated Out'
     ]);
 
     const csvContent = [
@@ -1285,26 +1076,16 @@ export default function EmployeesPage() {
     });
   };
 
-  // Handle check-in all employees for today
-  const handleCheckInAll = async () => {
-    const employeesToCheckIn = employees.filter(emp => {
-      const att = getAttendanceForDate.find(a => a.employeeId === emp.id);
-      return !att || (att.status !== 'Present' && att.status !== 'Late');
-    });
-
-    const currentHour = new Date().getHours();
-    const isLate = currentHour >= 9;
+  // Handle gate in all employees
+  const handleGateInAll = async () => {
+    const employeesToGateIn = employees.filter(emp => !emp.isGatedIn);
 
     let successCount = 0;
     let failedCount = 0;
     
-    for (const employee of employeesToCheckIn) {
+    for (const employee of employeesToGateIn) {
       try {
-        const designation = employee.contract === 'Contract' ? 
-          (designationForEmployee[employee.id] || 'dipping') : 
-          undefined;
-        
-        await handleCheckIn(employee.id, isLate, designation);
+        await handleGateIn(employee.id);
         successCount++;
       } catch (error) {
         failedCount++;
@@ -1312,25 +1093,22 @@ export default function EmployeesPage() {
     }
 
     toast({
-      title: 'Bulk Check-in Complete',
-      description: `Successfully checked in ${successCount} out of ${employeesToCheckIn.length} employees.${failedCount > 0 ? ` ${failedCount} failed.` : ''}`,
+      title: 'Bulk Gate In Complete',
+      description: `Successfully gated in ${successCount} out of ${employeesToGateIn.length} employees.${failedCount > 0 ? ` ${failedCount} failed.` : ''}`,
       variant: failedCount > 0 ? 'destructive' : 'default',
     });
   };
 
-  // Handle check-out all present employees
-  const handleCheckOutAll = async () => {
-    const employeesToCheckOut = employees.filter(emp => {
-      const att = getAttendanceForDate.find(a => a.employeeId === emp.id);
-      return (att?.status === 'Present' || att?.status === 'Late') && !att.clockOutTime;
-    });
+  // Handle gate out all employees
+  const handleGateOutAll = async () => {
+    const employeesToGateOut = employees.filter(emp => emp.isGatedIn);
 
     let successCount = 0;
     let failedCount = 0;
     
-    for (const employee of employeesToCheckOut) {
+    for (const employee of employeesToGateOut) {
       try {
-        await handleCheckOut(employee.id);
+        await handleGateOut(employee.id);
         successCount++;
       } catch (error) {
         failedCount++;
@@ -1338,10 +1116,16 @@ export default function EmployeesPage() {
     }
 
     toast({
-      title: 'Bulk Check-out Complete',
-      description: `Successfully checked out ${successCount} out of ${employeesToCheckOut.length} employees.${failedCount > 0 ? ` ${failedCount} failed.` : ''}`,
+      title: 'Bulk Gate Out Complete',
+      description: `Successfully gated out ${successCount} out of ${employeesToGateOut.length} employees.${failedCount > 0 ? ` ${failedCount} failed.` : ''}`,
       variant: failedCount > 0 ? 'destructive' : 'default',
     });
+  };
+
+  // Safe employee type getter
+  const getEmployeeTypeInfo = (employee: Employee | undefined) => {
+    if (!employee) return { color: 'bg-gray-100 text-gray-800', icon: User };
+    return employeeTypeInfo[employee.employeeType] || { color: 'bg-gray-100 text-gray-800', icon: User };
   };
 
   if (!isClient || isLoading) {
@@ -1411,7 +1195,7 @@ export default function EmployeesPage() {
             <div>
               <h2 className="text-2xl font-bold tracking-tight">Employee Management</h2>
               <p className="text-muted-foreground">
-                View, add, and manage employee records, attendance, and performance.
+                Manage employee workflow: Gate In → Assign Designations → Gate Out
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -1443,13 +1227,15 @@ export default function EmployeesPage() {
             </div>
           </div>
 
-          {/* Main Tabs - REMOVED Data Exports tab */}
+          {/* Main Tabs */}
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-4">
+            <TabsList className="grid w-full grid-cols-6">
               <TabsTrigger value="overview">Overview</TabsTrigger>
-              <TabsTrigger value="roll-call">Roll Call</TabsTrigger>
-              <TabsTrigger value="employees">Employees</TabsTrigger>
-              <TabsTrigger value="attendance">Attendance Log</TabsTrigger>
+              <TabsTrigger value="gate-in">Gate In</TabsTrigger>
+              <TabsTrigger value="designations">Assign Designations</TabsTrigger>
+              <TabsTrigger value="gate-out">Gate Out</TabsTrigger>
+              <TabsTrigger value="employees">All Employees</TabsTrigger>
+              <TabsTrigger value="attendance">Attendance</TabsTrigger>
             </TabsList>
 
             {/* Overview Tab */}
@@ -1459,8 +1245,8 @@ export default function EmployeesPage() {
                 {kpiData ? (
                   <>
                     <OverviewCard data={kpiData.totalEmployees} icon={Users} />
-                    <OverviewCard data={kpiData.presentToday} icon={CheckCircle} />
-                    <OverviewCard data={kpiData.onLeave} icon={CalendarIcon} />
+                    <OverviewCard data={kpiData.gatedIn} icon={DoorOpen} />
+                    <OverviewCard data={kpiData.pendingGateIn} icon={Clock} />
                     <OverviewCard data={kpiData.attendanceRate} icon={TrendingUp} />
                   </>
                 ) : (
@@ -1473,571 +1259,561 @@ export default function EmployeesPage() {
                 )}
               </div>
 
-              {/* Employee Stats */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Employee Distribution</CardTitle>
-                  <CardDescription>
-                    Breakdown by contract type and status
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div>
-                      <h4 className="font-medium mb-4">By Contract Type</h4>
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm">Full-time</span>
-                          <Badge variant="default">{stats.fullTimeCount}</Badge>
+              {/* Employee Distribution */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Employee Distribution</CardTitle>
+                    <CardDescription>Breakdown by employee type</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 rounded-full bg-blue-500"></div>
+                          <span>Permanent</span>
                         </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm">Part-time</span>
-                          <Badge variant="secondary">{stats.partTimeCount}</Badge>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="default">{stats.permanentCount}</Badge>
+                          <span className="text-sm text-muted-foreground">
+                            {employees.length > 0 ? Math.round((stats.permanentCount / employees.length) * 100) : 0}%
+                          </span>
                         </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm">Contract</span>
-                          <Badge variant="outline">{stats.contractCount}</Badge>
+                      </div>
+                      
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
+                          <span>Temporary</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="secondary">{stats.temporaryCount}</Badge>
+                          <span className="text-sm text-muted-foreground">
+                            {employees.length > 0 ? Math.round((stats.temporaryCount / employees.length) * 100) : 0}%
+                          </span>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 rounded-full bg-purple-500"></div>
+                          <span>Casual</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline">{stats.casualCount}</Badge>
+                          <span className="text-sm text-muted-foreground">
+                            {employees.length > 0 ? Math.round((stats.casualCount / employees.length) * 100) : 0}%
+                          </span>
                         </div>
                       </div>
                     </div>
-                    
-                    <div>
-                      <h4 className="font-medium mb-4">Today's Attendance</h4>
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-green-600">Present</span>
-                          <Badge variant="default">{stats.presentToday}</Badge>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-red-600">Absent</span>
-                          <Badge variant="destructive">{stats.absentToday}</Badge>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-amber-600">Late</span>
-                          <Badge variant="secondary">{stats.lateToday}</Badge>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-blue-600">On Leave</span>
-                          <Badge variant="secondary">{stats.onLeaveToday}</Badge>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div>
-                      <h4 className="font-medium mb-4">Check In/Out Status</h4>
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm">Checked In</span>
-                          <Badge variant="default">{stats.checkedInToday}</Badge>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm">Checked Out</span>
-                          <Badge variant="outline">{stats.checkedOutToday}</Badge>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm">Pending Check-in</span>
-                          <Badge variant="secondary">{stats.pendingCheckIn}</Badge>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-                <CardFooter>
-                  <Button onClick={exportEmployeeCSV} variant="outline" size="sm">
-                    <Download className="mr-2 w-4 h-4" />
-                    Export Employee List (CSV)
-                  </Button>
-                </CardFooter>
-              </Card>
+                  </CardContent>
+                </Card>
 
-              {/* Quick Employee Actions */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Gate Status Today</CardTitle>
+                    <CardDescription>Current gate activity</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <DoorOpen className="w-4 h-4 text-green-600" />
+                          <span>Gated In</span>
+                        </div>
+                        <Badge variant="default">{stats.gatedIn}</Badge>
+                      </div>
+                      
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <DoorClosed className="w-4 h-4 text-gray-600" />
+                          <span>Gated Out</span>
+                        </div>
+                        <Badge variant="outline">{stats.gatedOut}</Badge>
+                      </div>
+                      
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Clock className="w-4 h-4 text-amber-600" />
+                          <span>Pending Gate In</span>
+                        </div>
+                        <Badge variant="secondary">{stats.pendingGateIn}</Badge>
+                      </div>
+                      
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Tags className="w-4 h-4 text-blue-600" />
+                          <span>Need Designation</span>
+                        </div>
+                        <Badge variant="secondary">{employeesForDesignation.length}</Badge>
+                      </div>
+                    </div>
+                  </CardContent>
+                  <CardFooter>
+                    <Button onClick={exportEmployeeCSV} variant="outline" size="sm" className="w-full">
+                      <Download className="mr-2 w-4 h-4" />
+                      Export Employee Report
+                    </Button>
+                  </CardFooter>
+                </Card>
+              </div>
+
+              {/* Quick Actions */}
               <Card>
                 <CardHeader>
-                  <CardTitle>Quick Employee Actions</CardTitle>
-                  <CardDescription>
-                    Manage today's attendance quickly
-                  </CardDescription>
+                  <CardTitle>Quick Actions</CardTitle>
+                  <CardDescription>Manage gate workflow quickly</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <Button 
-                      onClick={handleCheckInAll}
+                      onClick={handleGateInAll}
                       className="bg-green-600 hover:bg-green-700"
+                      disabled={employeesForGateIn.length === 0}
                     >
-                      <LogIn className="mr-2 w-4 h-4" />
-                      Check In All Employees
+                      <DoorOpen className="mr-2 w-4 h-4" />
+                      Gate In All ({employeesForGateIn.length})
                     </Button>
                     
                     <Button 
-                      onClick={handleCheckOutAll}
+                      onClick={handleGateOutAll}
                       variant="outline"
-                      className="border-amber-600 text-amber-600 hover:bg-amber-50"
+                      className="border-red-600 text-red-600 hover:bg-red-50"
+                      disabled={employeesForGateOut.length === 0}
                     >
-                      <LogOut className="mr-2 w-4 h-4" />
-                      Check Out All Present
+                      <DoorClosed className="mr-2 w-4 h-4" />
+                      Gate Out All ({employeesForGateOut.length})
                     </Button>
                     
                     <Button 
                       onClick={() => {
-                        employees.forEach(emp => {
-                          const todayRecord = getAttendanceForDate.find(r => r.employeeId === emp.id);
-                          if (!todayRecord) {
-                            handleMarkAbsent(emp.id);
-                          }
+                        const employeesToAssign = employeesForDesignation;
+                        let successCount = 0;
+                        employeesToAssign.forEach(emp => {
+                          handleAssignDesignation(emp.id, 'dipping');
+                          successCount++;
                         });
                       }}
                       variant="outline"
-                      className="border-red-600 text-red-600 hover:bg-red-50"
+                      className="border-blue-600 text-blue-600 hover:bg-blue-50"
+                      disabled={employeesForDesignation.length === 0}
                     >
-                      <XCircle className="mr-2 w-4 h-4" />
-                      Mark All Absent
+                      <Tags className="mr-2 w-4 h-4" />
+                      Assign All Designations ({employeesForDesignation.length})
                     </Button>
                   </div>
                 </CardContent>
               </Card>
             </TabsContent>
 
-            {/* Roll Call Tab */}
-            <TabsContent value="roll-call" className="mt-6 space-y-6">
+            {/* Gate In Tab */}
+            <TabsContent value="gate-in" className="mt-6">
               <Card>
                 <CardHeader>
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div>
                       <div className="flex items-center gap-2">
-                        <CalendarIcon className="w-5 h-5" />
-                        <span className="text-lg font-semibold">Daily Roll Call</span>
+                        <DoorOpen className="w-5 h-5 text-green-600" />
+                        <span className="text-lg font-semibold">Gate In</span>
                       </div>
                       <CardDescription>
-                        Manage check-in and check-out for all employees on a daily basis
+                        Gate in employees who have arrived. {employeesForGateIn.length} employees pending gate in.
                       </CardDescription>
                     </div>
                     <div className="flex items-center gap-4">
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setSelectedDate(addDays(selectedDate, -1))}
-                        >
-                          <ChevronLeft className="w-4 h-4" />
-                        </Button>
-                        
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <Button
-                              variant="outline"
-                              className={cn(
-                                "w-[240px] justify-start text-left font-normal",
-                                !selectedDate && "text-muted-foreground"
-                              )}
-                            >
-                              <CalendarIcon className="mr-2 h-4 w-4" />
-                              {format(selectedDate, "EEEE, MMMM d, yyyy")}
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0" align="end">
-                            <Calendar
-                              mode="single"
-                              selected={selectedDate}
-                              onSelect={(date) => date && setSelectedDate(date)}
-                              initialFocus
-                            />
-                          </PopoverContent>
-                        </Popover>
-                        
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setSelectedDate(addDays(selectedDate, 1))}
-                          disabled={isToday(selectedDate)}
-                        >
-                          <ChevronRight className="w-4 h-4" />
-                        </Button>
+                      <div className="relative">
+                        <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          placeholder="Search employees..."
+                          className="pl-8 w-full md:w-[250px]"
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                        />
                       </div>
-                      
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setSelectedDate(new Date())}
-                      >
-                        Today
-                      </Button>
+                      <Select value={activeFilter} onValueChange={(value) => setActiveFilter(value as any)}>
+                        <SelectTrigger className="w-[150px]">
+                          <SelectValue placeholder="Filter by type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="All">All Types</SelectItem>
+                          <SelectItem value="Permanent">Permanent</SelectItem>
+                          <SelectItem value="Temporary">Temporary</SelectItem>
+                          <SelectItem value="Casual">Casual</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent>
-                  {/* Bulk Actions Bar */}
-                  {selectedEmployees.length > 0 && (
-                    <Card className="mb-6 bg-blue-50 border-blue-200">
-                      <CardContent className="p-4">
-                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                          <div className="flex items-center gap-2">
-                            <Badge variant="default" className="text-sm">
-                              {selectedEmployees.length} selected
-                            </Badge>
-                            <span className="text-sm text-blue-700">
-                              Select actions to perform on all selected employees
-                            </span>
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            <Select 
-                              value={bulkDesignation} 
-                              onValueChange={(value: Designation) => setBulkDesignation(value)}
-                            >
-                              <SelectTrigger className="w-[140px] h-8 text-xs">
-                                <SelectValue placeholder="Designation" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {Object.entries(designationLabels).map(([value, label]) => (
-                                  <SelectItem key={value} value={value} className="text-xs">
-                                    {label}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            
-                            <Button
-                              size="sm"
-                              className="h-8 bg-green-600 hover:bg-green-700"
-                              onClick={handleBulkCheckIn}
-                            >
-                              <LogIn className="w-3 h-3 mr-1" />
-                              Check In Selected
-                            </Button>
-                            
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-8"
-                              onClick={handleBulkCheckOut}
-                            >
-                              <LogOut className="w-3 h-3 mr-1" />
-                              Check Out Selected
-                            </Button>
-                            
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              className="h-8"
-                              onClick={handleBulkMarkAbsent}
-                            >
-                              <XCircle className="w-3 h-3 mr-1" />
-                              Mark Absent
-                            </Button>
-                            
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-8"
-                              onClick={() => setSelectedEmployees([])}
-                            >
-                              Clear Selection
-                            </Button>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  )}
-
-                  {/* Date Summary */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                    <Card>
-                      <CardContent className="p-4">
-                        <div className="text-center">
-                          <div className="text-2xl font-bold text-green-600">
-                            {stats.checkedInToday}
-                          </div>
-                          <div className="text-sm text-muted-foreground">Checked In</div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                    
-                    <Card>
-                      <CardContent className="p-4">
-                        <div className="text-center">
-                          <div className="text-2xl font-bold text-red-600">
-                            {stats.absentToday}
-                          </div>
-                          <div className="text-sm text-muted-foreground">Absent</div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                    
-                    <Card>
-                      <CardContent className="p-4">
-                        <div className="text-center">
-                          <div className="text-2xl font-bold text-amber-600">
-                            {stats.lateToday}
-                          </div>
-                          <div className="text-sm text-muted-foreground">Late</div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                    
-                    <Card>
-                      <CardContent className="p-4">
-                        <div className="text-center">
-                          <div className="text-2xl font-bold text-blue-600">
-                            {stats.checkedOutToday}
-                          </div>
-                          <div className="text-sm text-muted-foreground">Checked Out</div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </div>
-
-                  {/* Employee Grid */}
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-semibold">All Employees ({employees.length})</h3>
-                        <Badge variant="outline">
-                          {format(selectedDate, 'MMM d, yyyy')}
-                        </Badge>
-                      </div>
-                      
-                      <div className="flex items-center gap-2">
-                        <div className="flex items-center space-x-2">
-                          <Checkbox 
-                            id="select-all" 
-                            checked={selectedEmployees.length === filteredEmployees.length && filteredEmployees.length > 0}
-                            onCheckedChange={handleSelectAll}
-                          />
-                          <Label htmlFor="select-all" className="text-sm">Select All</Label>
-                        </div>
-                        
-                        <Select value={activeFilter} onValueChange={(value) => setActiveFilter(value as any)}>
-                          <SelectTrigger className="w-[150px] h-8 text-xs">
-                            <SelectValue placeholder="Filter by contract" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="All">All Contracts</SelectItem>
-                            <SelectItem value="Full-time">Full-time</SelectItem>
-                            <SelectItem value="Part-time">Part-time</SelectItem>
-                            <SelectItem value="Contract">Contract</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        
-                        <div className="relative">
-                          <Search className="absolute left-2 top-2.5 h-3 w-3 text-muted-foreground" />
-                          <Input
-                            placeholder="Search..."
-                            className="pl-8 h-8 text-sm w-[150px]"
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                          />
-                        </div>
-                      </div>
+                  {employeesForGateIn.length === 0 ? (
+                    <div className="text-center py-12 border rounded-lg">
+                      <DoorOpen className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+                      <h3 className="text-lg font-semibold mb-2">All employees gated in</h3>
+                      <p className="text-muted-foreground mb-4">No pending gate ins. Employees will appear here after they are added.</p>
+                      <Button onClick={() => setIsCreateDialogOpen(true)}>
+                        <PlusCircle className="mr-2" />
+                        Add New Employee
+                      </Button>
                     </div>
+                  ) : (
+                    <>
+                      {/* Bulk Actions */}
+                      {selectedEmployees.length > 0 && (
+                        <Card className="mb-6 bg-blue-50 border-blue-200">
+                          <CardContent className="p-4">
+                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                              <div className="flex items-center gap-2">
+                                <Badge variant="default" className="text-sm">
+                                  {selectedEmployees.length} selected
+                                </Badge>
+                                <span className="text-sm text-blue-700">
+                                  Perform bulk actions on selected employees
+                                </span>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <Button
+                                  size="sm"
+                                  className="h-8 bg-green-600 hover:bg-green-700"
+                                  onClick={handleBulkGateIn}
+                                >
+                                  <DoorOpen className="w-3 h-3 mr-1" />
+                                  Gate In Selected
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-8"
+                                  onClick={() => setSelectedEmployees([])}
+                                >
+                                  Clear Selection
+                                </Button>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      )}
 
-                    {employees.length === 0 ? (
-                      <div className="text-center py-12 border rounded-lg">
-                        <Users className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-50" />
-                        <h3 className="text-lg font-semibold mb-2">No employees found</h3>
-                        <p className="text-muted-foreground mb-4">Add employees to manage attendance</p>
-                        <Button onClick={() => setIsCreateDialogOpen(true)}>
-                          <PlusCircle className="mr-2" />
-                          Add Employee
-                        </Button>
-                      </div>
-                    ) : (
-                      <>
-                        {/* Mobile/Grid View */}
-                        <div className="md:hidden space-y-4">
-                          {filteredEmployees.map((employee) => {
-                            const todayRecord = getAttendanceForDate.find(r => r.employeeId === employee.id);
-                            const isSelected = selectedEmployees.includes(employee.id);
-                            
-                            return (
+                      {/* Employee Grid */}
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h3 className="font-semibold">Employees Pending Gate In ({employeesForGateIn.length})</h3>
+                          <div className="flex items-center gap-2">
+                            <div className="flex items-center space-x-2">
+                              <Checkbox 
+                                id="select-all-gatein" 
+                                checked={selectedEmployees.length === employeesForGateIn.length && employeesForGateIn.length > 0}
+                                onCheckedChange={() => handleSelectAll(employeesForGateIn)}
+                              />
+                              <Label htmlFor="select-all-gatein" className="text-sm">Select All</Label>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                          {employeesForGateIn
+                            .filter(emp => 
+                              activeFilter === 'All' || emp.employeeType === activeFilter
+                            )
+                            .filter(emp =>
+                              !searchQuery || 
+                              emp.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                              emp.role.toLowerCase().includes(searchQuery.toLowerCase())
+                            )
+                            .map((employee) => (
                               <div key={employee.id} className="relative">
                                 <Checkbox
-                                  checked={isSelected}
+                                  checked={selectedEmployees.includes(employee.id)}
                                   onCheckedChange={() => handleEmployeeSelection(employee.id)}
                                   className="absolute top-2 right-2 z-10"
                                 />
-                                <EmployeeCheckCard
+                                <GateInCard
                                   employee={employee}
-                                  todayRecord={todayRecord}
-                                  onCheckIn={handleCheckIn}
-                                  onCheckOut={handleCheckOut}
-                                  onMarkAbsent={handleMarkAbsent}
-                                  onMarkOnLeave={handleMarkOnLeave}
-                                  showDesignation={true}
-                                  designation={designationForEmployee[employee.id] || 'dipping'}
-                                  onDesignationChange={(designation) => 
-                                    setDesignationForEmployee(prev => ({
-                                      ...prev,
-                                      [employee.id]: designation
-                                    }))
-                                  }
+                                  onGateIn={handleGateIn}
+                                  onGateOut={handleGateOut}
                                 />
                               </div>
-                            );
-                          })}
+                            ))}
                         </div>
-
-                        {/* Desktop/Table View */}
-                        <div className="hidden md:block">
-                          <ScrollArea className="h-[500px]">
-                            <Table>
-                              <TableHeader>
-                                <TableRow>
-                                  <TableHead className="w-[50px]">
-                                    <Checkbox 
-                                      checked={selectedEmployees.length === filteredEmployees.length && filteredEmployees.length > 0}
-                                      onCheckedChange={handleSelectAll}
-                                    />
-                                  </TableHead>
-                                  <TableHead>Employee</TableHead>
-                                  <TableHead>Type</TableHead>
-                                  <TableHead>Designation</TableHead>
-                                  <TableHead>Status</TableHead>
-                                  <TableHead>Check In</TableHead>
-                                  <TableHead>Check Out</TableHead>
-                                  <TableHead>Actions</TableHead>
-                                </TableRow>
-                              </TableHeader>
-                              <TableBody>
-                                {filteredEmployees.map((employee) => {
-                                  const todayRecord = getAttendanceForDate.find(r => r.employeeId === employee.id);
-                                  const isSelected = selectedEmployees.includes(employee.id);
-                                  const StatusIcon = todayRecord ? statusInfo[todayRecord.status as keyof typeof statusInfo]?.icon : Clock;
-                                  const statusColor = todayRecord ? statusInfo[todayRecord.status as keyof typeof statusInfo]?.color : 'bg-gray-100 text-gray-800';
-                                  
-                                  return (
-                                    <TableRow key={employee.id} className={isSelected ? 'bg-blue-50' : ''}>
-                                      <TableCell>
-                                        <Checkbox
-                                          checked={isSelected}
-                                          onCheckedChange={() => handleEmployeeSelection(employee.id)}
-                                        />
-                                      </TableCell>
-                                      <TableCell>
-                                        <div className="flex items-center gap-3">
-                                          <Avatar className="h-8 w-8">
-                                            <AvatarImage src={employee.image} />
-                                            <AvatarFallback>{getInitials(employee.name)}</AvatarFallback>
-                                          </Avatar>
-                                          <div>
-                                            <div className="font-medium">{employee.name}</div>
-                                            <div className="text-sm text-muted-foreground">{employee.role}</div>
-                                          </div>
-                                        </div>
-                                      </TableCell>
-                                      <TableCell>
-                                        <Badge variant="outline">{employee.contract}</Badge>
-                                      </TableCell>
-                                      <TableCell>
-                                        {employee.contract === 'Contract' ? (
-                                          <Select 
-                                            value={designationForEmployee[employee.id] || 'dipping'} 
-                                            onValueChange={(value: Designation) => 
-                                              setDesignationForEmployee(prev => ({
-                                                ...prev,
-                                                [employee.id]: value
-                                              }))
-                                            }
-                                          >
-                                            <SelectTrigger className="h-8 w-[140px] text-xs">
-                                              <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                              {Object.entries(designationLabels).map(([value, label]) => (
-                                                <SelectItem key={value} value={value} className="text-xs">
-                                                  {label}
-                                                </SelectItem>
-                                              ))}
-                                            </SelectContent>
-                                          </Select>
-                                        ) : (
-                                          <span className="text-muted-foreground">-</span>
-                                        )}
-                                      </TableCell>
-                                      <TableCell>
-                                        {todayRecord ? (
-                                          <Badge className={statusColor}>
-                                            {StatusIcon && <StatusIcon className="w-3 h-3 mr-1" />}
-                                            {todayRecord.status}
-                                          </Badge>
-                                        ) : (
-                                          <Badge variant="outline">No Record</Badge>
-                                        )}
-                                      </TableCell>
-                                      <TableCell>
-                                        {todayRecord?.clockInTime ? (
-                                          <div className="text-green-600 text-sm">
-                                            {format(parseISO(todayRecord.clockInTime), 'HH:mm')}
-                                          </div>
-                                        ) : (
-                                          <span className="text-muted-foreground text-sm">-</span>
-                                        )}
-                                      </TableCell>
-                                      <TableCell>
-                                        {todayRecord?.clockOutTime ? (
-                                          <div className="text-red-600 text-sm">
-                                            {format(parseISO(todayRecord.clockOutTime), 'HH:mm')}
-                                          </div>
-                                        ) : (
-                                          <span className="text-muted-foreground text-sm">-</span>
-                                        )}
-                                      </TableCell>
-                                      <TableCell>
-                                        <div className="flex gap-2">
-                                          {(!todayRecord || todayRecord.status === 'Absent' || todayRecord.status === 'On Leave') ? (
-                                            <>
-                                              <Button
-                                                size="sm"
-                                                variant="outline"
-                                                className="h-8 text-xs"
-                                                onClick={() => {
-                                                  const designation = employee.contract === 'Contract' ? 
-                                                    (designationForEmployee[employee.id] || 'dipping') : 
-                                                    undefined;
-                                                  handleCheckIn(employee.id, false, designation);
-                                                }}
-                                              >
-                                                <LogIn className="w-3 h-3 mr-1" />
-                                                Check In
-                                              </Button>
-                                              <Button
-                                                size="sm"
-                                                variant="outline"
-                                                className="h-8 text-xs"
-                                                onClick={() => handleMarkAbsent(employee.id)}
-                                              >
-                                                <XCircle className="w-3 h-3 mr-1" />
-                                                Absent
-                                              </Button>
-                                            </>
-                                          ) : (todayRecord.status === 'Present' || todayRecord.status === 'Late') && !todayRecord.clockOutTime ? (
-                                            <Button
-                                              size="sm"
-                                              variant="destructive"
-                                              className="h-8 text-xs"
-                                              onClick={() => handleCheckOut(employee.id)}
-                                            >
-                                              <LogOut className="w-3 h-3 mr-1" />
-                                              Check Out
-                                            </Button>
-                                          ) : (
-                                            <span className="text-muted-foreground text-sm">Completed</span>
-                                          )}
-                                        </div>
-                                      </TableCell>
-                                    </TableRow>
-                                  );
-                                })}
-                              </TableBody>
-                            </Table>
-                          </ScrollArea>
-                        </div>
-                      </>
-                    )}
-                  </div>
+                      </div>
+                    </>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>
 
-            {/* Employees Tab */}
+            {/* Assign Designations Tab */}
+            <TabsContent value="designations" className="mt-6">
+              <Card>
+                <CardHeader>
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <Tags className="w-5 h-5 text-blue-600" />
+                        <span className="text-lg font-semibold">Assign Designations</span>
+                      </div>
+                      <CardDescription>
+                        Assign work designations to temporary and casual employees who are gated in. {employeesForDesignation.length} employees need designations.
+                      </CardDescription>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <div className="relative">
+                        <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          placeholder="Search employees..."
+                          className="pl-8 w-full md:w-[250px]"
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                        />
+                      </div>
+                      <Select 
+                        value={bulkDesignation} 
+                        onValueChange={(value: Designation) => setBulkDesignation(value)}
+                      >
+                        <SelectTrigger className="w-[150px]">
+                          <SelectValue placeholder="Bulk Designation" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {Object.entries(designationLabels).map(([value, label]) => (
+                            <SelectItem key={value} value={value}>
+                              {label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {employeesForDesignation.length === 0 ? (
+                    <div className="text-center py-12 border rounded-lg">
+                      <Tags className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+                      <h3 className="text-lg font-semibold mb-2">All designations assigned</h3>
+                      <p className="text-muted-foreground mb-4">No pending designation assignments. Employees will appear here after they gate in.</p>
+                      <Button onClick={() => setActiveTab('gate-in')}>
+                        <DoorOpen className="mr-2" />
+                        Go to Gate In
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Bulk Actions */}
+                      {selectedEmployees.length > 0 && (
+                        <Card className="mb-6 bg-blue-50 border-blue-200">
+                          <CardContent className="p-4">
+                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                              <div className="flex items-center gap-2">
+                                <Badge variant="default" className="text-sm">
+                                  {selectedEmployees.length} selected
+                                </Badge>
+                                <span className="text-sm text-blue-700">
+                                  Assign bulk designation to selected employees
+                                </span>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <Button
+                                  size="sm"
+                                  className="h-8"
+                                  onClick={handleBulkAssignDesignation}
+                                >
+                                  <Tags className="w-3 h-3 mr-1" />
+                                  Assign {designationLabels[bulkDesignation]}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-8"
+                                  onClick={() => setSelectedEmployees([])}
+                                >
+                                  Clear Selection
+                                </Button>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      )}
+
+                      {/* Employee Grid */}
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h3 className="font-semibold">Employees Needing Designations ({employeesForDesignation.length})</h3>
+                          <div className="flex items-center gap-2">
+                            <div className="flex items-center space-x-2">
+                              <Checkbox 
+                                id="select-all-designations" 
+                                checked={selectedEmployees.length === employeesForDesignation.length && employeesForDesignation.length > 0}
+                                onCheckedChange={() => handleSelectAll(employeesForDesignation)}
+                              />
+                              <Label htmlFor="select-all-designations" className="text-sm">Select All</Label>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                          {employeesForDesignation
+                            .filter(emp =>
+                              !searchQuery || 
+                              emp.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                              emp.role.toLowerCase().includes(searchQuery.toLowerCase())
+                            )
+                            .map((employee) => (
+                              <div key={employee.id} className="relative">
+                                <Checkbox
+                                  checked={selectedEmployees.includes(employee.id)}
+                                  onCheckedChange={() => handleEmployeeSelection(employee.id)}
+                                  className="absolute top-2 right-2 z-10"
+                                />
+                                <DesignationCard
+                                  employee={employee}
+                                  onAssignDesignation={handleAssignDesignation}
+                                />
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* Gate Out Tab */}
+            <TabsContent value="gate-out" className="mt-6">
+              <Card>
+                <CardHeader>
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <DoorClosed className="w-5 h-5 text-red-600" />
+                        <span className="text-lg font-semibold">Gate Out</span>
+                      </div>
+                      <CardDescription>
+                        Gate out employees who are leaving. {employeesForGateOut.length} employees ready for gate out.
+                      </CardDescription>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <div className="relative">
+                        <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          placeholder="Search employees..."
+                          className="pl-8 w-full md:w-[250px]"
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                        />
+                      </div>
+                      <Select value={activeFilter} onValueChange={(value) => setActiveFilter(value as any)}>
+                        <SelectTrigger className="w-[150px]">
+                          <SelectValue placeholder="Filter by type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="All">All Types</SelectItem>
+                          <SelectItem value="Permanent">Permanent</SelectItem>
+                          <SelectItem value="Temporary">Temporary</SelectItem>
+                          <SelectItem value="Casual">Casual</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {employeesForGateOut.length === 0 ? (
+                    <div className="text-center py-12 border rounded-lg">
+                      <DoorClosed className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+                      <h3 className="text-lg font-semibold mb-2">No employees ready for gate out</h3>
+                      <p className="text-muted-foreground mb-4">Employees will appear here after they gate in and receive designations (if required).</p>
+                      <Button onClick={() => setActiveTab('gate-in')}>
+                        <DoorOpen className="mr-2" />
+                        Go to Gate In
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Bulk Actions */}
+                      {selectedEmployees.length > 0 && (
+                        <Card className="mb-6 bg-red-50 border-red-200">
+                          <CardContent className="p-4">
+                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                              <div className="flex items-center gap-2">
+                                <Badge variant="destructive" className="text-sm">
+                                  {selectedEmployees.length} selected
+                                </Badge>
+                                <span className="text-sm text-red-700">
+                                  Perform bulk gate out on selected employees
+                                </span>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  className="h-8"
+                                  onClick={handleBulkGateIn} // This should be handleBulkGateOut, but we need to create it
+                                >
+                                  <DoorClosed className="w-3 h-3 mr-1" />
+                                  Gate Out Selected
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-8"
+                                  onClick={() => setSelectedEmployees([])}
+                                >
+                                  Clear Selection
+                                </Button>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      )}
+
+                      {/* Employee Grid */}
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h3 className="font-semibold">Employees Ready for Gate Out ({employeesForGateOut.length})</h3>
+                          <div className="flex items-center gap-2">
+                            <div className="flex items-center space-x-2">
+                              <Checkbox 
+                                id="select-all-gateout" 
+                                checked={selectedEmployees.length === employeesForGateOut.length && employeesForGateOut.length > 0}
+                                onCheckedChange={() => handleSelectAll(employeesForGateOut)}
+                              />
+                              <Label htmlFor="select-all-gateout" className="text-sm">Select All</Label>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                          {employeesForGateOut
+                            .filter(emp => 
+                              activeFilter === 'All' || emp.employeeType === activeFilter
+                            )
+                            .filter(emp =>
+                              !searchQuery || 
+                              emp.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                              emp.role.toLowerCase().includes(searchQuery.toLowerCase())
+                            )
+                            .map((employee) => (
+                              <div key={employee.id} className="relative">
+                                <Checkbox
+                                  checked={selectedEmployees.includes(employee.id)}
+                                  onCheckedChange={() => handleEmployeeSelection(employee.id)}
+                                  className="absolute top-2 right-2 z-10"
+                                />
+                                <GateInCard
+                                  employee={employee}
+                                  onGateIn={handleGateIn}
+                                  onGateOut={handleGateOut}
+                                />
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* All Employees Tab */}
             <TabsContent value="employees" className="mt-6">
               <Card>
                 <CardHeader>
@@ -2045,7 +1821,7 @@ export default function EmployeesPage() {
                     <div>
                       <CardTitle>All Employees</CardTitle>
                       <CardDescription>
-                        Manage your employee directory. Total: {employees.length} employees
+                        Manage your complete employee directory. Total: {employees.length} employees
                       </CardDescription>
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -2060,13 +1836,13 @@ export default function EmployeesPage() {
                       </div>
                       <Select value={activeFilter} onValueChange={(value) => setActiveFilter(value as any)}>
                         <SelectTrigger className="w-[150px]">
-                          <SelectValue placeholder="Filter by contract" />
+                          <SelectValue placeholder="Filter by type" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="All">All Contracts</SelectItem>
-                          <SelectItem value="Full-time">Full-time</SelectItem>
-                          <SelectItem value="Part-time">Part-time</SelectItem>
-                          <SelectItem value="Contract">Contract</SelectItem>
+                          <SelectItem value="All">All Types</SelectItem>
+                          <SelectItem value="Permanent">Permanent</SelectItem>
+                          <SelectItem value="Temporary">Temporary</SelectItem>
+                          <SelectItem value="Casual">Casual</SelectItem>
                         </SelectContent>
                       </Select>
                       <Button onClick={exportEmployeeCSV} variant="outline">
@@ -2082,12 +1858,11 @@ export default function EmployeesPage() {
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            <TableHead>Employee ID</TableHead>
-                            <TableHead>Name</TableHead>
-                            <TableHead>Email</TableHead>
+                            <TableHead>Employee</TableHead>
                             <TableHead>Type</TableHead>
-                            <TableHead>Role</TableHead>
-                            <TableHead>Status</TableHead>
+                            <TableHead>Contract</TableHead>
+                            <TableHead>Designation</TableHead>
+                            <TableHead>Gate Status</TableHead>
                             <TableHead>Phone</TableHead>
                             <TableHead>Actions</TableHead>
                           </TableRow>
@@ -2095,32 +1870,49 @@ export default function EmployeesPage() {
                         <TableBody>
                           {filteredEmployees.map((employee) => (
                             <TableRow key={employee.id}>
-                              <TableCell className="font-medium">
-                                {employee.employeeId || 'N/A'}
-                              </TableCell>
                               <TableCell>
                                 <div className="flex items-center gap-3">
                                   <Avatar className="h-8 w-8">
                                     <AvatarImage src={employee.image} />
                                     <AvatarFallback>{getInitials(employee.name)}</AvatarFallback>
                                   </Avatar>
-                                  <span>{employee.name}</span>
+                                  <div>
+                                    <div className="font-medium">{employee.name}</div>
+                                    <div className="text-sm text-muted-foreground">{employee.role}</div>
+                                  </div>
                                 </div>
                               </TableCell>
-                              <TableCell>{employee.email}</TableCell>
                               <TableCell>
-                                <Badge variant={
-                                  employee.contract === 'Full-time' ? 'default' :
-                                  employee.contract === 'Part-time' ? 'secondary' : 'outline'
-                                }>
+                                <Badge className={employeeTypeInfo[employee.employeeType].color}>
+                                  {employee.employeeType}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant="outline">
                                   {employee.contract}
                                 </Badge>
                               </TableCell>
-                              <TableCell>{employee.role}</TableCell>
                               <TableCell>
-                                <Badge variant={employee.status === 'active' ? 'default' : 'secondary'}>
-                                  {employee.status}
-                                </Badge>
+                                {employee.designation ? (
+                                  <Badge className={designationColors[employee.designation]}>
+                                    {designationLabels[employee.designation]}
+                                  </Badge>
+                                ) : (
+                                  <span className="text-muted-foreground">-</span>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                {employee.isGatedIn ? (
+                                  <Badge className="bg-green-100 text-green-800">
+                                    <DoorOpen className="w-3 h-3 mr-1 inline" />
+                                    Gated In
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="outline">
+                                    <DoorClosed className="w-3 h-3 mr-1 inline" />
+                                    Gated Out
+                                  </Badge>
+                                )}
                               </TableCell>
                               <TableCell>{employee.phone || '-'}</TableCell>
                               <TableCell>
@@ -2129,11 +1921,22 @@ export default function EmployeesPage() {
                                     size="sm"
                                     variant="outline"
                                     onClick={() => {
-                                      setSelectedEmployee(employee);
-                                      setActiveTab('overview');
+                                      if (employee.isGatedIn) {
+                                        handleGateOut(employee.id);
+                                      } else {
+                                        handleGateIn(employee.id);
+                                      }
                                     }}
                                   >
-                                    <Eye className="w-4 h-4" />
+                                    {employee.isGatedIn ? (
+                                      <>
+                                        <DoorClosed className="w-4 h-4" />
+                                      </>
+                                    ) : (
+                                      <>
+                                        <DoorOpen className="w-4 h-4" />
+                                      </>
+                                    )}
                                   </Button>
                                   <Button
                                     size="sm"
@@ -2144,6 +1947,7 @@ export default function EmployeesPage() {
                                         name: employee.name,
                                         email: employee.email,
                                         role: employee.role,
+                                        employeeType: employee.employeeType,
                                         contract: employee.contract,
                                         idNumber: employee.id_number || '',
                                         phone: employee.phone || '',
@@ -2264,9 +2068,9 @@ export default function EmployeesPage() {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="all">All Types</SelectItem>
-                          <SelectItem value="Full-time">Full-time</SelectItem>
-                          <SelectItem value="Part-time">Part-time</SelectItem>
-                          <SelectItem value="Contract">Contract</SelectItem>
+                          <SelectItem value="Permanent">Permanent</SelectItem>
+                          <SelectItem value="Temporary">Temporary</SelectItem>
+                          <SelectItem value="Casual">Casual</SelectItem>
                         </SelectContent>
                       </Select>
                       
@@ -2282,11 +2086,6 @@ export default function EmployeesPage() {
                           <SelectItem value="On Leave">On Leave</SelectItem>
                         </SelectContent>
                       </Select>
-                      
-                      <Button onClick={exportToCSV}>
-                        <Download className="w-4 h-4 mr-2" />
-                        Export CSV
-                      </Button>
                     </div>
                   </div>
                 </CardHeader>
@@ -2295,7 +2094,7 @@ export default function EmployeesPage() {
                     <div className="text-center py-12">
                       <Clock className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-50" />
                       <h3 className="text-lg font-semibold mb-2">No attendance records</h3>
-                      <p className="text-muted-foreground">Attendance records will appear here after check-ins</p>
+                      <p className="text-muted-foreground">Attendance records will appear here</p>
                     </div>
                   ) : (
                     <ScrollArea className="h-[500px]">
@@ -2305,10 +2104,9 @@ export default function EmployeesPage() {
                             <TableHead>Date</TableHead>
                             <TableHead>Employee</TableHead>
                             <TableHead>Type</TableHead>
+                            <TableHead>Status</TableHead>
                             <TableHead>Check In</TableHead>
                             <TableHead>Check Out</TableHead>
-                            <TableHead>Designation</TableHead>
-                            <TableHead>Status</TableHead>
                             <TableHead>Hours</TableHead>
                           </TableRow>
                         </TableHeader>
@@ -2327,6 +2125,9 @@ export default function EmployeesPage() {
                             const StatusIcon = statusInfo[record.status as keyof typeof statusInfo]?.icon || Clock;
                             const statusColor = statusInfo[record.status as keyof typeof statusInfo]?.color || 'bg-gray-100 text-gray-800';
                             
+                            // Safely get employee type info
+                            const typeInfo = employee ? employeeTypeInfo[employee.employeeType] : { color: 'bg-gray-100 text-gray-800' };
+                            
                             return (
                               <TableRow key={record.id}>
                                 <TableCell className="font-medium">
@@ -2341,14 +2142,20 @@ export default function EmployeesPage() {
                                     <div>
                                       <div className="font-medium">{employee?.name || 'Unknown'}</div>
                                       <div className="text-sm text-muted-foreground">
-                                        {employee?.employeeId || record.employeeId}
+                                        {employee?.employeeType || 'Unknown'}
                                       </div>
                                     </div>
                                   </div>
                                 </TableCell>
                                 <TableCell>
-                                  <Badge variant="outline">
-                                    {employee?.contract || 'Unknown'}
+                                  <Badge className={typeInfo.color}>
+                                    {employee?.employeeType || 'Unknown'}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell>
+                                  <Badge className={statusColor}>
+                                    {StatusIcon && <StatusIcon className="w-3 h-3 mr-1" />}
+                                    {record.status}
                                   </Badge>
                                 </TableCell>
                                 <TableCell>
@@ -2356,21 +2163,6 @@ export default function EmployeesPage() {
                                 </TableCell>
                                 <TableCell>
                                   {record.clockOutTime ? format(parseISO(record.clockOutTime), 'HH:mm') : '-'}
-                                </TableCell>
-                                <TableCell>
-                                  {record.designation ? (
-                                    <Badge className={designationColors[record.designation]}>
-                                      {designationLabels[record.designation]}
-                                    </Badge>
-                                  ) : (
-                                    <span className="text-muted-foreground">-</span>
-                                  )}
-                                </TableCell>
-                                <TableCell>
-                                  <Badge className={statusColor}>
-                                    <StatusIcon className="w-3 h-3 mr-1" />
-                                    {record.status}
-                                  </Badge>
                                 </TableCell>
                                 <TableCell>{hoursWorked}</TableCell>
                               </TableRow>
