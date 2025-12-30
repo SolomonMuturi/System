@@ -29,7 +29,7 @@ import {
   HardHat, Scale, Package, Truck, ChevronDown, CheckCircle, AlertCircle, 
   RefreshCw, Calculator, Box, History, Search, Calendar, Filter, X, 
   BarChart3, Users, PackageOpen, TrendingUp, XCircle, AlertTriangle, Check,
-  Download, FileSpreadsheet, ChevronRight
+  Download, FileSpreadsheet, ChevronRight, ChevronLeft, AlertOctagon, FileText
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -150,8 +150,7 @@ interface CSVRow {
 const processingStages = [
   { id: 'intake', name: 'Intake', icon: Truck, description: 'Supplier intake & initial check-in.', tag: 'Pallet ID' },
   { id: 'quality', name: 'Quality Control', icon: Scale, description: 'Quality assessment and packability checks.', tag: 'QC Assessment' },
-  { id: 'counting', name: 'Counting', icon: Calculator, description: 'Box counting and size classification.', tag: 'Box Count Form' },
-  { id: 'reject', name: 'Variance', icon: XCircle, description: 'Record rejected crates and weight variance.', tag: 'Variance Check' },
+  { id: 'counting', name: 'Counting', icon: Calculator, description: 'Box counting, classification & variance handling.', tag: 'Box Count & Variance' },
   { id: 'history', name: 'History', icon: History, description: 'Completed processing records.', tag: 'Finalized' },
 ];
 
@@ -268,6 +267,7 @@ export default function WarehousePage() {
   const [selectedQC, setSelectedQC] = useState<QualityCheck | null>(null);
   
   const [activeTab, setActiveTab] = useState<string>('quality');
+  const [countingStep, setCountingStep] = useState<'form' | 'variance'>('form');
   
   const [countingForm, setCountingForm] = useState<CountingFormData>({
     supplier_id: '',
@@ -368,7 +368,6 @@ export default function WarehousePage() {
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
 
-  // State for collapsible sections in counting form
   const [expandedFuerteClass2, setExpandedFuerteClass2] = useState(false);
   const [expandedFuerte10kg, setExpandedFuerte10kg] = useState(false);
   const [expandedHassClass2, setExpandedHassClass2] = useState(false);
@@ -618,6 +617,7 @@ export default function WarehousePage() {
     }
     
     setActiveTab('counting');
+    setCountingStep('form');
     
     toast({
       title: "Supplier Selected",
@@ -735,111 +735,23 @@ export default function WarehousePage() {
 
       setCountingRecords(prev => [result.data, ...prev]);
       
-      setSelectedSupplier(null);
-      setSelectedQC(null);
+      // Set the newly created record for variance handling
+      setRejectionForm({
+        countingRecord: result.data,
+        crates: [],
+        notes: ''
+      });
       
-      // Reset counting form
-      const resetForm: CountingFormData = {
-        supplier_id: '',
-        supplier_name: '',
-        supplier_phone: '',
-        region: '',
-        fruits: [],
-        fuerte_4kg_class1_size12: 0,
-        fuerte_4kg_class1_size14: 0,
-        fuerte_4kg_class1_size16: 0,
-        fuerte_4kg_class1_size18: 0,
-        fuerte_4kg_class1_size20: 0,
-        fuerte_4kg_class1_size22: 0,
-        fuerte_4kg_class1_size24: 0,
-        fuerte_4kg_class1_size26: 0,
-        fuerte_4kg_class2_size12: 0,
-        fuerte_4kg_class2_size14: 0,
-        fuerte_4kg_class2_size16: 0,
-        fuerte_4kg_class2_size18: 0,
-        fuerte_4kg_class2_size20: 0,
-        fuerte_4kg_class2_size22: 0,
-        fuerte_4kg_class2_size24: 0,
-        fuerte_4kg_class2_size26: 0,
-        fuerte_10kg_class1_size12: 0,
-        fuerte_10kg_class1_size14: 0,
-        fuerte_10kg_class1_size16: 0,
-        fuerte_10kg_class1_size18: 0,
-        fuerte_10kg_class1_size20: 0,
-        fuerte_10kg_class1_size22: 0,
-        fuerte_10kg_class1_size24: 0,
-        fuerte_10kg_class1_size26: 0,
-        fuerte_10kg_class1_size28: 0,
-        fuerte_10kg_class1_size30: 0,
-        fuerte_10kg_class1_size32: 0,
-        fuerte_10kg_class2_size12: 0,
-        fuerte_10kg_class2_size14: 0,
-        fuerte_10kg_class2_size16: 0,
-        fuerte_10kg_class2_size18: 0,
-        fuerte_10kg_class2_size20: 0,
-        fuerte_10kg_class2_size22: 0,
-        fuerte_10kg_class2_size24: 0,
-        fuerte_10kg_class2_size26: 0,
-        fuerte_10kg_class2_size28: 0,
-        fuerte_10kg_class2_size30: 0,
-        fuerte_10kg_class2_size32: 0,
-        hass_4kg_class1_size12: 0,
-        hass_4kg_class1_size14: 0,
-        hass_4kg_class1_size16: 0,
-        hass_4kg_class1_size18: 0,
-        hass_4kg_class1_size20: 0,
-        hass_4kg_class1_size22: 0,
-        hass_4kg_class1_size24: 0,
-        hass_4kg_class1_size26: 0,
-        hass_4kg_class2_size12: 0,
-        hass_4kg_class2_size14: 0,
-        hass_4kg_class2_size16: 0,
-        hass_4kg_class2_size18: 0,
-        hass_4kg_class2_size20: 0,
-        hass_4kg_class2_size22: 0,
-        hass_4kg_class2_size24: 0,
-        hass_4kg_class2_size26: 0,
-        hass_10kg_class1_size12: 0,
-        hass_10kg_class1_size14: 0,
-        hass_10kg_class1_size16: 0,
-        hass_10kg_class1_size18: 0,
-        hass_10kg_class1_size20: 0,
-        hass_10kg_class1_size22: 0,
-        hass_10kg_class1_size24: 0,
-        hass_10kg_class1_size26: 0,
-        hass_10kg_class1_size28: 0,
-        hass_10kg_class1_size30: 0,
-        hass_10kg_class1_size32: 0,
-        hass_10kg_class2_size12: 0,
-        hass_10kg_class2_size14: 0,
-        hass_10kg_class2_size16: 0,
-        hass_10kg_class2_size18: 0,
-        hass_10kg_class2_size20: 0,
-        hass_10kg_class2_size22: 0,
-        hass_10kg_class2_size24: 0,
-        hass_10kg_class2_size26: 0,
-        hass_10kg_class2_size28: 0,
-        hass_10kg_class2_size30: 0,
-        hass_10kg_class2_size32: 0,
-        notes: '',
-      };
-      
-      // Reset collapsible sections
-      setExpandedFuerteClass2(false);
-      setExpandedFuerte10kg(false);
-      setExpandedHassClass2(false);
-      setExpandedHass10kg(false);
-      
-      setCountingForm(resetForm);
+      // Move to variance step
+      setCountingStep('variance');
       
       fetchStats();
-      setActiveTab('reject');
       
       toast({
         title: "✅ Counting Data Saved Successfully!",
         description: (
           <div className="space-y-3">
-            <p>{selectedSupplier.supplier_name} has been counted and is ready for cold room.</p>
+            <p>Now proceed to variance handling for {selectedSupplier.supplier_name}.</p>
             <div className="grid grid-cols-2 gap-2">
               <Button
                 size="sm"
@@ -849,7 +761,7 @@ export default function WarehousePage() {
                 }}
                 className="bg-blue-600 hover:bg-blue-700"
               >
-                📦 Go to Cold Room
+                📦 View Cold Room
               </Button>
               <Button
                 size="sm"
@@ -874,7 +786,7 @@ export default function WarehousePage() {
             </p>
           </div>
         ),
-        duration: 10000,
+        duration: 8000,
       });
       
     } catch (err: any) {
@@ -887,17 +799,17 @@ export default function WarehousePage() {
     }
   };
 
-  const handleAddRejectedCrate = () => {
+  const handleAddRejectedCrate = (type: 'fuerte_4kg' | 'fuerte_10kg' | 'hass_4kg' | 'hass_10kg') => {
     setRejectionForm(prev => ({
       ...prev,
       crates: [
         ...prev.crates,
         {
           id: `crate-${Date.now()}`,
-          box_type: 'fuerte_4kg',
+          box_type: type,
           class_type: 'class1',
           quantity: 0,
-          weight_per_crate: 4,
+          weight_per_crate: type.includes('4kg') ? 4 : 10,
           total_weight: 0
         }
       ]
@@ -912,9 +824,9 @@ export default function WarehousePage() {
         [field]: value
       };
       
-      if (field === 'quantity' || field === 'weight_per_crate') {
-        updatedCrates[index].total_weight = 
-          Number(updatedCrates[index].quantity) * Number(updatedCrates[index].weight_per_crate);
+      if (field === 'quantity') {
+        const weight = type.includes('4kg') ? 4 : 10;
+        updatedCrates[index].total_weight = Number(value) * weight;
       }
       
       return {
@@ -937,6 +849,7 @@ export default function WarehousePage() {
       crates: [],
       notes: ''
     });
+    setCountingStep('variance');
     
     toast({
       title: "Record Selected",
@@ -993,11 +906,12 @@ export default function WarehousePage() {
         notes: ''
       });
       
+      setCountingStep('form');
       fetchStats();
       setActiveTab('history');
       
       toast({
-        title: "Variance Processed",
+        title: "✅ Variance Processed Successfully",
         description: `${record.supplier_name} has been moved to history`,
         variant: "default",
       });
@@ -1164,7 +1078,6 @@ export default function WarehousePage() {
     downloadCSV(filteredHistory);
   };
 
-  // UPDATED: Render size grid with better layout
   const renderSizeGrid = (prefix: string, boxType: '4kg' | '10kg', classType: 'class1' | 'class2') => {
     const sizes = boxType === '4kg' 
       ? ['12', '14', '16', '18', '20', '22', '24', '26']
@@ -1193,7 +1106,6 @@ export default function WarehousePage() {
     );
   };
 
-  // UPDATED: Render collapsible section for counting form
   const renderCollapsibleSection = (
     title: string,
     isExpanded: boolean,
@@ -1458,12 +1370,16 @@ export default function WarehousePage() {
             </CardContent>
           </Card>
 
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="grid grid-cols-5">
+          <Tabs value={activeTab} onValueChange={(value) => {
+            setActiveTab(value);
+            if (value === 'counting') {
+              setCountingStep('form');
+            }
+          }}>
+            <TabsList className="grid grid-cols-4">
               <TabsTrigger value="intake">Intake</TabsTrigger>
               <TabsTrigger value="quality">Quality Control</TabsTrigger>
               <TabsTrigger value="counting">Counting</TabsTrigger>
-              <TabsTrigger value="reject">Variance</TabsTrigger>
               <TabsTrigger value="history">History</TabsTrigger>
             </TabsList>
 
@@ -1586,7 +1502,7 @@ export default function WarehousePage() {
                         <CheckCircle className="w-12 h-12 mx-auto text-gray-300 mb-3" />
                         <p className="text-gray-500 font-medium">No accepted suppliers pending counting</p>
                         <p className="text-sm text-gray-400 mt-1">
-                          All QC-approved suppliers have been counted. Check the Variance tab.
+                          All QC-approved suppliers have been counted. Check the Counting tab.
                         </p>
                       </div>
                     ) : (
@@ -1707,651 +1623,703 @@ export default function WarehousePage() {
               </Card>
             </TabsContent>
 
-            {/* UPDATED: Counting Tab with Collapsible Sections */}
+            {/* UPDATED: Combined Counting & Variance Tab */}
             <TabsContent value="counting" className="space-y-6">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Package className="w-5 h-5" />
-                      Selected Supplier Information
-                    </CardTitle>
-                    <CardDescription>
-                      {selectedSupplier ? `${selectedSupplier.supplier_name} - Ready for counting` : 'No supplier selected'}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {selectedSupplier ? (
-                      <div className="space-y-4">
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <div className="text-sm text-gray-500">Supplier Name</div>
-                            <div className="font-semibold">{selectedSupplier.supplier_name}</div>
-                          </div>
-                          <div>
-                            <div className="text-sm text-gray-500">Region</div>
-                            <div className="font-medium">{selectedSupplier.region}</div>
-                          </div>
-                          <div>
-                            <div className="text-sm text-gray-500">Pallet ID</div>
-                            <div className="font-mono">{selectedSupplier.pallet_id}</div>
-                          </div>
-                          <div>
-                            <div className="text-sm text-gray-500">Total Weight</div>
-                            <div className="font-bold">{selectedSupplier.total_weight} kg</div>
-                          </div>
-                        </div>
-                        
-                        <div>
-                          <div className="text-sm text-gray-500 mb-2">Fruit Varieties</div>
-                          <div className="flex flex-wrap gap-2">
-                            {safeArray(selectedSupplier.fruit_varieties).map((fruit, idx) => (
-                              <Badge key={idx} variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                                {fruit.name}: {fruit.weight}kg
-                              </Badge>
-                            ))}
-                          </div>
-                        </div>
-                        
-                        {selectedQC && (
-                          <div>
-                            <div className="text-sm text-gray-500 mb-2">QC Results</div>
-                            <div className="flex gap-3">
-                              {selectedQC.fuerte_overall > 0 && (
-                                <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
-                                  Fuerte: {selectedQC.fuerte_overall}%
-                                </Badge>
-                              )}
-                              {selectedQC.hass_overall > 0 && (
-                                <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
-                                  Hass: {selectedQC.hass_overall}%
-                                </Badge>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                        
-                        <div className="pt-4 border-t">
-                          <Label htmlFor="supplier_phone" className="mb-2">Supplier Phone Number</Label>
-                          <Input
-                            id="supplier_phone"
-                            value={countingForm.supplier_phone}
-                            onChange={(e) => handleInputChange('supplier_phone', e.target.value)}
-                            placeholder="Enter supplier phone number"
-                          />
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="text-center py-8">
-                        <Calculator className="w-12 h-12 mx-auto text-gray-300 mb-3" />
-                        <p className="text-gray-500 font-medium">No supplier selected</p>
-                        <p className="text-sm text-gray-400 mt-1">
-                          Select a QC-approved supplier from the Quality Control tab to begin counting
-                        </p>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Calculator className="w-5 h-5" />
+                    Counting & Variance Management
+                  </CardTitle>
+                  <CardDescription>
+                    Complete the counting process and handle any weight variance
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {/* Counting Steps Navigation */}
+                  <div className="flex items-center justify-center mb-8">
+                    <div className="flex items-center">
+                      <button
+                        onClick={() => setCountingStep('form')}
+                        className={`flex items-center gap-2 px-6 py-3 rounded-l-lg border ${countingStep === 'form' ? 'bg-blue-600 text-white border-blue-600' : 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200'}`}
+                      >
+                        <Box className="w-4 h-4" />
+                        Step 1: Box Counting
+                      </button>
+                      <div className="h-px w-8 bg-gray-300"></div>
+                      <button
+                        onClick={() => setCountingStep('variance')}
+                        className={`flex items-center gap-2 px-6 py-3 rounded-r-lg border ${countingStep === 'variance' ? 'bg-orange-600 text-white border-orange-600' : 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200'}`}
+                      >
+                        <AlertTriangle className="w-4 h-4" />
+                        Step 2: Variance Handling
+                      </button>
+                    </div>
+                  </div>
 
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Box className="w-5 h-5" />
-                      Box Counting Form
-                    </CardTitle>
-                    <CardDescription>
-                      Enter number of boxes per size and class. Class 1 (4kg) is default.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <form onSubmit={handleSubmitCountingForm} className="space-y-6">
-                      <ScrollArea className="h-[500px] pr-4">
-                        {/* Fuerte Section */}
-                        <div className="mb-6">
-                          <h3 className="font-semibold text-lg mb-4 text-green-700 border-b pb-2">Fuerte Avocado</h3>
-                          
-                          {/* Fuerte 4kg Class 1 - DEFAULT VISIBLE */}
-                          <div className="mb-6">
-                            <div className="flex items-center justify-between mb-3">
-                              <h4 className="font-medium text-green-600">4kg Boxes - Class 1</h4>
-                              <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
-                                Default
-                              </Badge>
-                            </div>
-                            {renderSizeGrid('fuerte', '4kg', 'class1')}
-                            <div className="text-right text-sm mt-2">
-                              <span className="font-medium">Sub-Total: </span>
-                              <span className="font-bold text-green-700">{calculateSubtotal('fuerte', 'class1', '4kg')} boxes</span>
-                            </div>
-                          </div>
-
-                          {/* Fuerte 4kg Class 2 - COLLAPSIBLE */}
-                          {renderCollapsibleSection(
-                            "Fuerte 4kg Boxes - Class 2",
-                            expandedFuerteClass2,
-                            () => setExpandedFuerteClass2(!expandedFuerteClass2),
-                            <>
-                              {renderSizeGrid('fuerte', '4kg', 'class2')}
-                              <div className="text-right text-sm mt-2">
-                                <span className="font-medium">Sub-Total: </span>
-                                <span className="font-bold text-green-700">{calculateSubtotal('fuerte', 'class2', '4kg')} boxes</span>
-                              </div>
-                            </>,
-                            "Secondary quality boxes"
-                          )}
-
-                          {/* Fuerte 10kg - COLLAPSIBLE */}
-                          {renderCollapsibleSection(
-                            "Fuerte 10kg Crates",
-                            expandedFuerte10kg,
-                            () => setExpandedFuerte10kg(!expandedFuerte10kg),
-                            <>
-                              {/* Fuerte 10kg Class 1 */}
-                              <div className="mb-4">
-                                <h5 className="font-medium mb-2">Class 1</h5>
-                                {renderSizeGrid('fuerte', '10kg', 'class1')}
-                                <div className="text-right text-sm mt-2">
-                                  <span className="font-medium">Sub-Total: </span>
-                                  <span className="font-bold text-green-700">{calculateSubtotal('fuerte', 'class1', '10kg')} crates</span>
+                  {countingStep === 'form' ? (
+                    <div className="space-y-6">
+                      {/* Pending Counting Section */}
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <Card>
+                          <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                              <Package className="w-5 h-5" />
+                              Selected Supplier Information
+                            </CardTitle>
+                            <CardDescription>
+                              {selectedSupplier ? `${selectedSupplier.supplier_name} - Ready for counting` : 'No supplier selected'}
+                            </CardDescription>
+                          </CardHeader>
+                          <CardContent>
+                            {selectedSupplier ? (
+                              <div className="space-y-4">
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div>
+                                    <div className="text-sm text-gray-500">Supplier Name</div>
+                                    <div className="font-semibold">{selectedSupplier.supplier_name}</div>
+                                  </div>
+                                  <div>
+                                    <div className="text-sm text-gray-500">Region</div>
+                                    <div className="font-medium">{selectedSupplier.region}</div>
+                                  </div>
+                                  <div>
+                                    <div className="text-sm text-gray-500">Pallet ID</div>
+                                    <div className="font-mono">{selectedSupplier.pallet_id}</div>
+                                  </div>
+                                  <div>
+                                    <div className="text-sm text-gray-500">Total Weight</div>
+                                    <div className="font-bold">{selectedSupplier.total_weight} kg</div>
+                                  </div>
                                 </div>
-                              </div>
-                              
-                              {/* Fuerte 10kg Class 2 */}
-                              <div className="mb-4">
-                                <h5 className="font-medium mb-2">Class 2</h5>
-                                {renderSizeGrid('fuerte', '10kg', 'class2')}
-                                <div className="text-right text-sm mt-2">
-                                  <span className="font-medium">Sub-Total: </span>
-                                  <span className="font-bold text-green-700">{calculateSubtotal('fuerte', 'class2', '10kg')} crates</span>
+                                
+                                <div>
+                                  <div className="text-sm text-gray-500 mb-2">Fruit Varieties</div>
+                                  <div className="flex flex-wrap gap-2">
+                                    {safeArray(selectedSupplier.fruit_varieties).map((fruit, idx) => (
+                                      <Badge key={idx} variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                                        {fruit.name}: {fruit.weight}kg
+                                      </Badge>
+                                    ))}
+                                  </div>
                                 </div>
-                              </div>
-                            </>,
-                            "Large crates (Class 1 & Class 2)"
-                          )}
-
-                          {/* Fuerte Total Summary */}
-                          <div className="mt-6 p-4 bg-green-50 rounded-lg border border-green-200">
-                            <div className="flex justify-between items-center">
-                              <span className="font-semibold text-green-800">Fuerte Total 4kg:</span>
-                              <span className="font-bold text-lg text-green-900">{calculateTotalBoxes('fuerte', '4kg')} boxes</span>
-                            </div>
-                            {calculateTotalBoxes('fuerte', '10kg') > 0 && (
-                              <div className="flex justify-between items-center mt-2">
-                                <span className="font-semibold text-green-800">Fuerte Total 10kg:</span>
-                                <span className="font-bold text-lg text-green-900">{calculateTotalBoxes('fuerte', '10kg')} crates</span>
-                              </div>
-                            )}
-                            <div className="flex justify-between items-center mt-2 pt-2 border-t border-green-300">
-                              <span className="font-bold text-green-900">Fuerte Total All:</span>
-                              <span className="font-bold text-xl text-green-900">
-                                {calculateTotalBoxes('fuerte', '4kg') + calculateTotalBoxes('fuerte', '10kg')} boxes/crates
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Hass Section */}
-                        <div className="mb-6">
-                          <h3 className="font-semibold text-lg mb-4 text-purple-700 border-b pb-2">Hass Avocado</h3>
-                          
-                          {/* Hass 4kg Class 1 - DEFAULT VISIBLE */}
-                          <div className="mb-6">
-                            <div className="flex items-center justify-between mb-3">
-                              <h4 className="font-medium text-purple-600">4kg Boxes - Class 1</h4>
-                              <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200">
-                                Default
-                              </Badge>
-                            </div>
-                            {renderSizeGrid('hass', '4kg', 'class1')}
-                            <div className="text-right text-sm mt-2">
-                              <span className="font-medium">Sub-Total: </span>
-                              <span className="font-bold text-purple-700">{calculateSubtotal('hass', 'class1', '4kg')} boxes</span>
-                            </div>
-                          </div>
-
-                          {/* Hass 4kg Class 2 - COLLAPSIBLE */}
-                          {renderCollapsibleSection(
-                            "Hass 4kg Boxes - Class 2",
-                            expandedHassClass2,
-                            () => setExpandedHassClass2(!expandedHassClass2),
-                            <>
-                              {renderSizeGrid('hass', '4kg', 'class2')}
-                              <div className="text-right text-sm mt-2">
-                                <span className="font-medium">Sub-Total: </span>
-                                <span className="font-bold text-purple-700">{calculateSubtotal('hass', 'class2', '4kg')} boxes</span>
-                              </div>
-                            </>,
-                            "Secondary quality boxes"
-                          )}
-
-                          {/* Hass 10kg - COLLAPSIBLE */}
-                          {renderCollapsibleSection(
-                            "Hass 10kg Crates",
-                            expandedHass10kg,
-                            () => setExpandedHass10kg(!expandedHass10kg),
-                            <>
-                              {/* Hass 10kg Class 1 */}
-                              <div className="mb-4">
-                                <h5 className="font-medium mb-2">Class 1</h5>
-                                {renderSizeGrid('hass', '10kg', 'class1')}
-                                <div className="text-right text-sm mt-2">
-                                  <span className="font-medium">Sub-Total: </span>
-                                  <span className="font-bold text-purple-700">{calculateSubtotal('hass', 'class1', '10kg')} crates</span>
-                                </div>
-                              </div>
-                              
-                              {/* Hass 10kg Class 2 */}
-                              <div className="mb-4">
-                                <h5 className="font-medium mb-2">Class 2</h5>
-                                {renderSizeGrid('hass', '10kg', 'class2')}
-                                <div className="text-right text-sm mt-2">
-                                  <span className="font-medium">Sub-Total: </span>
-                                  <span className="font-bold text-purple-700">{calculateSubtotal('hass', 'class2', '10kg')} crates</span>
-                                </div>
-                              </div>
-                            </>,
-                            "Large crates (Class 1 & Class 2)"
-                          )}
-
-                          {/* Hass Total Summary */}
-                          <div className="mt-6 p-4 bg-purple-50 rounded-lg border border-purple-200">
-                            <div className="flex justify-between items-center">
-                              <span className="font-semibold text-purple-800">Hass Total 4kg:</span>
-                              <span className="font-bold text-lg text-purple-900">{calculateTotalBoxes('hass', '4kg')} boxes</span>
-                            </div>
-                            {calculateTotalBoxes('hass', '10kg') > 0 && (
-                              <div className="flex justify-between items-center mt-2">
-                                <span className="font-semibold text-purple-800">Hass Total 10kg:</span>
-                                <span className="font-bold text-lg text-purple-900">{calculateTotalBoxes('hass', '10kg')} crates</span>
-                              </div>
-                            )}
-                            <div className="flex justify-between items-center mt-2 pt-2 border-t border-purple-300">
-                              <span className="font-bold text-purple-900">Hass Total All:</span>
-                              <span className="font-bold text-xl text-purple-900">
-                                {calculateTotalBoxes('hass', '4kg') + calculateTotalBoxes('hass', '10kg')} boxes/crates
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Overall Summary */}
-                        <div className="mt-8 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                          <h4 className="font-semibold text-blue-800 mb-3">Overall Summary</h4>
-                          <div className="grid grid-cols-2 gap-4 text-sm">
-                            <div>
-                              <div className="text-blue-600">Fuerte Total Boxes:</div>
-                              <div className="font-bold text-blue-800">
-                                {calculateTotalBoxes('fuerte', '4kg') + calculateTotalBoxes('fuerte', '10kg')}
-                              </div>
-                            </div>
-                            <div>
-                              <div className="text-purple-600">Hass Total Boxes:</div>
-                              <div className="font-bold text-purple-800">
-                                {calculateTotalBoxes('hass', '4kg') + calculateTotalBoxes('hass', '10kg')}
-                              </div>
-                            </div>
-                          </div>
-                          <div className="mt-3 pt-3 border-t border-blue-300">
-                            <div className="flex justify-between items-center">
-                              <span className="font-bold text-blue-900">Total All Boxes/Crates:</span>
-                              <span className="font-bold text-2xl text-blue-900">
-                                {calculateTotalBoxes('fuerte', '4kg') + calculateTotalBoxes('fuerte', '10kg') + 
-                                 calculateTotalBoxes('hass', '4kg') + calculateTotalBoxes('hass', '10kg')}
-                              </span>
-                            </div>
-                            <div className="text-right text-xs text-blue-600 mt-1">
-                              Estimated Weight: {(calculateTotalBoxes('fuerte', '4kg') + calculateTotalBoxes('hass', '4kg')) * 4 + 
-                                              (calculateTotalBoxes('fuerte', '10kg') + calculateTotalBoxes('hass', '10kg')) * 10} kg
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Notes */}
-                        <div className="mt-6">
-                          <Label htmlFor="notes" className="mb-2">Notes</Label>
-                          <Input
-                            id="notes"
-                            value={countingForm.notes}
-                            onChange={(e) => handleInputChange('notes', e.target.value)}
-                            placeholder="Additional notes (optional)"
-                          />
-                        </div>
-                      </ScrollArea>
-
-                      <div className="pt-4 border-t">
-                        <Button
-                          type="submit"
-                          disabled={!selectedSupplier}
-                          className="w-full bg-green-600 hover:bg-green-700"
-                          size="lg"
-                        >
-                          <CheckCircle className="w-4 h-4 mr-2" />
-                          Save Counting Data
-                        </Button>
-                      </div>
-                    </form>
-                  </CardContent>
-                </Card>
-              </div>
-            </TabsContent>
-
-            <TabsContent value="reject" className="space-y-6">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <AlertTriangle className="w-5 h-5" />
-                      Pending Variance Handling
-                    </CardTitle>
-                    <CardDescription>
-                      {countingRecords.length} supplier(s) need variance handling
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <ScrollArea className="h-[400px] pr-4">
-                      {isLoading.rejections ? (
-                        <div className="flex flex-col items-center justify-center py-12">
-                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-4"></div>
-                          <p className="text-muted-foreground">Loading pending variance...</p>
-                        </div>
-                      ) : countingRecords.length === 0 ? (
-                        <div className="text-center py-8">
-                          <Check className="w-12 h-12 mx-auto text-gray-300 mb-3" />
-                          <p className="text-gray-500 font-medium">No pending variance handling</p>
-                          <p className="text-sm text-gray-400 mt-1">
-                            All counted suppliers have been processed
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="space-y-3">
-                          {countingRecords.map((record) => (
-                            <Collapsible
-                              key={record.id}
-                              open={expandedReject.has(record.id)}
-                              onOpenChange={() => toggleRejectExpansion(record.id)}
-                              className="border rounded-lg overflow-hidden"
-                            >
-                              <CollapsibleTrigger asChild>
-                                <div className="flex items-center justify-between p-4 bg-black-50 hover:bg-black-100 cursor-pointer">
-                                  <div className="flex items-center gap-3">
-                                    <div className={`transition-transform ${expandedReject.has(record.id) ? 'rotate-180' : ''}`}>
-                                      <ChevronDown className="w-4 h-4" />
+                                
+                                {selectedQC && (
+                                  <div>
+                                    <div className="text-sm text-gray-500 mb-2">QC Results</div>
+                                    <div className="flex gap-3">
+                                      {selectedQC.fuerte_overall > 0 && (
+                                        <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                                          Fuerte: {selectedQC.fuerte_overall}%
+                                        </Badge>
+                                      )}
+                                      {selectedQC.hass_overall > 0 && (
+                                        <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                                          Hass: {selectedQC.hass_overall}%
+                                        </Badge>
+                                      )}
                                     </div>
-                                    <div>
-                                      <div className="font-semibold">{record.supplier_name}</div>
-                                      <div className="text-sm text-gray-500 flex items-center gap-4">
-                                        <span>Pallet: {record.pallet_id}</span>
-                                        <span>Intake: {record.total_weight} kg</span>
-                                        <span>{formatDate(record.submitted_at)}</span>
+                                  </div>
+                                )}
+                                
+                                <div className="pt-4 border-t">
+                                  <Label htmlFor="supplier_phone" className="mb-2">Supplier Phone Number</Label>
+                                  <Input
+                                    id="supplier_phone"
+                                    value={countingForm.supplier_phone}
+                                    onChange={(e) => handleInputChange('supplier_phone', e.target.value)}
+                                    placeholder="Enter supplier phone number"
+                                  />
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="text-center py-8">
+                                <Calculator className="w-12 h-12 mx-auto text-gray-300 mb-3" />
+                                <p className="text-gray-500 font-medium">No supplier selected</p>
+                                <p className="text-sm text-gray-400 mt-1">
+                                  Select a QC-approved supplier from the Quality Control tab to begin counting
+                                </p>
+                              </div>
+                            )}
+                          </CardContent>
+                        </Card>
+
+                        <Card className="h-full">
+                          <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                              <FileText className="w-5 h-5" />
+                              Box Counting Form
+                            </CardTitle>
+                            <CardDescription>
+                              Enter number of boxes per size and class. Class 1 (4kg) is default.
+                            </CardDescription>
+                          </CardHeader>
+                          <CardContent>
+                            <form onSubmit={handleSubmitCountingForm} className="space-y-6">
+                              <ScrollArea className="h-[500px] pr-4">
+                                {/* Fuerte Section */}
+                                <div className="mb-6">
+                                  <h3 className="font-semibold text-lg mb-4 text-green-700 border-b pb-2">Fuerte Avocado</h3>
+                                  
+                                  {/* Fuerte 4kg Class 1 - DEFAULT VISIBLE */}
+                                  <div className="mb-6">
+                                    <div className="flex items-center justify-between mb-3">
+                                      <h4 className="font-medium text-green-600">4kg Boxes - Class 1</h4>
+                                      <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                                        Default
+                                      </Badge>
+                                    </div>
+                                    {renderSizeGrid('fuerte', '4kg', 'class1')}
+                                    <div className="text-right text-sm mt-2">
+                                      <span className="font-medium">Sub-Total: </span>
+                                      <span className="font-bold text-green-700">{calculateSubtotal('fuerte', 'class1', '4kg')} boxes</span>
+                                    </div>
+                                  </div>
+
+                                  {/* Fuerte 4kg Class 2 - COLLAPSIBLE */}
+                                  {renderCollapsibleSection(
+                                    "Fuerte 4kg Boxes - Class 2",
+                                    expandedFuerteClass2,
+                                    () => setExpandedFuerteClass2(!expandedFuerteClass2),
+                                    <>
+                                      {renderSizeGrid('fuerte', '4kg', 'class2')}
+                                      <div className="text-right text-sm mt-2">
+                                        <span className="font-medium">Sub-Total: </span>
+                                        <span className="font-bold text-green-700">{calculateSubtotal('fuerte', 'class2', '4kg')} boxes</span>
                                       </div>
+                                    </>,
+                                    "Secondary quality boxes"
+                                  )}
+
+                                  {/* Fuerte 10kg - COLLAPSIBLE */}
+                                  {renderCollapsibleSection(
+                                    "Fuerte 10kg Crates",
+                                    expandedFuerte10kg,
+                                    () => setExpandedFuerte10kg(!expandedFuerte10kg),
+                                    <>
+                                      {/* Fuerte 10kg Class 1 */}
+                                      <div className="mb-4">
+                                        <h5 className="font-medium mb-2">Class 1</h5>
+                                        {renderSizeGrid('fuerte', '10kg', 'class1')}
+                                        <div className="text-right text-sm mt-2">
+                                          <span className="font-medium">Sub-Total: </span>
+                                          <span className="font-bold text-green-700">{calculateSubtotal('fuerte', 'class1', '10kg')} crates</span>
+                                        </div>
+                                      </div>
+                                      
+                                      {/* Fuerte 10kg Class 2 */}
+                                      <div className="mb-4">
+                                        <h5 className="font-medium mb-2">Class 2</h5>
+                                        {renderSizeGrid('fuerte', '10kg', 'class2')}
+                                        <div className="text-right text-sm mt-2">
+                                          <span className="font-medium">Sub-Total: </span>
+                                          <span className="font-bold text-green-700">{calculateSubtotal('fuerte', 'class2', '10kg')} crates</span>
+                                        </div>
+                                      </div>
+                                    </>,
+                                    "Large crates (Class 1 & Class 2)"
+                                  )}
+
+                                  {/* Fuerte Total Summary */}
+                                  <div className="mt-6 p-4 bg-green-50 rounded-lg border border-green-200">
+                                    <div className="flex justify-between items-center">
+                                      <span className="font-semibold text-green-800">Fuerte Total 4kg:</span>
+                                      <span className="font-bold text-lg text-green-900">{calculateTotalBoxes('fuerte', '4kg')} boxes</span>
+                                    </div>
+                                    {calculateTotalBoxes('fuerte', '10kg') > 0 && (
+                                      <div className="flex justify-between items-center mt-2">
+                                        <span className="font-semibold text-green-800">Fuerte Total 10kg:</span>
+                                        <span className="font-bold text-lg text-green-900">{calculateTotalBoxes('fuerte', '10kg')} crates</span>
+                                      </div>
+                                    )}
+                                    <div className="flex justify-between items-center mt-2 pt-2 border-t border-green-300">
+                                      <span className="font-bold text-green-900">Fuerte Total All:</span>
+                                      <span className="font-bold text-xl text-green-900">
+                                        {calculateTotalBoxes('fuerte', '4kg') + calculateTotalBoxes('fuerte', '10kg')} boxes/crates
+                                      </span>
                                     </div>
                                   </div>
-                                  <div className="flex items-center gap-2">
-                                    <Button
-                                      size="sm"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleSelectForRejection(record);
-                                      }}
-                                      className="bg-orange-600 hover:bg-orange-700"
-                                    >
-                                      Handle Variance
-                                    </Button>
-                                    <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
-                                      Needs Handling
-                                    </Badge>
+                                </div>
+
+                                {/* Hass Section */}
+                                <div className="mb-6">
+                                  <h3 className="font-semibold text-lg mb-4 text-purple-700 border-b pb-2">Hass Avocado</h3>
+                                  
+                                  {/* Hass 4kg Class 1 - DEFAULT VISIBLE */}
+                                  <div className="mb-6">
+                                    <div className="flex items-center justify-between mb-3">
+                                      <h4 className="font-medium text-purple-600">4kg Boxes - Class 1</h4>
+                                      <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200">
+                                        Default
+                                      </Badge>
+                                    </div>
+                                    {renderSizeGrid('hass', '4kg', 'class1')}
+                                    <div className="text-right text-sm mt-2">
+                                      <span className="font-medium">Sub-Total: </span>
+                                      <span className="font-bold text-purple-700">{calculateSubtotal('hass', 'class1', '4kg')} boxes</span>
+                                    </div>
+                                  </div>
+
+                                  {/* Hass 4kg Class 2 - COLLAPSIBLE */}
+                                  {renderCollapsibleSection(
+                                    "Hass 4kg Boxes - Class 2",
+                                    expandedHassClass2,
+                                    () => setExpandedHassClass2(!expandedHassClass2),
+                                    <>
+                                      {renderSizeGrid('hass', '4kg', 'class2')}
+                                      <div className="text-right text-sm mt-2">
+                                        <span className="font-medium">Sub-Total: </span>
+                                        <span className="font-bold text-purple-700">{calculateSubtotal('hass', 'class2', '4kg')} boxes</span>
+                                      </div>
+                                    </>,
+                                    "Secondary quality boxes"
+                                  )}
+
+                                  {/* Hass 10kg - COLLAPSIBLE */}
+                                  {renderCollapsibleSection(
+                                    "Hass 10kg Crates",
+                                    expandedHass10kg,
+                                    () => setExpandedHass10kg(!expandedHass10kg),
+                                    <>
+                                      {/* Hass 10kg Class 1 */}
+                                      <div className="mb-4">
+                                        <h5 className="font-medium mb-2">Class 1</h5>
+                                        {renderSizeGrid('hass', '10kg', 'class1')}
+                                        <div className="text-right text-sm mt-2">
+                                          <span className="font-medium">Sub-Total: </span>
+                                          <span className="font-bold text-purple-700">{calculateSubtotal('hass', 'class1', '10kg')} crates</span>
+                                        </div>
+                                      </div>
+                                      
+                                      {/* Hass 10kg Class 2 */}
+                                      <div className="mb-4">
+                                        <h5 className="font-medium mb-2">Class 2</h5>
+                                        {renderSizeGrid('hass', '10kg', 'class2')}
+                                        <div className="text-right text-sm mt-2">
+                                          <span className="font-medium">Sub-Total: </span>
+                                          <span className="font-bold text-purple-700">{calculateSubtotal('hass', 'class2', '10kg')} crates</span>
+                                        </div>
+                                      </div>
+                                    </>,
+                                    "Large crates (Class 1 & Class 2)"
+                                  )}
+
+                                  {/* Hass Total Summary */}
+                                  <div className="mt-6 p-4 bg-purple-50 rounded-lg border border-purple-200">
+                                    <div className="flex justify-between items-center">
+                                      <span className="font-semibold text-purple-800">Hass Total 4kg:</span>
+                                      <span className="font-bold text-lg text-purple-900">{calculateTotalBoxes('hass', '4kg')} boxes</span>
+                                    </div>
+                                    {calculateTotalBoxes('hass', '10kg') > 0 && (
+                                      <div className="flex justify-between items-center mt-2">
+                                        <span className="font-semibold text-purple-800">Hass Total 10kg:</span>
+                                        <span className="font-bold text-lg text-purple-900">{calculateTotalBoxes('hass', '10kg')} crates</span>
+                                      </div>
+                                    )}
+                                    <div className="flex justify-between items-center mt-2 pt-2 border-t border-purple-300">
+                                      <span className="font-bold text-purple-900">Hass Total All:</span>
+                                      <span className="font-bold text-xl text-purple-900">
+                                        {calculateTotalBoxes('hass', '4kg') + calculateTotalBoxes('hass', '10kg')} boxes/crates
+                                      </span>
+                                    </div>
                                   </div>
                                 </div>
-                              </CollapsibleTrigger>
-                              <CollapsibleContent className="p-4 bg-black border-t">
-                                <div className="space-y-4">
+
+                                {/* Overall Summary */}
+                                <div className="mt-8 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                                  <h4 className="font-semibold text-blue-800 mb-3">Overall Summary</h4>
                                   <div className="grid grid-cols-2 gap-4 text-sm">
                                     <div>
-                                      <div className="text-gray-500">Supplier</div>
-                                      <div className="font-semibold">{record.supplier_name}</div>
-                                    </div>
-                                    <div>
-                                      <div className="text-gray-500">Region</div>
-                                      <div className="font-medium">{record.region}</div>
-                                    </div>
-                                    <div>
-                                      <div className="text-gray-500">Intake Weight</div>
-                                      <div className="font-bold">{record.total_weight} kg</div>
-                                    </div>
-                                    <div>
-                                      <div className="text-gray-500">Counted Weight</div>
-                                      <div className="font-bold">
-                                        {Number(record.total_counted_weight || 0).toFixed(1)} kg
+                                      <div className="text-blue-600">Fuerte Total Boxes:</div>
+                                      <div className="font-bold text-blue-800">
+                                        {calculateTotalBoxes('fuerte', '4kg') + calculateTotalBoxes('fuerte', '10kg')}
                                       </div>
+                                    </div>
+                                    <div>
+                                      <div className="text-purple-600">Hass Total Boxes:</div>
+                                      <div className="font-bold text-purple-800">
+                                        {calculateTotalBoxes('hass', '4kg') + calculateTotalBoxes('hass', '10kg')}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="mt-3 pt-3 border-t border-blue-300">
+                                    <div className="flex justify-between items-center">
+                                      <span className="font-bold text-blue-900">Total All Boxes/Crates:</span>
+                                      <span className="font-bold text-2xl text-blue-900">
+                                        {calculateTotalBoxes('fuerte', '4kg') + calculateTotalBoxes('fuerte', '10kg') + 
+                                         calculateTotalBoxes('hass', '4kg') + calculateTotalBoxes('hass', '10kg')}
+                                      </span>
+                                    </div>
+                                    <div className="text-right text-xs text-blue-600 mt-1">
+                                      Estimated Weight: {(calculateTotalBoxes('fuerte', '4kg') + calculateTotalBoxes('hass', '4kg')) * 4 + 
+                                                      (calculateTotalBoxes('fuerte', '10kg') + calculateTotalBoxes('hass', '10kg')) * 10} kg
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Notes */}
+                                <div className="mt-6">
+                                  <Label htmlFor="notes" className="mb-2">Notes</Label>
+                                  <Input
+                                    id="notes"
+                                    value={countingForm.notes}
+                                    onChange={(e) => handleInputChange('notes', e.target.value)}
+                                    placeholder="Additional notes (optional)"
+                                  />
+                                </div>
+                              </ScrollArea>
+
+                              <div className="pt-4 border-t">
+                                <Button
+                                  type="submit"
+                                  disabled={!selectedSupplier}
+                                  className="w-full bg-green-600 hover:bg-green-700"
+                                  size="lg"
+                                >
+                                  <CheckCircle className="w-4 h-4 mr-2" />
+                                  Save Counting Data & Proceed to Variance
+                                </Button>
+                              </div>
+                            </form>
+                          </CardContent>
+                        </Card>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-6">
+                      {/* Variance Handling Section */}
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <Card>
+                          <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                              <AlertOctagon className="w-5 h-5" />
+                              Pending Variance Handling
+                            </CardTitle>
+                            <CardDescription>
+                              {countingRecords.length} supplier(s) need variance handling
+                            </CardDescription>
+                          </CardHeader>
+                          <CardContent>
+                            <ScrollArea className="h-[400px] pr-4">
+                              {isLoading.rejections ? (
+                                <div className="flex flex-col items-center justify-center py-12">
+                                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-4"></div>
+                                  <p className="text-muted-foreground">Loading pending variance...</p>
+                                </div>
+                              ) : countingRecords.length === 0 ? (
+                                <div className="text-center py-8">
+                                  <Check className="w-12 h-12 mx-auto text-gray-300 mb-3" />
+                                  <p className="text-gray-500 font-medium">No pending variance handling</p>
+                                  <p className="text-sm text-gray-400 mt-1">
+                                    All counted suppliers have been processed
+                                  </p>
+                                </div>
+                              ) : (
+                                <div className="space-y-3">
+                                  {countingRecords.map((record) => (
+                                    <Collapsible
+                                      key={record.id}
+                                      open={expandedReject.has(record.id)}
+                                      onOpenChange={() => toggleRejectExpansion(record.id)}
+                                      className="border rounded-lg overflow-hidden"
+                                    >
+                                      <CollapsibleTrigger asChild>
+                                        <div className="flex items-center justify-between p-4 bg-black-50 hover:bg-black-100 cursor-pointer">
+                                          <div className="flex items-center gap-3">
+                                            <div className={`transition-transform ${expandedReject.has(record.id) ? 'rotate-180' : ''}`}>
+                                              <ChevronDown className="w-4 h-4" />
+                                            </div>
+                                            <div>
+                                              <div className="font-semibold">{record.supplier_name}</div>
+                                              <div className="text-sm text-gray-500 flex items-center gap-4">
+                                                <span>Pallet: {record.pallet_id}</span>
+                                                <span>Intake: {record.total_weight} kg</span>
+                                                <span>Counted: {Number(record.total_counted_weight || 0).toFixed(1)} kg</span>
+                                              </div>
+                                            </div>
+                                          </div>
+                                          <div className="flex items-center gap-2">
+                                            <Button
+                                              size="sm"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleSelectForRejection(record);
+                                              }}
+                                              className="bg-orange-600 hover:bg-orange-700"
+                                            >
+                                              Handle Variance
+                                            </Button>
+                                            <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
+                                              Needs Handling
+                                            </Badge>
+                                          </div>
+                                        </div>
+                                      </CollapsibleTrigger>
+                                      <CollapsibleContent className="p-4 bg-black border-t">
+                                        <div className="space-y-4">
+                                          <div className="grid grid-cols-2 gap-4 text-sm">
+                                            <div>
+                                              <div className="text-gray-500">Supplier</div>
+                                              <div className="font-semibold">{record.supplier_name}</div>
+                                            </div>
+                                            <div>
+                                              <div className="text-gray-500">Region</div>
+                                              <div className="font-medium">{record.region}</div>
+                                            </div>
+                                            <div>
+                                              <div className="text-gray-500">Intake Weight</div>
+                                              <div className="font-bold">{record.total_weight} kg</div>
+                                            </div>
+                                            <div>
+                                              <div className="text-gray-500">Counted Weight</div>
+                                              <div className="font-bold">
+                                                {Number(record.total_counted_weight || 0).toFixed(1)} kg
+                                              </div>
+                                            </div>
+                                          </div>
+                                          
+                                          <div className="bg-black-50 p-3 rounded border">
+                                            <div className="font-medium mb-2">Counted Boxes Summary</div>
+                                            <div className="grid grid-cols-2 gap-2 text-sm">
+                                              <div>
+                                                <span className="text-gray-500">Fuerte 4kg:</span>
+                                                <span className="font-semibold ml-2">{record.totals?.fuerte_4kg_total || 0}</span>
+                                              </div>
+                                              <div>
+                                                <span className="text-gray-500">Fuerte 10kg:</span>
+                                                <span className="font-semibold ml-2">{record.totals?.fuerte_10kg_total || 0}</span>
+                                              </div>
+                                              <div>
+                                                <span className="text-gray-500">Hass 4kg:</span>
+                                                <span className="font-semibold ml-2">{record.totals?.hass_4kg_total || 0}</span>
+                                              </div>
+                                              <div>
+                                                <span className="text-gray-500">Hass 10kg:</span>
+                                                <span className="font-semibold ml-2">{record.totals?.hass_10kg_total || 0}</span>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </CollapsibleContent>
+                                    </Collapsible>
+                                  ))}
+                                </div>
+                              )}
+                            </ScrollArea>
+                          </CardContent>
+                        </Card>
+                        
+                        <Card>
+                          <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                              <AlertTriangle className="w-5 h-5" />
+                              Record Rejected Crates
+                            </CardTitle>
+                            <CardDescription>
+                              Add rejected crates and calculate weight variance
+                            </CardDescription>
+                          </CardHeader>
+                          <CardContent>
+                            {rejectionForm.countingRecord ? (
+                              <div className="space-y-4">
+                                <div className="bg-black-50 p-4 rounded border">
+                                  <div className="font-medium">Selected Supplier</div>
+                                  <div className="text-lg font-semibold mt-1">{rejectionForm.countingRecord.supplier_name}</div>
+                                  <div className="text-sm text-gray-600">
+                                    Pallet: {rejectionForm.countingRecord.pallet_id} | 
+                                    Intake: {rejectionForm.countingRecord.total_weight} kg | 
+                                    Counted: {Number(rejectionForm.countingRecord.total_counted_weight || 0).toFixed(1)} kg
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <div className="flex justify-between items-center mb-3">
+                                    <Label>Add Rejected Crates</Label>
+                                    <div className="flex gap-2">
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        onClick={() => handleAddRejectedCrate('fuerte_4kg')}
+                                        className="bg-green-600 hover:bg-green-700"
+                                      >
+                                        + Fuerte 4kg
+                                      </Button>
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        onClick={() => handleAddRejectedCrate('hass_4kg')}
+                                        className="bg-purple-600 hover:bg-purple-700"
+                                      >
+                                        + Hass 4kg
+                                      </Button>
                                     </div>
                                   </div>
                                   
-                                  <div className="bg-black-50 p-3 rounded border">
-                                    <div className="font-medium mb-2">Counted Boxes Summary</div>
-                                    <div className="grid grid-cols-2 gap-2 text-sm">
-                                      <div>
-                                        <span className="text-gray-500">Fuerte 4kg:</span>
-                                        <span className="font-semibold ml-2">{record.totals?.fuerte_4kg_total || 0}</span>
-                                      </div>
-                                      <div>
-                                        <span className="text-gray-500">Fuerte 10kg:</span>
-                                        <span className="font-semibold ml-2">{record.totals?.fuerte_10kg_total || 0}</span>
-                                      </div>
-                                      <div>
-                                        <span className="text-gray-500">Hass 4kg:</span>
-                                        <span className="font-semibold ml-2">{record.totals?.hass_4kg_total || 0}</span>
-                                      </div>
-                                      <div>
-                                        <span className="text-gray-500">Hass 10kg:</span>
-                                        <span className="font-semibold ml-2">{record.totals?.hass_10kg_total || 0}</span>
-                                      </div>
+                                  {rejectionForm.crates.length === 0 ? (
+                                    <div className="text-center py-6 border rounded">
+                                      <p className="text-gray-500">No rejected crates added yet</p>
+                                      <p className="text-sm text-gray-400 mt-1">
+                                        Click the buttons above to add rejected crates
+                                      </p>
                                     </div>
-                                  </div>
+                                  ) : (
+                                    <div className="space-y-3">
+                                      {safeArray(rejectionForm.crates).map((crate, index) => (
+                                        <div key={crate.id} className="border rounded p-3 bg-black">
+                                          <div className="flex justify-between items-start mb-3">
+                                            <div className="font-medium">
+                                              {crate.box_type.replace('_', ' ').toUpperCase()}
+                                            </div>
+                                            <Button
+                                              type="button"
+                                              variant="ghost"
+                                              size="sm"
+                                              onClick={() => handleRemoveRejectedCrate(index)}
+                                              className="h-6 w-6 p-0"
+                                            >
+                                              <X className="w-4 h-4" />
+                                            </Button>
+                                          </div>
+                                          <div className="grid grid-cols-2 gap-3">
+                                            <div>
+                                              <Label htmlFor={`quantity-${index}`} className="text-xs">Quantity</Label>
+                                              <Input
+                                                id={`quantity-${index}`}
+                                                type="number"
+                                                min="0"
+                                                value={crate.quantity}
+                                                onChange={(e) => handleUpdateRejectedCrate(index, 'quantity', e.target.value)}
+                                                className="h-8 text-sm"
+                                                placeholder="0"
+                                              />
+                                            </div>
+                                            <div>
+                                              <Label htmlFor={`weight-${index}`} className="text-xs">Weight per Crate (kg)</Label>
+                                              <div className="flex items-center gap-2">
+                                                <Input
+                                                  id={`weight-${index}`}
+                                                  type="number"
+                                                  min="0"
+                                                  step="0.1"
+                                                  value={crate.weight_per_crate}
+                                                  onChange={(e) => handleUpdateRejectedCrate(index, 'weight_per_crate', e.target.value)}
+                                                  className="h-8 text-sm"
+                                                  placeholder={crate.box_type.includes('4kg') ? '4' : '10'}
+                                                />
+                                                <span className="text-sm text-gray-500">kg</span>
+                                              </div>
+                                            </div>
+                                          </div>
+                                          <div className="mt-3 pt-3 border-t">
+                                            <div className="flex justify-between text-sm">
+                                              <span>Total Weight:</span>
+                                              <span className="font-semibold">
+                                                {crate.quantity} × {crate.weight_per_crate}kg = {safeToFixed(crate.total_weight)} kg
+                                              </span>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
                                 </div>
-                              </CollapsibleContent>
-                            </Collapsible>
-                          ))}
-                        </div>
-                      )}
-                    </ScrollArea>
-                  </CardContent>
-                </Card>
-                
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <XCircle className="w-5 h-5" />
-                      Record Rejected Crates
-                    </CardTitle>
-                    <CardDescription>
-                      Add rejected crates and calculate weight variance
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {rejectionForm.countingRecord ? (
-                      <div className="space-y-4">
-                        <div className="bg-black-50 p-4 rounded border">
-                          <div className="font-medium">Selected Supplier</div>
-                          <div className="text-lg font-semibold mt-1">{rejectionForm.countingRecord.supplier_name}</div>
-                          <div className="text-sm text-gray-600">
-                            Pallet: {rejectionForm.countingRecord.pallet_id} | 
-                            Intake: {rejectionForm.countingRecord.total_weight} kg | 
-                            Counted: {Number(rejectionForm.countingRecord.total_counted_weight || 0).toFixed(1)} kg
-                          </div>
-                        </div>
 
-                        <div>
-                          <div className="flex justify-between items-center mb-3">
-                            <Label>Rejected Crates</Label>
-                            <Button
-                              type="button"
-                              size="sm"
-                              onClick={handleAddRejectedCrate}
-                              className="bg-gray-600 hover:bg-gray-700"
-                            >
-                              Add Crate
-                            </Button>
-                          </div>
-                          
-                          {rejectionForm.crates.length === 0 ? (
-                            <div className="text-center py-6 border rounded">
-                              <p className="text-gray-500">No rejected crates added yet</p>
-                              <p className="text-sm text-gray-400 mt-1">
-                                Click "Add Crate" to start recording rejected crates
-                              </p>
-                            </div>
-                          ) : (
-                            <div className="space-y-3">
-                              {safeArray(rejectionForm.crates).map((crate, index) => (
-                                <div key={crate.id} className="border rounded p-3 bg-black">
-                                  <div className="flex justify-between items-start mb-3">
-                                    <div className="font-medium">Crate #{index + 1}</div>
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => handleRemoveRejectedCrate(index)}
-                                      className="h-6 w-6 p-0"
-                                    >
-                                      <X className="w-4 h-4" />
-                                    </Button>
-                                  </div>
-                                  <div className="grid grid-cols-2 gap-3">
-                                    <div>
-                                      <Label htmlFor={`box-type-${index}`} className="text-xs">Box Type</Label>
-                                      <select
-                                        id={`box-type-${index}`}
-                                        value={crate.box_type}
-                                        onChange={(e) => handleUpdateRejectedCrate(index, 'box_type', e.target.value)}
-                                        className="w-full border rounded px-2 py-1 text-sm bg-black"
-                                      >
-                                        <option value="fuerte_4kg">Fuerte 4kg</option>
-                                        <option value="fuerte_10kg">Fuerte 10kg</option>
-                                        <option value="hass_4kg">Hass 4kg</option>
-                                        <option value="hass_10kg">Hass 10kg</option>
-                                      </select>
-                                    </div>
-                                    <div>
-                                      <Label htmlFor={`class-type-${index}`} className="text-xs">Class</Label>
-                                      <select
-                                        id={`class-type-${index}`}
-                                        value={crate.class_type}
-                                        onChange={(e) => handleUpdateRejectedCrate(index, 'class_type', e.target.value)}
-                                        className="w-full border rounded px-2 py-1 text-sm bg-black"
-                                      >
-                                        <option value="class1">Class 1</option>
-                                        <option value="class2">Class 2</option>
-                                      </select>
-                                    </div>
-                                    <div>
-                                      <Label htmlFor={`quantity-${index}`} className="text-xs">Quantity</Label>
-                                      <Input
-                                        id={`quantity-${index}`}
-                                        type="number"
-                                        min="0"
-                                        value={crate.quantity}
-                                        onChange={(e) => handleUpdateRejectedCrate(index, 'quantity', e.target.value)}
-                                        className="h-8 text-sm"
-                                      />
-                                    </div>
-                                    <div>
-                                      <Label htmlFor={`weight-${index}`} className="text-xs">Weight/Crate (kg)</Label>
-                                      <Input
-                                        id={`weight-${index}`}
-                                        type="number"
-                                        min="0"
-                                        step="0.1"
-                                        value={crate.weight_per_crate}
-                                        onChange={(e) => handleUpdateRejectedCrate(index, 'weight_per_crate', e.target.value)}
-                                        className="h-8 text-sm"
-                                      />
-                                    </div>
-                                  </div>
-                                  <div className="mt-3 pt-3 border-t">
-                                    <div className="flex justify-between text-sm">
-                                      <span>Total Weight:</span>
-                                      <span className="font-semibold">{safeToFixed(crate.total_weight)} kg</span>
-                                    </div>
-                                  </div>
+                                <div>
+                                  <Label htmlFor="reject-notes" className="mb-2">Rejection Notes</Label>
+                                  <Input
+                                    id="reject-notes"
+                                    value={rejectionForm.notes}
+                                    onChange={(e) => setRejectionForm(prev => ({ ...prev, notes: e.target.value }))}
+                                    placeholder="Reason for rejection, observations, etc."
+                                  />
                                 </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
 
-                        <div>
-                          <Label htmlFor="reject-notes" className="mb-2">Rejection Notes</Label>
-                          <Input
-                            id="reject-notes"
-                            value={rejectionForm.notes}
-                            onChange={(e) => setRejectionForm(prev => ({ ...prev, notes: e.target.value }))}
-                            placeholder="Reason for rejection, observations, etc."
-                          />
-                        </div>
+                                {rejectionForm.crates.length > 0 && (
+                                  <div className="bg-black-50 p-4 rounded border">
+                                    <div className="font-medium mb-2">Weight Variance Summary</div>
+                                    <div className="space-y-2 text-sm">
+                                      <div className="flex justify-between">
+                                        <span>Total Intake Weight:</span>
+                                        <span className="font-semibold">
+                                          {rejectionForm.countingRecord.total_weight} kg
+                                        </span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span>Total Counted Weight:</span>
+                                        <span className="font-semibold">
+                                          {Number(rejectionForm.countingRecord.total_counted_weight || 0).toFixed(1)} kg
+                                        </span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span>Total Rejected Weight:</span>
+                                        <span className="font-semibold">
+                                          {safeToFixed(rejectionForm.crates.reduce((sum, crate) => sum + crate.total_weight, 0))} kg
+                                        </span>
+                                      </div>
+                                      <div className="flex justify-between pt-2 border-t font-medium">
+                                        <span>Weight Variance:</span>
+                                        <span className={`font-bold ${
+                                          Math.abs(rejectionForm.countingRecord.total_weight - 
+                                            (Number(rejectionForm.countingRecord.total_counted_weight || 0) + 
+                                             rejectionForm.crates.reduce((sum, crate) => sum + crate.total_weight, 0))) >= 10 ? 
+                                            'text-red-600' : 'text-green-600'
+                                        }`}>
+                                          {safeToFixed(
+                                            rejectionForm.countingRecord.total_weight - 
+                                            (Number(rejectionForm.countingRecord.total_counted_weight || 0) + 
+                                            rejectionForm.crates.reduce((sum, crate) => sum + crate.total_weight, 0))
+                                          )} kg
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
 
-                        {rejectionForm.crates.length > 0 && (
-                          <div className="bg-black-50 p-4 rounded border">
-                            <div className="font-medium mb-2">Weight Variance Summary</div>
-                            <div className="space-y-2 text-sm">
-                              <div className="flex justify-between">
-                                <span>Total Counted Weight:</span>
-                                <span className="font-semibold">
-                                  {Number(rejectionForm.countingRecord.total_counted_weight || 0).toFixed(1)} kg
-                                </span>
+                                <div className="flex gap-3 pt-4">
+                                  <Button
+                                    type="button"
+                                    onClick={() => setCountingStep('form')}
+                                    variant="outline"
+                                    className="flex-1"
+                                  >
+                                    <ChevronLeft className="w-4 h-4 mr-2" />
+                                    Back to Counting
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    onClick={handleSubmitRejection}
+                                    className="flex-1 bg-red-600 hover:bg-red-700"
+                                    size="lg"
+                                  >
+                                    <XCircle className="w-4 h-4 mr-2" />
+                                    Submit Variance Data
+                                  </Button>
+                                </div>
                               </div>
-                              <div className="flex justify-between">
-                                <span>Total Rejected Weight:</span>
-                                <span className="font-semibold">
-                                  {safeToFixed(rejectionForm.crates.reduce((sum, crate) => sum + crate.total_weight, 0))} kg
-                                </span>
+                            ) : (
+                              <div className="text-center py-8">
+                                <AlertTriangle className="w-12 h-12 mx-auto text-gray-300 mb-3" />
+                                <p className="text-gray-500 font-medium">No record selected</p>
+                                <p className="text-sm text-gray-400 mt-1">
+                                  Select a counting record from the left panel or complete a counting form to proceed
+                                </p>
+                                <Button
+                                  onClick={() => setCountingStep('form')}
+                                  variant="outline"
+                                  className="mt-4"
+                                >
+                                  <ChevronLeft className="w-4 h-4 mr-2" />
+                                  Go to Counting Form
+                                </Button>
                               </div>
-                              <div className="flex justify-between">
-                                <span>Total Intake Weight:</span>
-                                <span className="font-semibold">
-                                  {rejectionForm.countingRecord.total_weight} kg
-                                </span>
-                              </div>
-                              <div className="flex justify-between pt-2 border-t">
-                                <span className="font-medium">Weight Variance:</span>
-                                <span className={`font-bold ${
-                                  Math.abs(rejectionForm.countingRecord.total_weight - 
-                                    (Number(rejectionForm.countingRecord.total_counted_weight || 0) + 
-                                     rejectionForm.crates.reduce((sum, crate) => sum + crate.total_weight, 0))) >= 10 ? 
-                                    'text-red-600' : 'text-green-600'
-                                }`}>
-                                  {safeToFixed(
-                                    rejectionForm.countingRecord.total_weight - 
-                                    (Number(rejectionForm.countingRecord.total_counted_weight || 0) + 
-                                    rejectionForm.crates.reduce((sum, crate) => sum + crate.total_weight, 0))
-                                  )} kg
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-                        <Button
-                          type="button"
-                          onClick={handleSubmitRejection}
-                          className="w-full bg-red-600 hover:bg-red-700"
-                          size="lg"
-                        >
-                          <XCircle className="w-4 h-4 mr-2" />
-                          Submit Variance Data
-                        </Button>
+                            )}
+                          </CardContent>
+                        </Card>
                       </div>
-                    ) : (
-                      <div className="text-center py-8">
-                        <AlertTriangle className="w-12 h-12 mx-auto text-gray-300 mb-3" />
-                        <p className="text-gray-500 font-medium">No record selected</p>
-                        <p className="text-sm text-gray-400 mt-1">
-                          Select a counting record from the left panel to record rejected crates
-                        </p>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             </TabsContent>
 
             <TabsContent value="history" className="space-y-6">
@@ -2387,7 +2355,6 @@ export default function WarehousePage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-
                   <div className="space-y-4 mb-6">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div className="space-y-2">
@@ -2601,64 +2568,18 @@ export default function WarehousePage() {
                                     </div>
                                   </div>
 
-                                  <div>
-                                    <div className="text-gray-500 mb-2">Detailed Box Counts</div>
-                                    <div className="bg-black-50 p-3 rounded border">
-                                      <div className="grid grid-cols-4 gap-2 text-sm mb-2 font-medium">
-                                        <div>Type</div>
-                                        <div>Class 1</div>
-                                        <div>Class 2</div>
-                                        <div>Total</div>
-                                      </div>
-                                      {boxesSummary.fuerte_4kg > 0 && (
-                                        <div className="grid grid-cols-4 gap-2 text-sm py-1 border-t">
-                                          <div className="font-medium">Fuerte 4kg</div>
-                                          <div>{parseCountingTotals(record.counting_totals).fuerte_4kg_class1 || 0}</div>
-                                          <div>{parseCountingTotals(record.counting_totals).fuerte_4kg_class2 || 0}</div>
-                                          <div className="font-bold">{boxesSummary.fuerte_4kg}</div>
-                                        </div>
-                                      )}
-                                      {boxesSummary.fuerte_10kg > 0 && (
-                                        <div className="grid grid-cols-4 gap-2 text-sm py-1 border-t">
-                                          <div className="font-medium">Fuerte 10kg</div>
-                                          <div>{parseCountingTotals(record.counting_totals).fuerte_10kg_class1 || 0}</div>
-                                          <div>{parseCountingTotals(record.counting_totals).fuerte_10kg_class2 || 0}</div>
-                                          <div className="font-bold">{boxesSummary.fuerte_10kg}</div>
-                                        </div>
-                                      )}
-                                      {boxesSummary.hass_4kg > 0 && (
-                                        <div className="grid grid-cols-4 gap-2 text-sm py-1 border-t">
-                                          <div className="font-medium">Hass 4kg</div>
-                                          <div>{parseCountingTotals(record.counting_totals).hass_4kg_class1 || 0}</div>
-                                          <div>{parseCountingTotals(record.counting_totals).hass_4kg_class2 || 0}</div>
-                                          <div className="font-bold">{boxesSummary.hass_4kg}</div>
-                                        </div>
-                                      )}
-                                      {boxesSummary.hass_10kg > 0 && (
-                                        <div className="grid grid-cols-4 gap-2 text-sm py-1 border-t">
-                                          <div className="font-medium">Hass 10kg</div>
-                                          <div>{parseCountingTotals(record.counting_totals).hass_10kg_class1 || 0}</div>
-                                          <div>{parseCountingTotals(record.counting_totals).hass_10kg_class2 || 0}</div>
-                                          <div className="font-bold">{boxesSummary.hass_10kg}</div>
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-
                                   {safeArray(record.crates).length > 0 && (
                                     <div>
                                       <div className="text-gray-500 mb-2">Rejected Crates</div>
                                       <div className="bg-black-50 p-3 rounded border">
-                                        <div className="grid grid-cols-4 gap-2 text-sm mb-2 font-medium">
+                                        <div className="grid grid-cols-3 gap-2 text-sm mb-2 font-medium">
                                           <div>Type</div>
-                                          <div>Class</div>
                                           <div>Quantity</div>
                                           <div>Total Weight</div>
                                         </div>
                                         {safeArray(record.crates).map((crate, idx) => (
-                                          <div key={idx} className="grid grid-cols-4 gap-2 text-sm py-1 border-t">
-                                            <div>{crate.box_type.replace('_', ' ')}</div>
-                                            <div>{crate.class_type}</div>
+                                          <div key={idx} className="grid grid-cols-3 gap-2 text-sm py-1 border-t">
+                                            <div>{crate.box_type.replace('_', ' ').toUpperCase()}</div>
                                             <div>{crate.quantity}</div>
                                             <div>{safeToFixed(crate.total_weight)} kg</div>
                                           </div>
