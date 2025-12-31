@@ -407,10 +407,12 @@ model RejectionRecord {
   submitted_at          DateTime @default(now())
   processed_by          String
   original_counting_id  String?
+  status                String?  @default("pending_coldroom")  // NEW FIELD
 
   @@index([supplier_name])
   @@index([pallet_id])
   @@index([submitted_at])
+  @@index([status])  // NEW INDEX
   @@map("rejection_records")
 }
 
