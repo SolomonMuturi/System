@@ -115,24 +115,24 @@ export async function GET(request: NextRequest) {
     if (action === 'loading-history') {
       try {
         const history = await prisma.$queryRaw`
-          SELECT 
-            id,
-            box_id,
-            supplier_name,
-            pallet_id,
-            region,
-            variety,
-            box_type,
-            size,
-            grade,
-            quantity,
-            cold_room_id,
-            loaded_by,
-            loaded_at,
-            notes
-          FROM loading_history 
-          ORDER BY loaded_at DESC
-        `;
+      SELECT 
+        id,
+        box_id,
+        supplier_name,
+        pallet_id,
+        region,
+        variety,
+        box_type,
+        size,
+        grade,
+        quantity,
+        cold_room_id,
+        loaded_by,
+        loaded_at,
+        notes
+      FROM loading_history 
+      ORDER BY loaded_at DESC
+    `;
         
         console.log('📜 Retrieved loading history:', Array.isArray(history) ? history.length : 0);
         return NextResponse.json({ 
@@ -141,60 +141,6 @@ export async function GET(request: NextRequest) {
         });
       } catch (error) {
         console.error('Error fetching loading history:', error);
-        return NextResponse.json({ 
-          success: true, 
-          data: [] 
-        });
-      }
-    }
-
-    // NEW: Fetch rejection records for cold room (replaces old counting_records fetch)
-    if (action === 'coldroom-boxes') {
-      try {
-        console.log('📦 Getting rejection records for cold room...');
-        
-        const rejectionRecords = await prisma.$queryRaw`
-          SELECT * FROM rejection_records 
-          WHERE status = 'pending_coldroom'
-          ORDER BY submitted_at DESC
-          LIMIT 100
-        `;
-        
-        console.log(`✅ Found ${Array.isArray(rejectionRecords) ? rejectionRecords.length : 0} rejection records for cold room`);
-        
-        // Process the data
-        const processedRecords = Array.isArray(rejectionRecords) ? rejectionRecords.map((record: any) => {
-          // Parse counting_data and counting_totals
-          let countingData = record.counting_data;
-          let countingTotals = record.counting_totals;
-          
-          if (typeof countingData === 'string') {
-            try { countingData = JSON.parse(countingData); } catch (e) { countingData = {}; }
-          }
-          if (typeof countingTotals === 'string') {
-            try { countingTotals = JSON.parse(countingTotals); } catch (e) { countingTotals = {}; }
-          }
-          
-          // Parse crates if it's a string
-          let crates = record.crates;
-          if (typeof crates === 'string') {
-            try { crates = JSON.parse(crates); } catch (e) { crates = []; }
-          }
-          
-          return {
-            ...record,
-            counting_data: countingData,
-            counting_totals: countingTotals,
-            crates: crates
-          };
-        }) : [];
-        
-        return NextResponse.json({
-          success: true,
-          data: processedRecords || []
-        });
-      } catch (error) {
-        console.error('Error fetching rejection records for cold room:', error);
         return NextResponse.json({ 
           success: true, 
           data: [] 
@@ -409,7 +355,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST endpoint - UPDATED VERSION (now updates rejection_records status)
+// POST endpoint - UPDATED VERSION (with loading_history support)
 export async function POST(request: NextRequest) {
   try {
     const data = await request.json();
@@ -426,7 +372,7 @@ export async function POST(request: NextRequest) {
 
       const results = [];
       const errors = [];
-      const historyRecords = [];
+      const historyRecords = []; // NEW: Track history records
 
       console.log(`📤 Processing ${data.boxesData.length} boxes for cold room...`);
 
@@ -480,7 +426,7 @@ export async function POST(request: NextRequest) {
             )
           `;
 
-          // 2. SAVE TO LOADING_HISTORY (permanent record)
+          // 2. SAVE TO LOADING_HISTORY (permanent record) - NEW
           await prisma.$executeRaw`
             INSERT INTO loading_history (
               id,
@@ -548,18 +494,20 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // UPDATED: Update rejection records status to 'completed'
-      if (Array.isArray(data.rejectionRecordIds) && data.rejectionRecordIds.length > 0) {
-        for (const recordId of data.rejectionRecordIds) {
+      // Update counting records status if countingRecordIds provided
+      if (Array.isArray(data.countingRecordIds) && data.countingRecordIds.length > 0) {
+        for (const recordId of data.countingRecordIds) {
           try {
             await prisma.$executeRaw`
-              UPDATE rejection_records 
-              SET status = 'completed'
+              UPDATE counting_records 
+              SET status = 'completed',
+                  loaded_to_coldroom_at = NOW(),
+                  for_coldroom = false
               WHERE id = ${recordId}
             `;
-            console.log(`✅ Updated rejection record ${recordId} to completed`);
+            console.log(`✅ Updated counting record ${recordId} to completed`);
           } catch (updateError: any) {
-            console.error(`❌ Error updating rejection record ${recordId}:`, updateError);
+            console.error(`❌ Error updating counting record ${recordId}:`, updateError);
           }
         }
       }
@@ -620,7 +568,7 @@ export async function POST(request: NextRequest) {
         data: {
           loadedCount: results.length,
           results,
-          historyRecords,
+          historyRecords, // NEW: Return history records
           palletResults,
           errors: errors.length > 0 ? errors : undefined
         },
@@ -744,7 +692,7 @@ export async function POST(request: NextRequest) {
       });
 
     } else if (data.action === 'search-history') {
-      // Search loading history
+      // NEW: Search loading history
       try {
         let query = `
           SELECT 
