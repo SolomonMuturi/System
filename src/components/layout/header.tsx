@@ -23,7 +23,7 @@ export function Header() {
   const { data: session } = useSession();
   const router = useRouter();
   const logoutTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const INACTIVITY_TIMEOUT = 6 * 60 * 1000; // 10 minutes in milliseconds
+  const INACTIVITY_TIMEOUT = 5 * 60 * 1000; // 10 minutes in milliseconds
 
   // Get initials from name
   const getInitials = (name: string = '') => {
