@@ -364,7 +364,7 @@ export async function POST(request: NextRequest) {
 
     // Determine status: Use 'pending' for variance tab
     const status = 'pending';
-    const for_coldroom = data.for_coldroom !== undefined ? data.for_coldroom : true;
+    const for_coldroom = data.for_coldroom !== undefined ? data.for_coldroom : false;
     
     // Ensure counting_data includes fruits array
     const countingDataWithFruits = {
