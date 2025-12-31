@@ -377,7 +377,7 @@ model CountingRecord {
   notes                 String?
   for_coldroom          Boolean?        @default(false)
   loaded_to_coldroom_at DateTime?
-  status                String?         @default("pending_coldroom")
+  status                String?         @default("pending")  // CHANGED
   total_counted_weight  Float?
   totals                String?         @db.LongText
   weight_entry          weight_entries? @relation(fields: [supplier_id], references: [id], onDelete: Cascade)
@@ -407,12 +407,12 @@ model RejectionRecord {
   submitted_at          DateTime @default(now())
   processed_by          String
   original_counting_id  String?
-  status                String?  @default("pending_coldroom")  // NEW FIELD
+  status                String?  @default("pending_coldroom")  // NEW
 
   @@index([supplier_name])
   @@index([pallet_id])
   @@index([submitted_at])
-  @@index([status])  // NEW INDEX
+  @@index([status])  // NEW
   @@map("rejection_records")
 }
 
