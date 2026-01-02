@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Card,
   CardContent,
@@ -9,12 +9,11 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Zap, Droplet, Fuel, Save, Clock, Wifi, Building, Cpu, Snowflake, Activity, AlertCircle } from 'lucide-react';
+import { Zap, Droplet, Fuel, Save, Clock, Wifi, Building, Cpu, Snowflake, Activity, AlertCircle, Bell } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 interface UtilityMonitorsProps {
@@ -63,9 +62,156 @@ export function UtilityMonitors({ onSaveSuccess }: UtilityMonitorsProps) {
   // Notification States
   const [notificationTime, setNotificationTime] = useState('09:00');
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [hasNotificationPermission, setHasNotificationPermission] = useState(false);
+  const notificationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Fetch last readings on mount
+  // Check and request notification permission
+  const checkAndRequestNotificationPermission = async (): Promise<boolean> => {
+    if (!('Notification' in window)) {
+      toast({
+        title: 'Notifications not supported',
+        description: 'Your browser does not support desktop notifications.',
+        variant: 'destructive',
+      });
+      return false;
+    }
+
+    if (Notification.permission === 'granted') {
+      setHasNotificationPermission(true);
+      return true;
+    }
+
+    if (Notification.permission === 'denied') {
+      toast({
+        title: 'Notifications blocked',
+        description: 'Please enable notifications in your browser settings.',
+        variant: 'destructive',
+      });
+      setHasNotificationPermission(false);
+      return false;
+    }
+
+    try {
+      const permission = await Notification.requestPermission();
+      const granted = permission === 'granted';
+      setHasNotificationPermission(granted);
+      
+      if (granted) {
+        toast({
+          title: 'Notifications enabled',
+          description: 'You will receive daily reminders.',
+        });
+      } else {
+        toast({
+          title: 'Notifications not allowed',
+          description: 'You can enable them later in browser settings.',
+        });
+      }
+      return granted;
+    } catch (error) {
+      console.error('Error requesting notification permission:', error);
+      return false;
+    }
+  };
+
+  // Calculate milliseconds until notification time
+  const getTimeUntilNotification = (targetTime: string): number => {
+    const now = new Date();
+    const [hours, minutes] = targetTime.split(':').map(Number);
+    
+    const target = new Date();
+    target.setHours(hours, minutes, 0, 0);
+    
+    if (target <= now) {
+      target.setDate(target.getDate() + 1);
+    }
+    
+    return target.getTime() - now.getTime();
+  };
+
+  // Schedule daily notification
+  const scheduleDailyNotification = async (time: string) => {
+    if (notificationTimeoutRef.current) {
+      clearTimeout(notificationTimeoutRef.current);
+    }
+
+    const hasPermission = await checkAndRequestNotificationPermission();
+    if (!hasPermission) {
+      setNotificationsEnabled(false);
+      localStorage.setItem('notificationsEnabled', 'false');
+      return;
+    }
+
+    const timeUntilNotification = getTimeUntilNotification(time);
+    
+    console.log(`Scheduling notification in ${Math.round(timeUntilNotification / 60000)} minutes`);
+    
+    notificationTimeoutRef.current = setTimeout(() => {
+      showNotification();
+      
+      setTimeout(() => scheduleDailyNotification(time), 24 * 60 * 60 * 1000);
+    }, timeUntilNotification);
+  };
+
+  // Show the actual notification
+  const showNotification = () => {
+    if (!hasNotificationPermission) return;
+
+    const today = new Date().toISOString().split('T')[0];
+    const lastFilledDate = localStorage.getItem('lastFilledDate');
+    
+    let notificationBody = '⏰ Time to fill in today\'s utility readings!';
+    
+    if (lastFilledDate === today) {
+      notificationBody = '✅ Great! You\'ve already filled today\'s readings.';
+    }
+
+    const notification = new Notification('Utility Tracking Reminder', {
+      body: notificationBody,
+      icon: '/favicon.ico',
+      badge: '/favicon.ico',
+      tag: 'daily-utility-reminder',
+      requireInteraction: true,
+      silent: false,
+    });
+
+    notification.onclick = () => {
+      window.focus();
+      notification.close();
+    };
+  };
+
+  // Test notification function
+  const testNotification = async () => {
+    const hasPermission = await checkAndRequestNotificationPermission();
+    if (hasPermission) {
+      new Notification('Test Notification', {
+        body: '🔔 This is a test notification from Utility Tracker',
+        icon: '/favicon.ico',
+        requireInteraction: true,
+      });
+    }
+  };
+
+  // Initialize notifications on component mount
   useEffect(() => {
+    const savedName = localStorage.getItem('recordedBy') || '';
+    const savedTime = localStorage.getItem('notificationTime') || '09:00';
+    const notifications = localStorage.getItem('notificationsEnabled') === 'true';
+    
+    if (savedName) setRecordedBy(savedName);
+    setNotificationTime(savedTime);
+    setNotificationsEnabled(notifications);
+    
+    if ('Notification' in window) {
+      setHasNotificationPermission(Notification.permission === 'granted');
+    }
+    
+    if (notifications) {
+      scheduleDailyNotification(savedTime);
+    }
+    
+    // Fetch last readings
     const fetchLastReadings = async () => {
       try {
         const response = await fetch('/api/utility-readings?limit=1');
@@ -75,7 +221,6 @@ export function UtilityMonitors({ onSaveSuccess }: UtilityMonitorsProps) {
             const lastReading = data.readings[0];
             const metadata = lastReading.metadata || {};
             
-            // Set power readings
             setPowerReadings({
               office: { 
                 opening: metadata.powerOfficeClosing?.toString() || '', 
@@ -99,7 +244,6 @@ export function UtilityMonitors({ onSaveSuccess }: UtilityMonitorsProps) {
               },
             });
             
-            // Set water readings
             setWaterReadings({
               meter1: { 
                 opening: metadata.waterMeter1Closing?.toString() || '', 
@@ -121,20 +265,60 @@ export function UtilityMonitors({ onSaveSuccess }: UtilityMonitorsProps) {
     
     fetchLastReadings();
     
-    // Load saved preferences
-    const savedName = localStorage.getItem('recordedBy') || '';
-    const savedTime = localStorage.getItem('notificationTime') || '09:00';
-    const notifications = localStorage.getItem('notificationsEnabled') === 'true';
-    
-    if (savedName) setRecordedBy(savedName);
-    setNotificationTime(savedTime);
-    setNotificationsEnabled(notifications);
-    
-    // Setup notifications if enabled
-    if (notifications) {
-      setupDailyNotifications(savedTime);
-    }
+    return () => {
+      if (notificationTimeoutRef.current) {
+        clearTimeout(notificationTimeoutRef.current);
+      }
+    };
   }, []);
+
+  // Handle notification toggle
+  const handleNotificationToggle = async () => {
+    if (notificationsEnabled) {
+      setNotificationsEnabled(false);
+      localStorage.setItem('notificationsEnabled', 'false');
+      
+      if (notificationTimeoutRef.current) {
+        clearTimeout(notificationTimeoutRef.current);
+        notificationTimeoutRef.current = null;
+      }
+      
+      toast({
+        title: 'Notifications Disabled',
+        description: 'Daily reminders turned off',
+      });
+    } else {
+      const hasPermission = await checkAndRequestNotificationPermission();
+      if (hasPermission) {
+        setNotificationsEnabled(true);
+        localStorage.setItem('notificationsEnabled', 'true');
+        localStorage.setItem('notificationTime', notificationTime);
+        
+        scheduleDailyNotification(notificationTime);
+        
+        toast({
+          title: 'Notifications Enabled',
+          description: `Daily reminders set for ${notificationTime}`,
+        });
+      } else {
+        setNotificationsEnabled(false);
+      }
+    }
+  };
+
+  // Handle notification time change
+  const handleNotificationTimeChange = (newTime: string) => {
+    setNotificationTime(newTime);
+    localStorage.setItem('notificationTime', newTime);
+    
+    if (notificationsEnabled) {
+      scheduleDailyNotification(newTime);
+      toast({
+        title: 'Notification Time Updated',
+        description: `Reminders will now show at ${newTime}`,
+      });
+    }
+  };
 
   // Calculate power consumption
   const calculatePowerConsumption = () => {
@@ -179,7 +363,7 @@ export function UtilityMonitors({ onSaveSuccess }: UtilityMonitorsProps) {
     const minutes = totalMinutes % 60;
     const totalHours = totalMinutes / 60;
     
-    const calculatedDiesel = totalHours * 7; // 7L per hour
+    const calculatedDiesel = totalHours * 7;
     
     return {
       hours,
@@ -189,70 +373,16 @@ export function UtilityMonitors({ onSaveSuccess }: UtilityMonitorsProps) {
     };
   };
 
-  // Setup daily notifications
-  const setupDailyNotifications = (time: string) => {
-    if ('Notification' in window && notificationsEnabled) {
-      Notification.requestPermission().then(permission => {
-        if (permission === 'granted') {
-          // Schedule notification
-          const [hours, minutes] = time.split(':').map(Number);
-          const now = new Date();
-          const scheduledTime = new Date();
-          scheduledTime.setHours(hours, minutes, 0, 0);
-          
-          if (scheduledTime < now) {
-            scheduledTime.setDate(scheduledTime.getDate() + 1);
-          }
-          
-          const timeUntilNotification = scheduledTime.getTime() - now.getTime();
-          
-          setTimeout(() => {
-            new Notification('Utility Tracking Reminder', {
-              body: 'Remember to fill in today\'s utility readings!',
-              icon: '/icon.png',
-              tag: 'daily-utility-reminder',
-            });
-            // Reschedule for next day
-            setupDailyNotifications(time);
-          }, timeUntilNotification);
-        }
-      });
-    }
-  };
-
-  // Handle notification toggle
-  const handleNotificationToggle = () => {
-    const newState = !notificationsEnabled;
-    setNotificationsEnabled(newState);
-    localStorage.setItem('notificationsEnabled', newState.toString());
-    
-    if (newState) {
-      localStorage.setItem('notificationTime', notificationTime);
-      setupDailyNotifications(notificationTime);
-      toast({
-        title: 'Notifications Enabled',
-        description: `Daily reminders set for ${notificationTime}`,
-      });
-    } else {
-      toast({
-        title: 'Notifications Disabled',
-        description: 'Daily reminders turned off',
-      });
-    }
-  };
-
   // Validate all inputs
   const validateInputs = () => {
     const errors: string[] = [];
     
-    // Check power readings
     Object.entries(powerReadings).forEach(([area, readings]) => {
       if (readings.closing && Number(readings.closing) < Number(readings.opening)) {
         errors.push(`${area} closing reading must be greater than opening`);
       }
     });
     
-    // Check water readings
     if (Number(waterReadings.meter1.closing) < Number(waterReadings.meter1.opening)) {
       errors.push('Water Meter 1 closing reading must be greater than opening');
     }
@@ -260,7 +390,6 @@ export function UtilityMonitors({ onSaveSuccess }: UtilityMonitorsProps) {
       errors.push('Water Meter 2 closing reading must be greater than opening');
     }
     
-    // Check required fields
     if (!recordedBy) errors.push('Please enter your name');
     if (!date) errors.push('Please select a date');
     
@@ -286,9 +415,7 @@ export function UtilityMonitors({ onSaveSuccess }: UtilityMonitorsProps) {
       const powerConsumption = calculatePowerConsumption();
       const waterConsumption = calculateWaterConsumption();
       
-      // Prepare data
       const readingData = {
-        // Power readings
         powerOfficeOpening: powerReadings.office.opening,
         powerOfficeClosing: powerReadings.office.closing,
         powerMachineOpening: powerReadings.machine.opening,
@@ -301,25 +428,21 @@ export function UtilityMonitors({ onSaveSuccess }: UtilityMonitorsProps) {
         powerOtherClosing: powerReadings.other.closing,
         powerOtherActivity: otherActivity,
         
-        // Water readings
         waterMeter1Opening: waterReadings.meter1.opening,
         waterMeter1Closing: waterReadings.meter1.closing,
         waterMeter2Opening: waterReadings.meter2.opening,
         waterMeter2Closing: waterReadings.meter2.closing,
         
-        // Internet costs
         internetSafaricom: internetCosts.safaricom || null,
         internet5G: internetCosts.internet5G || null,
         internetSyokinet: internetCosts.syokinet || null,
         internetBillingCycle: internetBillingCycle || null,
         
-        // Generator data
         generatorStart,
         generatorStop,
         dieselRefill: dieselRefill || null,
         dieselConsumed: dieselConsumed || generatorData.diesel.toString(),
         
-        // Record details
         recordedBy,
         shift,
         date,
@@ -337,15 +460,14 @@ export function UtilityMonitors({ onSaveSuccess }: UtilityMonitorsProps) {
       const result = await response.json();
       
       if (response.ok) {
-        // Save preferences
         localStorage.setItem('recordedBy', recordedBy);
+        localStorage.setItem('lastFilledDate', new Date().toISOString().split('T')[0]);
         
         toast({
           title: 'Success',
           description: 'All utility readings saved successfully!',
         });
         
-        // Reset form for next entry (keep opening readings as new starting point)
         setPowerReadings({
           office: { opening: powerReadings.office.closing, closing: '' },
           machine: { opening: powerReadings.machine.closing, closing: '' },
@@ -363,7 +485,6 @@ export function UtilityMonitors({ onSaveSuccess }: UtilityMonitorsProps) {
         setDieselConsumed('');
         setNotes('');
         
-        // Trigger refresh if callback exists
         if (onSaveSuccess) onSaveSuccess();
         
       } else {
@@ -395,47 +516,60 @@ export function UtilityMonitors({ onSaveSuccess }: UtilityMonitorsProps) {
 
   return (
     <Card className="bg-gradient-to-br from-gray-900 to-black border-gray-800">
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-            Daily Utility Tracking
-          </CardTitle>
-          <div className="flex items-center gap-4">
-            {/* Notification Settings */}
-            <div className="flex items-center gap-2">
-              <Clock className="h-4 w-4 text-gray-400" />
-              <Input
-                type="time"
-                value={notificationTime}
-                onChange={(e) => setNotificationTime(e.target.value)}
-                className="w-32 bg-gray-800 border-gray-700"
-                disabled={!notificationsEnabled}
-              />
-              <Button
-                variant={notificationsEnabled ? "default" : "outline"}
-                size="sm"
-                onClick={handleNotificationToggle}
-                className={notificationsEnabled ? "bg-green-600 hover:bg-green-700" : ""}
-              >
-                {notificationsEnabled ? 'On' : 'Off'}
-              </Button>
-            </div>
-            
-            {/* Date Picker */}
-            <div className="flex items-center gap-2">
-              <Label htmlFor="reading-date" className="text-sm text-gray-400">Date</Label>
-              <Input
-                id="reading-date"
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                className="bg-gray-800 border-gray-700"
-              />
-            </div>
-          </div>
-        </div>
-      </CardHeader>
+<CardHeader>
+  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+    <CardTitle className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+      Daily Utility Tracking
+    </CardTitle>
+    
+    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full md:w-auto">
+      {/* Date Picker */}
+      <div className="flex items-center gap-2">
+        <Label htmlFor="reading-date" className="text-sm text-gray-400">Date</Label>
+        <Input
+          id="reading-date"
+          type="date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          className="bg-gray-800 border-gray-700"
+        />
+      </div>
       
+      {/* Notification Settings */}
+      <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2">
+          <Clock className="h-4 w-4 text-gray-400" />
+          <Input
+            type="time"
+            value={notificationTime}
+            onChange={(e) => handleNotificationTimeChange(e.target.value)}
+            className="w-32 bg-gray-800 border-gray-700"
+            disabled={!notificationsEnabled}
+          />
+        </div>
+        
+        <Button
+          variant={notificationsEnabled ? "default" : "outline"}
+          size="sm"
+          onClick={handleNotificationToggle}
+          className={notificationsEnabled ? "bg-green-600 hover:bg-green-700" : ""}
+        >
+          {notificationsEnabled ? 'On' : 'Off'}
+        </Button>
+        
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={testNotification}
+          className="bg-blue-900/30 border-blue-700 text-blue-400 hover:bg-blue-800 hover:text-white"
+          title="Test notification immediately"
+        >
+          <Bell className="h-4 w-4" />
+        </Button>
+      </div>
+    </div>
+  </div>
+</CardHeader>      
       <CardContent>
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <TabsList className="grid grid-cols-5 bg-gray-800 border border-gray-700">
@@ -1131,12 +1265,19 @@ export function UtilityMonitors({ onSaveSuccess }: UtilityMonitorsProps) {
       </CardContent>
       
       <CardFooter className="justify-between border-t border-gray-800 pt-6">
-        <div className="flex items-center gap-2 text-sm text-gray-400">
-          <AlertCircle className="h-4 w-4" />
-          {notificationsEnabled ? (
-            <span>Daily reminders set for {notificationTime}</span>
-          ) : (
-            <span>Enable notifications for daily reminders</span>
+        <div className="flex flex-col gap-2 text-sm">
+          <div className="flex items-center gap-2 text-gray-400">
+            <AlertCircle className="h-4 w-4" />
+            {notificationsEnabled ? (
+              <span>Daily reminders set for {notificationTime}</span>
+            ) : (
+              <span>Enable notifications for daily reminders</span>
+            )}
+          </div>
+          {!hasNotificationPermission && notificationsEnabled && (
+            <div className="text-xs text-yellow-400">
+              Notifications are blocked. Click the "On" button to enable.
+            </div>
           )}
         </div>
         <Button 
