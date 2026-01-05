@@ -1923,20 +1923,20 @@ export default function ColdRoomPage() {
                                       <div className="flex items-center gap-2 mb-3">
                                         <Snowflake className="w-5 h-5 text-orange-600" />
                                         <div>
-                                          <span className="font-medium">Cold Room 2</span>
+                                          <span className="font-medium text-orange-600">Cold Room 2</span>
                                           <p className="text-xs text-orange-600">Boxes allocated</p>
                                         </div>
                                       </div>
                                       <div className="space-y-2">
                                         <div className="flex justify-between items-center">
-                                          <span className="text-sm">Boxes:</span>
-                                          <span className="font-medium">
+                                          <span className="text-sm text-orange-600">Boxes:</span>
+                                          <span className="font-medium text-orange-600">
                                             {sizeGroupSummary.coldroom2Boxes.toLocaleString()}
                                           </span>
                                         </div>
                                         <div className="flex justify-between items-center">
-                                          <span className="text-sm">Percentage:</span>
-                                          <span className="font-medium">
+                                          <span className="text-sm text-orange-600">Percentage:</span>
+                                          <span className="font-medium text-orange-600">
                                             {Math.round((sizeGroupSummary.coldroom2Boxes / Math.max(1, sizeGroupSummary.totalBoxes)) * 100)}%
                                           </span>
                                         </div>
