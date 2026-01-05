@@ -1735,7 +1735,7 @@ export default function ColdRoomPage() {
                             <ScrollArea className="h-[400px] border rounded">
                               <Table>
                                 <TableHeader>
-                                  <TableRow className="bg-gray-50">
+                                  <TableRow className="bg-black-50">
                                     <TableHead className="w-12">Load</TableHead>
                                     <TableHead>Size</TableHead>
                                     <TableHead>Variety</TableHead>
@@ -1752,7 +1752,7 @@ export default function ColdRoomPage() {
                                   {sizeGroups.map((group, index) => (
                                     <TableRow 
                                       key={`${group.variety}-${group.boxType}-${group.size}-${group.grade}`}
-                                      className={group.selectedForLoading ? "bg-blue-50" : ""}
+                                      className={group.selectedForLoading ? "bg-black-50" : ""}
                                     >
                                       <TableCell>
                                         <input
@@ -1845,26 +1845,26 @@ export default function ColdRoomPage() {
                                       <div className="flex items-center gap-2 mb-3">
                                         <Box className="w-5 h-5 text-blue-600" />
                                         <div>
-                                          <span className="font-medium">Selected Sizes</span>
+                                          <span className="font-medium text-blue-600">Selected Sizes</span>
                                           <p className="text-xs text-blue-600">Ready for loading</p>
                                         </div>
                                       </div>
                                       <div className="space-y-2">
                                         <div className="flex justify-between items-center">
-                                          <span className="text-sm">Size Groups:</span>
-                                          <span className="font-medium">
+                                          <span className="text-sm text-blue-600">Size Groups:</span>
+                                          <span className="font-medium text-blue-600">
                                             {sizeGroupSummary.totalGroups}
                                           </span>
                                         </div>
                                         <div className="flex justify-between items-center">
-                                          <span className="text-sm">Boxes to Load:</span>
-                                          <span className="font-medium">
+                                          <span className="text-sm text-blue-600">Boxes to Load:</span>
+                                          <span className="font-medium text-blue-600">
                                             {sizeGroupSummary.totalBoxes.toLocaleString()}
                                           </span>
                                         </div>
                                         <div className="flex justify-between items-center">
-                                          <span className="text-sm">Remaining Groups:</span>
-                                          <span className="font-medium">
+                                          <span className="text-sm text-blue-600">Remaining Groups:</span>
+                                          <span className="font-medium text-blue-600">
                                             {sizeGroupSummary.remainingGroups}
                                           </span>
                                         </div>
@@ -1875,20 +1875,20 @@ export default function ColdRoomPage() {
                                       <div className="flex items-center gap-2 mb-3">
                                         <Weight className="w-5 h-5 text-green-600" />
                                         <div>
-                                          <span className="font-medium">Weight Summary</span>
+                                          <span className="font-medium text-green-600">Weight Summary</span>
                                           <p className="text-xs text-green-600">Total weight to load</p>
                                         </div>
                                       </div>
                                       <div className="space-y-2">
                                         <div className="flex justify-between items-center">
-                                          <span className="text-sm">Total Weight:</span>
+                                          <span className="text-sm text-green-600">Total Weight:</span>
                                           <span className="font-medium">
                                             {safeToFixed(sizeGroupSummary.totalWeight)} kg
                                           </span>
                                         </div>
                                         <div className="flex justify-between items-center">
-                                          <span className="text-sm">Average per Box:</span>
-                                          <span className="font-medium">
+                                          <span className="text-sm text-green-600">Average per Box:</span>
+                                          <span className="font-medium text-green-600">
                                             {safeToFixed(sizeGroupSummary.totalWeight / Math.max(1, sizeGroupSummary.totalBoxes))} kg
                                           </span>
                                         </div>
