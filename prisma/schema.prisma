@@ -285,11 +285,29 @@ model visitors {
   @@map("visitors")
 }
 
+// ADDS: New model for weight entry varieties
+model weight_entry_varieties {
+  id               String        @id @default(cuid()) @db.VarChar(20)
+  weight_entry_id  String        @db.VarChar(20)
+  variety          String        @db.VarChar(100)
+  weight           Decimal?      @db.Decimal(10, 2)
+  crates           Int?          @default(0)
+  created_at       DateTime      @default(now()) @db.DateTime(0)
+  weight_entry     weight_entries @relation(fields: [weight_entry_id], references: [id], onDelete: Cascade)
+
+  @@index([weight_entry_id])
+  @@index([variety])
+  @@map("weight_entry_varieties")
+}
+
+// UPDATED: Modified weight_entries model with separate variety columns
 model weight_entries {
   id               String              @id @default(uuid()) @db.VarChar(20)
   pallet_id        String?             @db.VarChar(100)
   product          String?             @db.VarChar(100)
-  weight           Decimal?            @db.Decimal(10, 2)
+  
+  // Total fields
+  weight           Decimal?            @db.Decimal(10, 2)  // Total weight
   unit             weight_entries_unit
   timestamp        DateTime?           @db.DateTime(0)
   supplier         String?             @db.VarChar(100)
@@ -297,14 +315,14 @@ model weight_entries {
   driver_id        String?             @db.VarChar(100)
   gross_weight     Decimal?            @db.Decimal(10, 2)
   tare_weight      Decimal?            @db.Decimal(10, 2)
-  net_weight       Decimal?            @db.Decimal(10, 2)
+  net_weight       Decimal?            @db.Decimal(10, 2)  // Total net weight
   declared_weight  Decimal?            @db.Decimal(10, 2)
   rejected_weight  Decimal?            @db.Decimal(10, 2)
   created_at       DateTime            @default(now()) @db.DateTime(0)
   supplier_id      String?             @db.VarChar(255)
   supplier_phone   String?             @db.VarChar(50)
   fruit_variety    String?             @default("[]") @db.Text
-  number_of_crates Int?                @default(0)
+  number_of_crates Int?                @default(0)  // Total crates
   region           String?             @db.VarChar(100)
   image_url        String?             @db.Text
   driver_name      String?             @db.VarChar(255)
@@ -312,8 +330,33 @@ model weight_entries {
   driver_id_number String?             @db.VarChar(100)
   vehicle_plate    String?             @db.VarChar(50)
   notes            String?             @db.Text
+  
+  // INDIVIDUAL VARIETY FIELDS - ADDED
+  // Fuerte variety
+  fuerte_weight    Decimal?            @db.Decimal(10, 2) @default(0)
+  fuerte_crates    Int?                @default(0)
+  
+  // Hass variety
+  hass_weight      Decimal?            @db.Decimal(10, 2) @default(0)
+  hass_crates      Int?                @default(0)
+  
+  // Jumbo variety
+  jumbo_weight     Decimal?            @db.Decimal(10, 2) @default(0)
+  jumbo_crates     Int?                @default(0)
+  
+  // Other variety (for any other type)
+  other_variety    String?             @db.VarChar(100)
+  other_weight     Decimal?            @db.Decimal(10, 2) @default(0)
+  other_crates     Int?                @default(0)
+  
+  // Mixed variety (when no specific variety)
+  mixed_weight     Decimal?            @db.Decimal(10, 2) @default(0)
+  mixed_crates     Int?                @default(0)
+  
+  // Relations
   counting_records CountingRecord[]
   quality_checks   quality_checks[]
+  varieties        weight_entry_varieties[]
 }
 
 model quality_checks {
@@ -352,7 +395,7 @@ model quality_checks {
   @@map("quality_checks")
 }
 
-// UPDATED: CountingRecord model with all fields for cold room integration
+// UPDATED: CountingRecord model with loading progress tracking
 model CountingRecord {
   id                    String          @id @default(cuid())
   supplier_id           String?
@@ -384,6 +427,11 @@ model CountingRecord {
   // Status and tracking
   status                String?         @default("pending_coldroom")
   for_coldroom          Boolean?        @default(true)
+  
+  // ADDED: Loading progress tracking
+  boxes_loaded_to_coldroom String?      @db.LongText  // JSON string to track loaded boxes by size
+  total_boxes_loaded       Int?         @default(0)   // Total boxes loaded from this record
+  loading_progress_percentage Int?      @default(0)   // Percentage loaded (0-100)
   
   // Metadata
   submitted_at          DateTime        @default(now())
@@ -526,27 +574,29 @@ model repacking_records {
 }
 
 model loading_history {
-  id            String   @id @default(cuid())
-  pallet_id     String
-  supplier_name String?
-  cold_room_id  String?
-  loaded_weight Float?
-  loaded_by     String?
-  loaded_at     DateTime @default(now())
-  notes         String?
-  box_id        String?
-  box_type      String?
-  grade         String?
-  quantity      Int?
-  region        String?
-  size          String?
-  variety       String?
+  id                String   @id @default(cuid())
+  pallet_id         String
+  supplier_name     String?
+  cold_room_id      String?
+  loaded_weight     Float?
+  loaded_by         String?
+  loaded_at         DateTime @default(now())
+  notes             String?
+  box_id            String?
+  box_type          String?
+  grade             String?
+  quantity          Int?
+  region            String?
+  size              String?
+  variety           String?
+  counting_record_id String?  // Add this line
 
   @@index([pallet_id])
   @@index([box_id])
   @@index([loaded_at])
   @@index([variety])
   @@index([box_type])
+  @@index([counting_record_id])  // Add index if needed
   @@map("loading_history")
 }
 
