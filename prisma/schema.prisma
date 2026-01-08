@@ -285,9 +285,8 @@ model visitors {
   @@map("visitors")
 }
 
-// ADDS: New model for weight entry varieties
 model weight_entry_varieties {
-  id               String        @id @default(cuid()) @db.VarChar(20)
+  id               String        @id @default(cuid())
   weight_entry_id  String        @db.VarChar(20)
   variety          String        @db.VarChar(100)
   weight           Decimal?      @db.Decimal(10, 2)
@@ -300,9 +299,8 @@ model weight_entry_varieties {
   @@map("weight_entry_varieties")
 }
 
-// UPDATED: Modified weight_entries model with separate variety columns
 model weight_entries {
-  id               String              @id @default(uuid()) @db.VarChar(20)
+  id               String              @id @default(cuid()) @db.VarChar(20)
   pallet_id        String?             @db.VarChar(100)
   product          String?             @db.VarChar(100)
   
@@ -321,7 +319,14 @@ model weight_entries {
   created_at       DateTime            @default(now()) @db.DateTime(0)
   supplier_id      String?             @db.VarChar(255)
   supplier_phone   String?             @db.VarChar(50)
-  fruit_variety    String?             @default("[]") @db.Text
+  
+  // Specific variety weights
+  fuerte_weight    Decimal?            @db.Decimal(10, 2)  // Fuerte weight
+  fuerte_crates    Int?                @default(0)         // Fuerte crates
+  hass_weight      Decimal?            @db.Decimal(10, 2)  // Hass weight
+  hass_crates      Int?                @default(0)         // Hass crates
+  
+  fruit_variety    String?             @default("[]") @db.Text  // JSON array of variety names
   number_of_crates Int?                @default(0)  // Total crates
   region           String?             @db.VarChar(100)
   image_url        String?             @db.Text
@@ -331,32 +336,23 @@ model weight_entries {
   vehicle_plate    String?             @db.VarChar(50)
   notes            String?             @db.Text
   
-  // INDIVIDUAL VARIETY FIELDS - ADDED
-  // Fuerte variety
-  fuerte_weight    Decimal?            @db.Decimal(10, 2) @default(0)
-  fuerte_crates    Int?                @default(0)
+  // New fields for payment details
+  bank_name        String?             @db.VarChar(100)
+  bank_account     String?             @db.VarChar(50)
+  kra_pin          String?             @db.VarChar(20)
   
-  // Hass variety
-  hass_weight      Decimal?            @db.Decimal(10, 2) @default(0)
-  hass_crates      Int?                @default(0)
-  
-  // Jumbo variety
-  jumbo_weight     Decimal?            @db.Decimal(10, 2) @default(0)
-  jumbo_crates     Int?                @default(0)
-  
-  // Other variety (for any other type)
-  other_variety    String?             @db.VarChar(100)
-  other_weight     Decimal?            @db.Decimal(10, 2) @default(0)
-  other_crates     Int?                @default(0)
-  
-  // Mixed variety (when no specific variety)
-  mixed_weight     Decimal?            @db.Decimal(10, 2) @default(0)
-  mixed_crates     Int?                @default(0)
+  // Per variety details (JSON array)
+  perVarietyWeights String?            @default("[]") @db.Text // JSON array of {variety, weight, crates}
   
   // Relations
   counting_records CountingRecord[]
   quality_checks   quality_checks[]
-  varieties        weight_entry_varieties[]
+  varieties        weight_entry_varieties[]  // Relation to varieties table
+
+  @@index([pallet_id])
+  @@index([supplier])
+  @@index([timestamp])
+  @@map("weight_entries")
 }
 
 model quality_checks {
@@ -395,7 +391,6 @@ model quality_checks {
   @@map("quality_checks")
 }
 
-// UPDATED: CountingRecord model with loading progress tracking
 model CountingRecord {
   id                    String          @id @default(cuid())
   supplier_id           String?
@@ -428,10 +423,15 @@ model CountingRecord {
   status                String?         @default("pending_coldroom")
   for_coldroom          Boolean?        @default(true)
   
-  // ADDED: Loading progress tracking
-  boxes_loaded_to_coldroom String?      @db.LongText  // JSON string to track loaded boxes by size
-  total_boxes_loaded       Int?         @default(0)   // Total boxes loaded from this record
-  loading_progress_percentage Int?      @default(0)   // Percentage loaded (0-100)
+  // Loading progress tracking
+  boxes_loaded_to_coldroom String?      @db.LongText
+  total_boxes_loaded       Int?         @default(0)
+  loading_progress_percentage Int?      @default(0)
+  
+  // Payment Details
+  bank_name             String?         @db.VarChar(100)
+  bank_account          String?         @db.VarChar(50)
+  kra_pin               String?         @db.VarChar(20)
   
   // Metadata
   submitted_at          DateTime        @default(now())
@@ -462,12 +462,12 @@ model utility_readings {
   id           Int      @id @default(autoincrement())
   date         DateTime @default(now())
   
-  // Power readings (totals for backward compatibility)
+  // Power readings
   powerOpening   String
   powerClosing   String
   powerConsumed  String
   
-  // Water readings (totals for backward compatibility)
+  // Water readings
   waterOpening   String
   waterClosing   String
   waterConsumed  String
@@ -500,7 +500,6 @@ model utility_readings {
   @@map("utility_readings")
 }
 
-// UPDATED: Cold room boxes with proper relations
 model cold_room_boxes {
   id                 String          @id @default(cuid())
   variety            String          @db.VarChar(50)
@@ -589,14 +588,14 @@ model loading_history {
   region            String?
   size              String?
   variety           String?
-  counting_record_id String?  // Add this line
+  counting_record_id String?
 
   @@index([pallet_id])
   @@index([box_id])
   @@index([loaded_at])
   @@index([variety])
   @@index([box_type])
-  @@index([counting_record_id])  // Add index if needed
+  @@index([counting_record_id])
   @@map("loading_history")
 }
 
@@ -742,9 +741,9 @@ model UserRole {
 
 model utility_rates {
   id             Int      @id @default(autoincrement())
-  utility_type   String   @db.VarChar(50)  // 'electricity', 'water', 'diesel'
-  rate           Decimal  @db.Decimal(10, 2)  // Rate per unit
-  unit           String   @db.VarChar(20)   // 'KES/kWh', 'KES/m³', 'KES/L'
+  utility_type   String   @db.VarChar(50)
+  rate           Decimal  @db.Decimal(10, 2)
+  unit           String   @db.VarChar(20)
   effective_from DateTime @default(now())
   effective_to   DateTime?
   created_at     DateTime @default(now())
@@ -757,10 +756,10 @@ model utility_rates {
 
 model internet_costs {
   id                 Int      @id @default(autoincrement())
-  provider           String   @db.VarChar(100)  // 'Safaricom', '5G Internet', 'Syokinet'
-  monthly_cost       Decimal  @db.Decimal(10, 2)  // Monthly cost in KES
-  billing_cycle      String   @db.VarChar(50)   // e.g., '1st-30th'
-  payment_due_date   DateTime?                  // Next payment due date
+  provider           String   @db.VarChar(100)
+  monthly_cost       Decimal  @db.Decimal(10, 2)
+  billing_cycle      String   @db.VarChar(50)
+  payment_due_date   DateTime?
   status             String   @default("active") @db.VarChar(20)
   notes              String?  @db.Text
   created_at         DateTime @default(now())
@@ -774,7 +773,7 @@ model internet_costs {
 model utility_notifications {
   id                  Int      @id @default(autoincrement())
   user_id             String?  @db.VarChar(255)
-  notification_time   String   @db.VarChar(5)  // Format: 'HH:MM'
+  notification_time   String   @db.VarChar(5)
   enabled             Boolean  @default(true)
   last_sent           DateTime?
   created_at          DateTime @default(now())
@@ -787,8 +786,8 @@ model utility_notifications {
 
 model utility_area_consumption {
   id             Int      @id @default(autoincrement())
-  reading_id     Int?                       // Reference to utility_readings
-  area_type      String   @db.VarChar(50)   // 'office', 'machine', 'coldroom1', 'coldroom2', 'other'
+  reading_id     Int?
+  area_type      String   @db.VarChar(50)
   opening_reading String? @db.VarChar(50)
   closing_reading String? @db.VarChar(50)
   consumed       Decimal? @db.Decimal(10, 2)
@@ -803,7 +802,7 @@ model utility_area_consumption {
 model water_meters {
   id           Int      @id @default(autoincrement())
   meter_number String   @unique @db.VarChar(50)
-  meter_name   String   @db.VarChar(100)  // e.g., 'Water Meter 1', 'Water Meter 2'
+  meter_name   String   @db.VarChar(100)
   location     String?  @db.VarChar(255)
   status       String   @default("active") @db.VarChar(20)
   created_at   DateTime @default(now())
@@ -818,7 +817,7 @@ model generator_details {
   id            Int      @id @default(autoincrement())
   generator_code String  @unique @db.VarChar(50)
   generator_name String  @db.VarChar(100)
-  fuel_rate     Decimal  @db.Decimal(5, 2)  // Liters per hour
+  fuel_rate     Decimal  @db.Decimal(5, 2)
   status        String   @default("active") @db.VarChar(20)
   last_service  DateTime?
   next_service  DateTime?
@@ -832,7 +831,7 @@ model generator_details {
 
 model equipment_temperatures {
   id            Int      @id @default(autoincrement())
-  equipment_type String  @db.VarChar(50)  // 'coldroom1', 'coldroom2', 'machine'
+  equipment_type String  @db.VarChar(50)
   temperature   Decimal? @db.Decimal(4, 1)
   status        String   @db.VarChar(20)
   recorded_at   DateTime @default(now())
@@ -841,6 +840,29 @@ model equipment_temperatures {
   @@index([equipment_type])
   @@index([recorded_at])
   @@map("equipment_temperatures")
+}
+
+// New model for supplier check-ins
+model supplier_checkins {
+  id               String   @id @default(cuid())
+  supplier_id      String
+  driver_name      String
+  phone_number     String
+  id_number        String
+  vehicle_plate    String
+  fruit_varieties  String   @db.Text  // JSON array of fruit varieties
+  region           String?
+  check_in_time    DateTime @default(now())
+  check_out_time   DateTime?
+  status           String   @default("checked_in") // checked_in, weighed, completed
+  created_at       DateTime @default(now())
+  updated_at       DateTime @updatedAt
+
+  @@index([supplier_id])
+  @@index([vehicle_plate])
+  @@index([check_in_time])
+  @@index([status])
+  @@map("supplier_checkins")
 }
 
 // Enums
