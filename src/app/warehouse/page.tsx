@@ -1,3 +1,4 @@
+// app/warehouse/page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -29,12 +30,23 @@ import {
   HardHat, Scale, Package, Truck, ChevronDown, CheckCircle, 
   RefreshCw, Calculator, Box, History, Search, Calendar, Filter, X, 
   BarChart3, Users, PackageOpen, TrendingUp, AlertTriangle, Check,
-  Download, FileSpreadsheet, ChevronRight
+  Download, FileSpreadsheet, ChevronRight, Phone, Banknote, CreditCard,
+  FileText, ClipboardList, Printer, FileDown, Eye, EyeOff, Info,
+  Wallet, Smartphone, Building, Fingerprint, Apple
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { CountingFormData } from '@/types/counting';
-import { format } from 'date-fns';
+import { format, isSameDay } from 'date-fns';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 interface SupplierIntakeRecord {
   id: string;
@@ -43,6 +55,10 @@ interface SupplierIntakeRecord {
   driver_name: string;
   vehicle_plate: string;
   total_weight: number;
+  fuerte_weight: number;
+  hass_weight: number;
+  fuerte_crates: number;
+  hass_crates: number;
   fruit_varieties: Array<{
     name: string;
     weight: number;
@@ -51,6 +67,10 @@ interface SupplierIntakeRecord {
   region: string;
   timestamp: string;
   status: 'processed' | 'pending' | 'rejected';
+  supplier_phone?: string;
+  bank_name?: string;
+  bank_account?: string;
+  kra_pin?: string;
 }
 
 interface QualityCheck {
@@ -66,6 +86,7 @@ interface QualityCheck {
   hass_class1: number;
   hass_class2: number;
   hass_overall: number;
+  rejected_weight?: number;
 }
 
 interface CountingStats {
@@ -101,6 +122,20 @@ interface CountingRecord {
   submitted_at: string;
   processed_by: string;
   notes?: string;
+  driver_name?: string;
+  vehicle_plate?: string;
+  supplier_phone?: string;
+  bank_name?: string;
+  bank_account?: string;
+  kra_pin?: string;
+  fuerte_4kg_class1?: number;
+  fuerte_4kg_class2?: number;
+  fuerte_10kg_class1?: number;
+  fuerte_10kg_class2?: number;
+  hass_4kg_class1?: number;
+  hass_4kg_class2?: number;
+  hass_10kg_class1?: number;
+  hass_10kg_class2?: number;
 }
 
 interface CSVRow {
@@ -120,6 +155,116 @@ interface CSVRow {
   processed_by: string;
   notes: string;
 }
+
+interface SupplierDetails {
+  weight_entry: any;
+  supplier: any;
+  quality_check: any;
+  payment_details: {
+    phone_number: string;
+    bank_name: string;
+    bank_account: string;
+    kra_pin: string;
+  };
+}
+
+interface WeightEntry {
+  id: string;
+  fuerte_weight: number;
+  hass_weight: number;
+  fuerte_crates: number;
+  hass_crates: number;
+  product?: string;
+  fruit_variety?: string[];
+  supplier: string;
+  region: string;
+  timestamp: string;
+  pallet_id: string;
+}
+
+const extractFruitVarieties = (entry: any): Array<{name: string, weight: number, crates: number}> => {
+  const varieties: Array<{name: string, weight: number, crates: number}> = [];
+  
+  // Helper to safely parse numbers
+  const parseNumber = (value: any): number => {
+    const num = Number(value);
+    return isNaN(num) ? 0 : num;
+  };
+  
+  // Extract from explicit fields first
+  const fuerteWeight = parseNumber(entry.fuerte_weight);
+  const hassWeight = parseNumber(entry.hass_weight);
+  const fuerteCrates = parseNumber(entry.fuerte_crates);
+  const hassCrates = parseNumber(entry.hass_crates);
+  
+  if (fuerteWeight > 0) {
+    varieties.push({
+      name: 'Fuerte',
+      weight: fuerteWeight,
+      crates: fuerteCrates
+    });
+  }
+  
+  if (hassWeight > 0) {
+    varieties.push({
+      name: 'Hass',
+      weight: hassWeight,
+      crates: hassCrates
+    });
+  }
+  
+  // Try to extract from fruit_varieties field (common in weight entries)
+  if (entry.fruit_varieties && Array.isArray(entry.fruit_varieties)) {
+    entry.fruit_varieties.forEach((variety: any) => {
+      if (variety && typeof variety === 'object') {
+        const weight = parseNumber(variety.weight);
+        if (weight > 0) {
+          varieties.push({
+            name: variety.name || 'Unknown Variety',
+            weight: weight,
+            crates: parseNumber(variety.crates)
+          });
+        }
+      } else if (typeof variety === 'string') {
+        // Handle string format like "Fuerte:100kg"
+        const match = variety.match(/(\w+):\s*(\d+(?:\.\d+)?)/i);
+        if (match) {
+          varieties.push({
+            name: match[1],
+            weight: parseNumber(match[2]),
+            crates: 0
+          });
+        }
+      }
+    });
+  }
+  
+  // Fallback: check for product field
+  if (!varieties.length && entry.product) {
+    const totalWeight = parseNumber(entry.total_weight || entry.fuerte_weight || entry.hass_weight);
+    if (totalWeight > 0) {
+      varieties.push({
+        name: entry.product,
+        weight: totalWeight,
+        crates: parseNumber(entry.fuerte_crates || entry.hass_crates)
+      });
+    }
+  }
+  
+  // Final fallback: use total weight
+  if (!varieties.length) {
+    const totalWeight = parseNumber(entry.total_weight);
+    if (totalWeight > 0) {
+      varieties.push({
+        name: 'Avocado',
+        weight: totalWeight,
+        crates: 0
+      });
+    }
+  }
+  
+  return varieties;
+};
 
 const processingStages = [
   { id: 'intake', name: 'Intake', icon: Truck, description: 'Supplier intake & initial check-in.', tag: 'Pallet ID' },
@@ -206,6 +351,488 @@ const getSupplierInfoFromCountingData = (countingData: any) => {
   };
 };
 
+// Helper function to check if supplier has been counted
+const isSupplierCounted = (supplierId: string, countingRecords: CountingRecord[]): boolean => {
+  return countingRecords.some(record => record.supplier_id === supplierId);
+};
+
+const generateWarehouseGRN = async (record: CountingRecord) => {
+  try {
+    const countingData = record.counting_data || {};
+    const totals = record.totals || {};
+    const today = new Date();
+    
+    // Create PDF
+    const doc = new jsPDF('p', 'mm', 'a4');
+    
+    // =========== CENTERED LOGO AND TITLE ===========
+    let hasLogo = false;
+    let logoHeight = 0;
+    
+    // Try to load logo from various paths
+    try {
+      const logoPaths = [
+        '/Harirlogo.svg',
+        '/Harirlogo.png',
+        '/Harirlogo.jpg',
+        '/logo.png',
+        '/logo.jpg',
+        '/favicon.ico'
+      ];
+      
+      for (const path of logoPaths) {
+        try {
+          const response = await fetch(path);
+          if (response.ok) {
+            const blob = await response.blob();
+            const base64String = await new Promise((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result);
+              reader.readAsDataURL(blob);
+            });
+            
+            // Add centered logo (18x18mm)
+            doc.addImage(base64String as string, 'PNG', 91, 6, 18, 18);
+            hasLogo = true;
+            logoHeight = 18;
+            break;
+          }
+        } catch (e) {
+          continue;
+        }
+      }
+    } catch (error) {
+      console.log('Logo loading failed:', error);
+    }
+    
+    // If no logo found, create a centered text logo
+    if (!hasLogo) {
+      doc.setFillColor(34, 139, 34); // Green
+      doc.circle(100, 15, 8, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text('HI', 100, 18, { align: 'center' });
+      logoHeight = 16;
+    }
+    
+    // Company name - Centered
+    const startY = 30;
+    doc.setTextColor(34, 139, 34); // Green text
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('HARIR INTERNATIONAL', 105, startY, { align: 'center' });
+    
+    // Division name
+    doc.setFontSize(10);
+    doc.text('FRESH PRODUCE EXPORTER', 105, startY + 6, { align: 'center' });
+    
+    // Green line
+    doc.setDrawColor(34, 139, 34);
+    doc.setLineWidth(0.5);
+    doc.line(10, startY + 10, 200, startY + 10);
+    
+    // =========== GRN TITLE ===========
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(0, 0, 0);
+    doc.text('GOODS RECEIVED NOTE - BOX COUNTING', 105, startY + 18, { align: 'center' });
+    
+    let yPos = startY + 26;
+    
+    // =========== GRN DETAILS ===========
+    doc.setFillColor(248, 249, 250); // Light gray
+    doc.rect(10, yPos, 190, 12, 'F');
+    
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Document Details', 15, yPos + 5);
+    
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`GRN: WH-${record.id.slice(0, 8).toUpperCase()}`, 15, yPos + 10);
+    doc.text(`Date: ${format(new Date(record.submitted_at), 'dd/MM/yyyy')}`, 60, yPos + 10);
+    doc.text(`Time: ${format(new Date(record.submitted_at), 'HH:mm')}`, 100, yPos + 10);
+    doc.text(`By: ${record.processed_by}`, 140, yPos + 10);
+    
+    yPos += 16;
+    
+    // =========== SUPPLIER INFORMATION ===========
+    doc.setFillColor(233, 236, 239); // Light gray
+    doc.rect(10, yPos, 190, 20, 'F');
+    
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Supplier Information', 15, yPos + 5);
+    
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.text(`Supplier: ${record.supplier_name}`, 15, yPos + 11);
+    doc.text(`Phone: ${record.supplier_phone || 'N/A'}`, 80, yPos + 11);
+    doc.text(`Driver: ${record.driver_name || 'N/A'}`, 140, yPos + 11);
+    
+    doc.text(`Pallet: ${record.pallet_id}`, 15, yPos + 17);
+    doc.text(`Region: ${record.region}`, 80, yPos + 17);
+    doc.text(`Vehicle: ${record.vehicle_plate || 'N/A'}`, 140, yPos + 17);
+    
+    yPos += 24;
+    
+    // =========== WEIGHT SUMMARY ===========
+    doc.setFillColor(220, 252, 231); // Light green
+    doc.rect(10, yPos, 190, 15, 'F');
+    
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Weight Summary (kg)', 15, yPos + 5);
+    
+    // Calculate weights
+    const fuerte4kgWeight = (record.fuerte_4kg_total || 0) * 4;
+    const fuerte10kgWeight = (record.fuerte_10kg_total || 0) * 10;
+    const hass4kgWeight = (record.hass_4kg_total || 0) * 4;
+    const hass10kgWeight = (record.hass_10kg_total || 0) * 10;
+    const totalFuerteWeight = fuerte4kgWeight + fuerte10kgWeight;
+    const totalHassWeight = hass4kgWeight + hass10kgWeight;
+    
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    
+    doc.text(`Intake: ${safeToFixed(record.total_weight, 2)} kg`, 15, yPos + 12);
+    doc.text(`Counted: ${safeToFixed(record.total_counted_weight || 0, 2)} kg`, 80, yPos + 12);
+    
+    yPos += 19;
+    
+    // =========== DETAILED BOX SIZES ===========
+    doc.setFillColor(52, 58, 64); // Dark gray header
+    doc.rect(10, yPos, 190, 8, 'F');
+    
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(255, 255, 255);
+    doc.text('DETAILED BOX SIZE COUNTS', 15, yPos + 5.5);
+    
+    yPos += 15;
+    
+    // Helper function to extract size counts from counting data
+    const getSizeCounts = (prefix: string, boxType: string) => {
+      const sizes = boxType === '4kg' 
+        ? ['12', '14', '16', '18', '20', '22', '24', '26']
+        : ['12', '14', '16', '18', '20', '22', '24', '26', '28', '30', '32'];
+      
+      const sizeData: Array<{
+        size: string;
+        class1: number;
+        class2: number;
+      }> = [];
+      
+      for (const size of sizes) {
+        const class1Key = `${prefix}_${boxType}_class1_size${size}`;
+        const class2Key = `${prefix}_${boxType}_class2_size${size}`;
+        const class1 = countingData[class1Key] || 0;
+        const class2 = countingData[class2Key] || 0;
+        
+        if (class1 > 0 || class2 > 0) {
+          sizeData.push({ size, class1, class2 });
+        }
+      }
+      
+      return sizeData;
+    };
+
+    // Get all size data
+    const fuerte4kgSizes = getSizeCounts('fuerte', '4kg');
+    const fuerte10kgSizes = getSizeCounts('fuerte', '10kg');
+    const hass4kgSizes = getSizeCounts('hass', '4kg');
+    const hass10kgSizes = getSizeCounts('hass', '10kg');
+    
+    // =========== FUERTE 4KG DETAILED SIZES ===========
+    if (fuerte4kgSizes.length > 0) {
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(22, 101, 52); // Dark green
+      doc.text('Fuerte 4kg Boxes - Size Breakdown:', 15, yPos);
+      
+      yPos += 3;
+      
+      // Header for sizes table
+      autoTable(doc, {
+        startY: yPos,
+        margin: { left: 15, right: 15 },
+        head: [['Size', 'Class 1', 'Class 2']],
+        body: fuerte4kgSizes.map(s => [
+          `Size ${s.size}`,
+          s.class1.toString(),
+          s.class2.toString()
+        ]),
+        theme: 'grid',
+        headStyles: { 
+          fillColor: [22, 101, 52], // Green header
+          textColor: [255, 255, 255],
+          fontSize: 7,
+          fontStyle: 'bold'
+        },
+        styles: { 
+          fontSize: 7,
+          cellPadding: 2,
+          textColor: [0, 0, 0]
+        },
+        columnStyles: {
+          0: { cellWidth: 25 },
+          1: { cellWidth: 20, halign: 'center' },
+          2: { cellWidth: 20, halign: 'center' }
+        }
+      });
+      
+      yPos = (doc as any).lastAutoTable.finalY + 5;
+      
+      // Subtotal
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'bold');
+      doc.text(`Total Fuerte 4kg: ${record.fuerte_4kg_total || 0} boxes`, 15, yPos);
+      yPos += 8;
+    }
+
+    // =========== FUERTE 10KG DETAILED SIZES ===========
+    if (fuerte10kgSizes.length > 0) {
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(22, 101, 52); // Dark green
+      doc.text('Fuerte 10kg Crates - Size Breakdown:', 15, yPos);
+      
+      yPos += 3;
+      
+      autoTable(doc, {
+        startY: yPos,
+        margin: { left: 15, right: 15 },
+        head: [['Size', 'Class 1', 'Class 2']],
+        body: fuerte10kgSizes.map(s => [
+          `Size ${s.size}`,
+          s.class1.toString(),
+          s.class2.toString()
+        ]),
+        theme: 'grid',
+        headStyles: { 
+          fillColor: [22, 101, 52], // Green header
+          textColor: [255, 255, 255],
+          fontSize: 7,
+          fontStyle: 'bold'
+        },
+        styles: { 
+          fontSize: 7,
+          cellPadding: 2,
+          textColor: [0, 0, 0]
+        },
+        columnStyles: {
+          0: { cellWidth: 25 },
+          1: { cellWidth: 20, halign: 'center' },
+          2: { cellWidth: 20, halign: 'center' }
+        }
+      });
+      
+      yPos = (doc as any).lastAutoTable.finalY + 5;
+      
+      // Subtotal
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'bold');
+      doc.text(`Total Fuerte 10kg: ${record.fuerte_10kg_total || 0} crates`, 15, yPos);
+      yPos += 8;
+    }
+
+    // =========== HASS 4KG DETAILED SIZES ===========
+    if (hass4kgSizes.length > 0) {
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(124, 58, 237); // Purple
+      doc.text('Hass 4kg Boxes - Size Breakdown:', 15, yPos);
+      
+      yPos += 3;
+      
+      autoTable(doc, {
+        startY: yPos,
+        margin: { left: 15, right: 15 },
+        head: [['Size', 'Class 1', 'Class 2']],
+        body: hass4kgSizes.map(s => [
+          `Size ${s.size}`,
+          s.class1.toString(),
+          s.class2.toString()
+        ]),
+        theme: 'grid',
+        headStyles: { 
+          fillColor: [124, 58, 237], // Purple header
+          textColor: [255, 255, 255],
+          fontSize: 7,
+          fontStyle: 'bold'
+        },
+        styles: { 
+          fontSize: 7,
+          cellPadding: 2,
+          textColor: [0, 0, 0]
+        },
+        columnStyles: {
+          0: { cellWidth: 25 },
+          1: { cellWidth: 20, halign: 'center' },
+          2: { cellWidth: 20, halign: 'center' }
+        }
+      });
+      
+      yPos = (doc as any).lastAutoTable.finalY + 5;
+      
+      // Subtotal
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'bold');
+      doc.text(`Total Hass 4kg: ${record.hass_4kg_total || 0} boxes`, 15, yPos);
+      yPos += 8;
+    }
+
+    // =========== HASS 10KG DETAILED SIZES ===========
+    if (hass10kgSizes.length > 0) {
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(124, 58, 237); // Purple
+      doc.text('Hass 10kg Crates - Size Breakdown:', 15, yPos);
+      
+      yPos += 3;
+      
+      autoTable(doc, {
+        startY: yPos,
+        margin: { left: 15, right: 15 },
+        head: [['Size', 'Class 1', 'Class 2']],
+        body: hass10kgSizes.map(s => [
+          `Size ${s.size}`,
+          s.class1.toString(),
+          s.class2.toString()
+        ]),
+        theme: 'grid',
+        headStyles: { 
+          fillColor: [124, 58, 237], // Purple header
+          textColor: [255, 255, 255],
+          fontSize: 7,
+          fontStyle: 'bold'
+        },
+        styles: { 
+          fontSize: 7,
+          cellPadding: 2,
+          textColor: [0, 0, 0]
+        },
+        columnStyles: {
+          0: { cellWidth: 25 },
+          1: { cellWidth: 20, halign: 'center' },
+          2: { cellWidth: 20, halign: 'center' }
+        }
+      });
+      
+      yPos = (doc as any).lastAutoTable.finalY + 5;
+      
+      // Subtotal
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'bold');
+      doc.text(`Total Hass 10kg: ${record.hass_10kg_total || 0} crates`, 15, yPos);
+      yPos += 8;
+    }    
+    // =========== SUMMARY BOX ===========
+    doc.setFillColor(240, 253, 244); // Light green
+    doc.rect(10, yPos, 190, 25, 'F');
+    
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(0, 0, 0);
+    doc.text('Summary', 15, yPos + 6);
+    
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    
+    // Grand Total
+    const totalBoxes = (record.fuerte_4kg_total || 0) + (record.fuerte_10kg_total || 0) + 
+                      (record.hass_4kg_total || 0) + (record.hass_10kg_total || 0);
+    const totalWeight = totalFuerteWeight + totalHassWeight;
+    
+    doc.setFont('helvetica', 'bold');
+    doc.text('Grand Total:', 15, yPos + 24);
+    doc.text(`${totalBoxes} boxes/crates`, 60, yPos + 24);
+    doc.text(`${safeToFixed(totalWeight, 2)} kg`, 160, yPos + 24, { align: 'right' });
+    
+    yPos += 30;
+    
+    // =========== PAYMENT INFORMATION ===========
+    if (record.bank_name || record.bank_account || record.kra_pin) {
+      doc.setFillColor(249, 250, 251); // Light gray
+      doc.rect(10, yPos, 190, 15, 'F');
+      
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(0, 0, 0);
+      doc.text('Payment Information', 15, yPos + 6);
+      
+      doc.setFont('helvetica', 'normal');
+      
+      if (record.bank_name) doc.text(`Bank: ${record.bank_name}`, 15, yPos + 12);
+      if (record.bank_account) doc.text(`Account: ${record.bank_account}`, 80, yPos + 12);
+      if (record.kra_pin) doc.text(`KRA PIN: ${record.kra_pin}`, 140, yPos + 12);
+      
+      yPos += 20;
+    }
+    
+    // =========== NOTES SECTION ===========
+    if (record.notes && record.notes.trim() !== '') {
+      doc.setFillColor(255, 248, 225); // Light yellow
+      doc.rect(10, yPos, 190, 15, 'F');
+      
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(0, 0, 0);
+      doc.text('Notes', 15, yPos + 6);
+      
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      
+      const notes = record.notes;
+      const maxLength = 100;
+      let notesY = yPos + 12;
+      
+      for (let i = 0; i < notes.length; i += maxLength) {
+        const line = notes.substring(i, Math.min(i + maxLength, notes.length));
+        doc.text(line, 15, notesY);
+        notesY += 3;
+      }
+      
+      yPos = notesY + 5;
+    }
+    
+    // =========== SIGNATURES ===========
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.2);
+    
+    // Counting Supervisor
+    doc.line(20, yPos, 90, yPos);
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Counting Supervisor', 55, yPos + 3, { align: 'center' });
+    doc.text('Name & Signature', 55, yPos + 6, { align: 'center' });
+    
+    // Warehouse Receiver
+    doc.line(120, yPos, 190, yPos);
+    doc.text('Warehouse Receiver', 155, yPos + 3, { align: 'center' });
+    doc.text('Name & Signature', 155, yPos + 6, { align: 'center' });
+    
+    yPos += 12;
+    
+    // =========== FOOTER ===========
+    doc.setFontSize(6);
+    doc.setTextColor(128, 128, 128);
+    doc.text('Harir International - Warehouse Counting System', 105, yPos, { align: 'center' });
+    doc.text(`Document: WH-GRN-${record.id.slice(0, 8).toUpperCase()} • Generated: ${format(today, 'dd/MM/yyyy HH:mm:ss')}`, 105, yPos + 3, { align: 'center' });
+    doc.text('This is a computer-generated document', 105, yPos + 6, { align: 'center' });
+    
+    // =========== SAVE PDF ===========
+    const fileName = `Warehouse_GRN_${record.supplier_name.replace(/\s+/g, '_')}_${record.pallet_id}_${format(today, 'yyyyMMdd_HHmm')}.pdf`;
+    doc.save(fileName);
+    
+    return true;
+  } catch (error: any) {
+    console.error('Error generating warehouse GRN:', error);
+    throw error;
+  }
+};
+
 export default function WarehousePage() {
   const { toast } = useToast();
   const [supplierIntakeRecords, setSupplierIntakeRecords] = useState<SupplierIntakeRecord[]>([]);
@@ -228,7 +855,8 @@ export default function WarehousePage() {
     intake: true, 
     quality: true, 
     counting: false,
-    stats: false
+    stats: false,
+    supplierDetails: false
   });
   const [error, setError] = useState<string | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
@@ -237,8 +865,9 @@ export default function WarehousePage() {
   const [expandedHistory, setExpandedHistory] = useState<Set<string>>(new Set());
   const [selectedSupplier, setSelectedSupplier] = useState<SupplierIntakeRecord | null>(null);
   const [selectedQC, setSelectedQC] = useState<QualityCheck | null>(null);
+  const [selectedSupplierDetails, setSelectedSupplierDetails] = useState<SupplierDetails | null>(null);
   
-  const [activeTab, setActiveTab] = useState<string>('quality');
+  const [activeTab, setActiveTab] = useState<string>('intake');
   
   const [countingForm, setCountingForm] = useState<CountingFormData>({
     supplier_id: '',
@@ -323,6 +952,9 @@ export default function WarehousePage() {
     hass_10kg_class2_size30: 0,
     hass_10kg_class2_size32: 0,
     notes: '',
+    bank_name: '',
+    bank_account: '',
+    kra_pin: '',
   });
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -342,26 +974,31 @@ export default function WarehousePage() {
       if (!response.ok) throw new Error('Failed to fetch intake records');
       const weightEntries = await response.json();
       
-      const intakeRecords: SupplierIntakeRecord[] = weightEntries.map((entry: any) => ({
-        id: entry.id,
-        pallet_id: entry.pallet_id || `WE-${entry.id}`,
-        supplier_name: entry.supplier || 'Unknown Supplier',
-        driver_name: entry.driver_name || '',
-        vehicle_plate: entry.vehicle_plate || entry.truck_id || '',
-        total_weight: entry.net_weight || entry.weight || 0,
-        fruit_varieties: Array.isArray(entry.fruit_variety) ? entry.fruit_variety.map((f: any) => ({
-          name: f.name || f.product || 'Unknown',
-          weight: f.weight || 0,
-          crates: f.crates || 0
-        })) : [{
-          name: entry.product || 'Unknown',
-          weight: 0,
-          crates: 0
-        }],
-        region: entry.region || '',
-        timestamp: entry.timestamp || entry.created_at || new Date().toISOString(),
-        status: 'processed'
-      }));
+      const intakeRecords: SupplierIntakeRecord[] = weightEntries.map((entry: any) => {
+        // Extract fruit varieties properly
+        const varieties = extractFruitVarieties(entry);
+        
+        return {
+          id: entry.id,
+          pallet_id: entry.pallet_id || `WE-${entry.id}`,
+          supplier_name: entry.supplier || entry.supplier_name || 'Unknown Supplier',
+          driver_name: entry.driver_name || '',
+          vehicle_plate: entry.vehicle_plate || entry.truck_id || '',
+          total_weight: (entry.fuerte_weight || 0) + (entry.hass_weight || 0),
+          fuerte_weight: entry.fuerte_weight || 0,
+          hass_weight: entry.hass_weight || 0,
+          fuerte_crates: entry.fuerte_crates || 0,
+          hass_crates: entry.hass_crates || 0,
+          fruit_varieties: varieties,
+          region: entry.region || '',
+          timestamp: entry.timestamp || entry.created_at || new Date().toISOString(),
+          status: 'processed',
+          supplier_phone: entry.supplier_phone || '',
+          bank_name: entry.bank_name || '',
+          bank_account: entry.bank_account || '',
+          kra_pin: entry.kra_pin || ''
+        };
+      });
       
       setSupplierIntakeRecords(intakeRecords);
     } catch (err: any) {
@@ -391,7 +1028,8 @@ export default function WarehousePage() {
         fuerte_overall: qc.fuerte_overall || 0,
         hass_class1: qc.hass_class1 || 0,
         hass_class2: qc.hass_class2 || 0,
-        hass_overall: qc.hass_overall || 0
+        hass_overall: qc.hass_overall || 0,
+        rejected_weight: qc.rejected_weight || 0
       }));
       
       setQualityChecks(transformedChecks);
@@ -436,7 +1074,10 @@ export default function WarehousePage() {
             return {
               ...record,
               counting_data,
-              totals
+              totals,
+              bank_name: record.bank_name || '',
+              bank_account: record.bank_account || '',
+              kra_pin: record.kra_pin || ''
             };
           });
           
@@ -464,6 +1105,27 @@ export default function WarehousePage() {
       console.error('Error fetching stats:', err);
     } finally {
       setIsLoading(prev => ({ ...prev, stats: false }));
+    }
+  };
+
+  const fetchSupplierDetails = async (supplierId: string) => {
+    try {
+      setIsLoading(prev => ({ ...prev, supplierDetails: true }));
+      const response = await fetch(`/api/counting?action=supplier-details&supplierId=${supplierId}`);
+      
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success) {
+          setSelectedSupplierDetails(result.data);
+          return result.data;
+        }
+      }
+      return null;
+    } catch (err: any) {
+      console.error('Error fetching supplier details:', err);
+      return null;
+    } finally {
+      setIsLoading(prev => ({ ...prev, supplierDetails: false }));
     }
   };
 
@@ -502,12 +1164,18 @@ export default function WarehousePage() {
     setExpandedQuality(newExpanded);
   };
 
-  const toggleHistoryExpansion = (recordId: string) => {
+  const toggleHistoryExpansion = async (recordId: string) => {
     const newExpanded = new Set(expandedHistory);
     if (newExpanded.has(recordId)) {
       newExpanded.delete(recordId);
     } else {
       newExpanded.add(recordId);
+      
+      // Fetch supplier details when expanding
+      const record = countingRecords.find(r => r.id === recordId);
+      if (record?.supplier_id) {
+        await fetchSupplierDetails(record.supplier_id);
+      }
     }
     setExpandedHistory(newExpanded);
   };
@@ -521,9 +1189,12 @@ export default function WarehousePage() {
            !inCounting;
   });
 
-  const handleSelectSupplier = (supplier: SupplierIntakeRecord, qc: QualityCheck | null) => {
+  const handleSelectSupplier = async (supplier: SupplierIntakeRecord, qc: QualityCheck | null) => {
     setSelectedSupplier(supplier);
     setSelectedQC(qc);
+    
+    // Fetch supplier details
+    const details = await fetchSupplierDetails(supplier.id);
     
     setCountingForm(prev => ({
       ...prev,
@@ -533,7 +1204,11 @@ export default function WarehousePage() {
       fruits: safeArray(supplier.fruit_varieties).map(fv => ({
         name: fv.name,
         weight: fv.weight
-      }))
+      })),
+      supplier_phone: supplier.supplier_phone || details?.payment_details?.phone_number || '',
+      bank_name: supplier.bank_name || details?.payment_details?.bank_name || '',
+      bank_account: supplier.bank_account || details?.payment_details?.bank_account || '',
+      kra_pin: supplier.kra_pin || details?.payment_details?.kra_pin || ''
     }));
     
     if (expandedQuality.has(supplier.supplier_name)) {
@@ -627,6 +1302,11 @@ export default function WarehousePage() {
         total_counted_weight: calculateTotalWeight(),
         status: 'pending_coldroom',
         for_coldroom: true,
+        bank_name: countingForm.bank_name,
+        bank_account: countingForm.bank_account,
+        kra_pin: countingForm.kra_pin,
+        driver_name: selectedSupplier.driver_name,
+        vehicle_plate: selectedSupplier.vehicle_plate
       };
 
       console.log('📦 Saving counting data directly to history:', countingData);
@@ -658,10 +1338,12 @@ export default function WarehousePage() {
       localStorage.setItem('refreshColdRoom', 'true');
       console.log('✅ Set refreshColdRoom flag for cold room');
 
+      // Add the new counting record to state IMMEDIATELY
       setCountingRecords(prev => [result.data, ...prev]);
       
       setSelectedSupplier(null);
       setSelectedQC(null);
+      setSelectedSupplierDetails(null);
       
       // Reset counting form
       const resetForm: CountingFormData = {
@@ -747,6 +1429,9 @@ export default function WarehousePage() {
         hass_10kg_class2_size30: 0,
         hass_10kg_class2_size32: 0,
         notes: '',
+        bank_name: '',
+        bank_account: '',
+        kra_pin: '',
       };
       
       // Reset collapsible sections
@@ -765,38 +1450,9 @@ export default function WarehousePage() {
         description: (
           <div className="space-y-3">
             <p>{selectedSupplier.supplier_name} has been counted and is ready for cold room.</p>
-            <div className="grid grid-cols-2 gap-2">
-              <Button
-                size="sm"
-                onClick={() => {
-                  window.open('/cold-room', '_blank');
-                  localStorage.setItem('forceColdRoomRefresh', 'true');
-                }}
-                className="bg-blue-600 hover:bg-blue-700"
-              >
-                📦 Go to Cold Room
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => {
-                  navigator.clipboard.writeText(JSON.stringify({
-                    id: countingRecordId,
-                    supplier: selectedSupplier.supplier_name,
-                    totals
-                  }, null, 2));
-                  toast({
-                    title: "Copied!",
-                    description: "Counting data copied to clipboard",
-                  });
-                }}
-                className="bg-gray-600 hover:bg-gray-700"
-              >
-                📋 Copy Data
-              </Button>
+            <div className="text-sm text-gray-500">
+              Supplier has been removed from Quality Control tab
             </div>
-            <p className="text-xs text-gray-500">
-              Data ID: {countingRecordId?.substring(0, 8)}...
-            </p>
           </div>
         ),
         duration: 10000,
@@ -956,7 +1612,26 @@ export default function WarehousePage() {
     downloadCSV(filteredHistory);
   };
 
-  // UPDATED: Render size grid with better layout
+  const downloadWarehouseGRN = async (record: CountingRecord) => {
+    try {
+      // Just generate the GRN directly from the counting record
+      await generateWarehouseGRN(record);
+      
+      toast({
+        title: '✅ Warehouse GRN Downloaded',
+        description: `Goods Received Note has been downloaded for ${record.supplier_name}`,
+      });
+      
+    } catch (error: any) {
+      console.error('Error downloading warehouse GRN:', error);
+      toast({
+        title: 'Error Downloading GRN',
+        description: error.message || 'Failed to generate GRN. Please try again.',
+        variant: 'destructive',
+      });
+    }
+  };
+
   const renderSizeGrid = (prefix: string, boxType: '4kg' | '10kg', classType: 'class1' | 'class2') => {
     const sizes = boxType === '4kg' 
       ? ['12', '14', '16', '18', '20', '22', '24', '26']
@@ -985,7 +1660,6 @@ export default function WarehousePage() {
     );
   };
 
-  // UPDATED: Render collapsible section for counting form
   const renderCollapsibleSection = (
     title: string,
     isExpanded: boolean,
@@ -1009,7 +1683,7 @@ export default function WarehousePage() {
               {subtitle && <div className="text-sm text-gray-500">{subtitle}</div>}
             </div>
           </div>
-          <Badge variant="outline" className="bg-gray-100 text-gray-700">
+          <Badge variant="outline" className="bg-black-100 text-gray-700">
             {isExpanded ? 'Hide' : 'Show'}
           </Badge>
         </div>
@@ -1019,6 +1693,178 @@ export default function WarehousePage() {
       </CollapsibleContent>
     </Collapsible>
   );
+
+  const renderSizeBreakdown = (prefix: string, boxType: '4kg' | '10kg', classType: 'class1' | 'class2') => {
+    const sizes = boxType === '4kg' 
+      ? ['12', '14', '16', '18', '20', '22', '24', '26']
+      : ['12', '14', '16', '18', '20', '22', '24', '26', '28', '30', '32'];
+    
+    return (
+      <div className="grid grid-cols-8 gap-2 mb-2">
+        {sizes.map(size => {
+          const fieldName = `${prefix}_${boxType}_${classType}_size${size}` as keyof CountingFormData;
+          const value = countingForm[fieldName] || 0;
+          if (value === 0) return null;
+          
+          return (
+            <div key={size} className="text-center">
+              <div className="text-xs text-gray-500">Size {size}</div>
+              <div className="font-bold">{value}</div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+const renderBoxesBreakdown = (record: CountingRecord) => {
+    const countingData = record.counting_data || {};
+    
+    const renderSizeTable = (variety: string, boxType: '4kg' | '10kg') => {
+      const sizes = boxType === '4kg' 
+        ? ['12', '14', '16', '18', '20', '22', '24', '26']
+        : ['12', '14', '16', '18', '20', '22', '24', '26', '28', '30', '32'];
+      
+      return (
+        <div className="mb-4">
+          <div className="font-semibold text-sm mb-2">{variety} {boxType} Boxes</div>
+          <div className="grid grid-cols-8 gap-1 mb-2">
+            <div className="col-span-2 font-medium text-xs">Size</div>
+            <div className="col-span-2 font-medium text-xs">Class 1</div>
+            <div className="col-span-3 font-medium text-xs">Class 2</div>
+          </div>
+          {sizes.map(size => {
+            const class1Key = `${variety.toLowerCase()}_${boxType}_class1_size${size}`;
+            const class2Key = `${variety.toLowerCase()}_${boxType}_class2_size${size}`;
+            const class1 = countingData[class1Key] || 0;
+            const class2 = countingData[class2Key] || 0;
+            
+            if (class1 === 0 && class2 === 0) return null;
+            
+            return (
+              <div key={size} className="grid grid-cols-8 gap-1 py-1 border-b">
+                <div className="col-span-2 text-sm">Size {size}</div>
+                <div className="col-span-1 text-center">{class1}</div>
+                <div className="col-span-3 text-center">{class2}</div>
+              </div>
+            );
+          })}
+        </div>
+      );
+    };
+
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="bg-black-50 p-3 rounded-lg">
+            <h4 className="font-semibold text-green-800 mb-3">Fuerte Avocado</h4>
+            {renderSizeTable('fuerte', '4kg')}
+            {renderSizeTable('fuerte', '10kg')}
+          </div>
+          <div className="bg-black-50 p-3 rounded-lg">
+            <h4 className="font-semibold text-purple-800 mb-3">Hass Avocado</h4>
+            {renderSizeTable('hass', '4kg')}
+            {renderSizeTable('hass', '10kg')}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const safeToFixed = (value: any, decimals: number = 2): string => {
+    const num = Number(value);
+    return isNaN(num) ? '0.'.padEnd(decimals + 2, '0') : num.toFixed(decimals);
+  };
+
+  // Then update the renderWeightBreakdown function to use safeToFixed:
+  const renderWeightBreakdown = (record: CountingRecord) => {
+    const weightEntry = selectedSupplierDetails?.weight_entry;
+    const qualityCheck = selectedSupplierDetails?.quality_check;
+    
+    if (!weightEntry) return null;
+    
+    // Safely parse weight values with fallback to 0
+    const fuerteIntakeWeight = Number(weightEntry?.fuerte_weight) || 0;
+    const hassIntakeWeight = Number(weightEntry?.hass_weight) || 0;
+    
+    // Safely calculate counted weights with fallback to 0
+    const fuerteCountedWeight = ((record.fuerte_4kg_total || 0) + (record.fuerte_10kg_total || 0)) * ((record.fuerte_4kg_total || 0) > 0 ? 4 : 10);
+    const hassCountedWeight = ((record.hass_4kg_total || 0) + (record.hass_10kg_total || 0)) * ((record.hass_4kg_total || 0) > 0 ? 4 : 10);
+    
+    // Safely calculate rejected weights with fallback to 0
+    const fuerteRejectedWeight = qualityCheck?.fuerte_class2 ? (fuerteIntakeWeight * (Number(qualityCheck.fuerte_class2) / 100)) : 0;
+    const hassRejectedWeight = qualityCheck?.hass_class2 ? (hassIntakeWeight * (Number(qualityCheck.hass_class2) / 100)) : 0;
+    
+    // Safely get record weights with fallback to 0
+    const recordTotalWeight = Number(record.total_weight) || 0;
+    const recordTotalCountedWeight = Number(record.total_counted_weight) || 0;
+    
+    return (
+      <div className="space-y-4">
+        <div className="bg-black-50 p-4 rounded-lg">
+          <h4 className="font-semibold text-blue-800 mb-3">Weight Breakdown</h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <h5 className="font-medium text-green-700 mb-2">Fuerte Avocado</h5>
+              <div className="space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-sm">Intake Weight:</span>
+                  <span className="font-bold">{safeToFixed(fuerteIntakeWeight, 2)} kg</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm">Counted Weight:</span>
+                  <span className="font-bold">{safeToFixed(fuerteCountedWeight, 2)} kg</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm">Rejected Weight:</span>
+                  <span className="font-bold text-red-600">{safeToFixed(fuerteRejectedWeight, 2)} kg</span>
+                </div>
+              </div>
+            </div>
+            <div>
+              <h5 className="font-medium text-purple-700 mb-2">Hass Avocado</h5>
+              <div className="space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-sm">Intake Weight:</span>
+                  <span className="font-bold">{safeToFixed(hassIntakeWeight, 2)} kg</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm">Counted Weight:</span>
+                  <span className="font-bold">{safeToFixed(hassCountedWeight, 2)} kg</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm">Rejected Weight:</span>
+                  <span className="font-bold text-red-600">{safeToFixed(hassRejectedWeight, 2)} kg</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="mt-4 pt-4 border-t border-blue-200">
+            <div className="flex justify-between items-center">
+              <span className="font-bold">Total Intake Weight:</span>
+              <span className="font-bold text-lg">{safeToFixed(recordTotalWeight, 2)} kg</span>
+            </div>
+            <div className="flex justify-between items-center mt-2">
+              <span className="font-bold">Total Counted Weight:</span>
+              <span className="font-bold text-lg">{safeToFixed(recordTotalCountedWeight, 2)} kg</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Calculate statistics
+  const today = new Date();
+  const todayIntakeRecords = supplierIntakeRecords.filter(record => {
+    const recordDate = new Date(record.timestamp);
+    return isSameDay(recordDate, today);
+  });
+
+  const todayFuerteWeight = todayIntakeRecords.reduce((sum, record) => sum + record.fuerte_weight, 0);
+  const todayHassWeight = todayIntakeRecords.reduce((sum, record) => sum + record.hass_weight, 0);
+  const todayFuerteCrates = todayIntakeRecords.reduce((sum, record) => sum + record.fuerte_crates, 0);
+  const todayHassCrates = todayIntakeRecords.reduce((sum, record) => sum + record.hass_crates, 0);
 
   return (
     <SidebarProvider>
@@ -1089,126 +1935,84 @@ export default function WarehousePage() {
             </div>
           </div>
 
+          {/* Updated Statistics with Proper Variety Display */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <BarChart3 className="w-5 h-5" />
-                Processing Statistics
+                Today's Intake Statistics
               </CardTitle>
               <CardDescription>
-                Real-time overview of warehouse processing activities
+                Real-time overview of today's warehouse processing activities
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <div className="bg-black-50 p-4 rounded-lg border">
                   <div className="flex items-center justify-between mb-2">
-                    <div className="text-sm text-gray-500">Total Processed</div>
-                    <PackageOpen className="w-4 h-4 text-blue-500" />
+                    <div className="text-sm text-gray-500">Total Intake Weight</div>
+                    <Scale className="w-4 h-4 text-blue-500" />
                   </div>
                   <div className="text-2xl font-bold text-blue-700">
-                    {stats.total_processed || 0}
+                    {((todayFuerteWeight + todayHassWeight) / 1000).toFixed(1)} t
                   </div>
-                  <div className="text-xs text-gray-400 mt-1">Completed counting sessions</div>
+                  <div className="text-xs text-gray-400 mt-1">
+                    <div className="flex items-center gap-1">
+                      <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                      Fuerte: {(todayFuerteWeight / 1000).toFixed(1)} t
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <div className="w-2 h-2 rounded-full bg-purple-500"></div>
+                      Hass: {(todayHassWeight / 1000).toFixed(1)} t
+                    </div>
+                  </div>
                 </div>
 
                 <div className="bg-black-50 p-4 rounded-lg border">
                   <div className="flex items-center justify-between mb-2">
-                    <div className="text-sm text-gray-500">Pending Coldroom</div>
+                    <div className="text-sm text-gray-500">Crates Received</div>
                     <Package className="w-4 h-4 text-orange-500" />
                   </div>
                   <div className="text-2xl font-bold text-orange-700">
-                    {stats.pending_coldroom || 0}
+                    {todayFuerteCrates + todayHassCrates}
                   </div>
-                  <div className="text-xs text-gray-400 mt-1">Ready for cold room loading</div>
-                </div>
-
-                <div className="bg-black-50 p-4 rounded-lg border">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="text-sm text-gray-500">Fuerte Boxes</div>
-                    <TrendingUp className="w-4 h-4 text-green-500" />
-                  </div>
-                  <div className="space-y-1">
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm">4kg:</span>
-                      <span className="font-semibold text-green-700">
-                        {stats.fuerte_4kg || 0}
-                      </span>
+                  <div className="text-xs text-gray-400 mt-1">
+                    <div className="flex items-center gap-1">
+                      <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                      Fuerte: {todayFuerteCrates}
                     </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm">10kg:</span>
-                      <span className="font-semibold text-green-700">
-                        {stats.fuerte_10kg || 0}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center pt-1 border-t">
-                      <span className="text-sm font-medium">Total:</span>
-                      <span className="font-bold text-green-700">
-                        {(stats.fuerte_4kg || 0) + (stats.fuerte_10kg || 0)}
-                      </span>
+                    <div className="flex items-center gap-1">
+                      <div className="w-2 h-2 rounded-full bg-purple-500"></div>
+                      Hass: {todayHassCrates}
                     </div>
                   </div>
                 </div>
 
                 <div className="bg-black-50 p-4 rounded-lg border">
                   <div className="flex items-center justify-between mb-2">
-                    <div className="text-sm text-gray-500">Hass Boxes</div>
-                    <TrendingUp className="w-4 h-4 text-purple-500" />
+                    <div className="text-sm text-gray-500">Suppliers Today</div>
+                    <Users className="w-4 h-4 text-green-500" />
                   </div>
-                  <div className="space-y-1">
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm">4kg:</span>
-                      <span className="font-semibold text-purple-700">
-                        {stats.hass_4kg || 0}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm">10kg:</span>
-                      <span className="font-semibold text-purple-700">
-                        {stats.hass_10kg || 0}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center pt-1 border-t">
-                      <span className="text-sm font-medium">Total:</span>
-                      <span className="font-bold text-purple-700">
-                        {(stats.hass_4kg || 0) + (stats.hass_10kg || 0)}
-                      </span>
-                    </div>
+                  <div className="text-2xl font-bold text-green-700">
+                    {new Set(todayIntakeRecords.map(r => r.supplier_name)).size}
+                  </div>
+                  <div className="text-xs text-gray-400 mt-1">
+                    {todayIntakeRecords.length} pallets processed
                   </div>
                 </div>
-              </div>
-              
-              <div className="mt-6 pt-6 border-t">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="text-center">
-                    <div className="text-sm text-gray-500">Total Boxes</div>
-                    <div className="text-xl font-bold">
-                      {(stats.fuerte_4kg || 0) + (stats.fuerte_10kg || 0) + (stats.hass_4kg || 0) + (stats.hass_10kg || 0)}
-                    </div>
+
+                <div className="bg-black-50 p-4 rounded-lg border">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-sm text-gray-500">Pending QC</div>
+                    <Scale className="w-4 h-4 text-red-500" />
                   </div>
-                  <div className="text-center">
-                    <div className="text-sm text-gray-500">Fuerte Percentage</div>
-                    <div className="text-xl font-bold">
-                      {(() => {
-                        const totalBoxes = (stats.fuerte_4kg || 0) + (stats.fuerte_10kg || 0) + (stats.hass_4kg || 0) + (stats.hass_10kg || 0);
-                        const fuerteTotal = (stats.fuerte_4kg || 0) + (stats.fuerte_10kg || 0);
-                        return totalBoxes > 0 ? `${Math.round((fuerteTotal / totalBoxes) * 100)}%` : '0%';
-                      })()}
-                    </div>
+                  <div className="text-2xl font-bold text-red-700">
+                    {todayIntakeRecords.filter(record => 
+                      !qualityChecks.some(qc => qc.weight_entry_id === record.id)
+                    ).length}
                   </div>
-                  <div className="text-center">
-                    <div className="text-sm text-gray-500">Hass Percentage</div>
-                    <div className="text-xl font-bold">
-                      {(() => {
-                        const totalBoxes = (stats.fuerte_4kg || 0) + (stats.fuerte_10kg || 0) + (stats.hass_4kg || 0) + (stats.hass_10kg || 0);
-                        const hassTotal = (stats.hass_4kg || 0) + (stats.hass_10kg || 0);
-                        return totalBoxes > 0 ? `${Math.round((hassTotal / totalBoxes) * 100)}%` : '0%';
-                      })()}
-                    </div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-sm text-gray-500">Recent Activity</div>
-                    <div className="text-xl font-bold">{stats.recent_activity?.last_7_days || 0} (7 days)</div>
+                  <div className="text-xs text-gray-400 mt-1">
+                    Waiting for quality control
                   </div>
                 </div>
               </div>
@@ -1244,6 +2048,7 @@ export default function WarehousePage() {
               <TabsTrigger value="history">History</TabsTrigger>
             </TabsList>
 
+            {/* Intake Tab */}
             <TabsContent value="intake" className="space-y-4">
               <Card>
                 <CardHeader>
@@ -1272,138 +2077,47 @@ export default function WarehousePage() {
                       </div>
                     ) : (
                       <div className="space-y-3">
-                        {supplierIntakeRecords.map((supplier) => (
-                          <Collapsible
-                            key={supplier.id}
-                            open={expandedIntake.has(supplier.supplier_name)}
-                            onOpenChange={() => toggleIntakeExpansion(supplier.supplier_name)}
-                            className="border rounded-lg overflow-hidden"
-                          >
-                            <CollapsibleTrigger asChild>
-                              <div className="flex items-center justify-between p-4 bg-black-50 hover:bg-black-100 cursor-pointer">
-                                <div className="flex items-center gap-3">
-                                  <div className={`transition-transform ${expandedIntake.has(supplier.supplier_name) ? 'rotate-180' : ''}`}>
-                                    <ChevronDown className="w-4 h-4" />
-                                  </div>
-                                  <div>
-                                    <div className="font-semibold">{supplier.supplier_name}</div>
-                                    <div className="text-sm text-gray-500 flex items-center gap-4">
-                                      <span>Pallet: {supplier.pallet_id}</span>
-                                      <span>Weight: {supplier.total_weight} kg</span>
-                                      <span>{formatDate(supplier.timestamp)}</span>
-                                    </div>
-                                  </div>
-                                </div>
-                                <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
-                                  Intake Complete
-                                </Badge>
-                              </div>
-                            </CollapsibleTrigger>
-                            <CollapsibleContent className="p-4 bg-black border-t">
-                              <div className="grid grid-cols-2 gap-4 text-sm">
-                                <div>
-                                  <div className="text-gray-500">Driver</div>
-                                  <div className="font-medium">{supplier.driver_name}</div>
-                                </div>
-                                <div>
-                                  <div className="text-gray-500">Vehicle Plate</div>
-                                  <div className="font-medium">{supplier.vehicle_plate}</div>
-                                </div>
-                                <div>
-                                  <div className="text-gray-500">Region</div>
-                                  <div className="font-medium">{supplier.region}</div>
-                                </div>
-                                <div>
-                                  <div className="text-gray-500">Total Weight</div>
-                                  <div className="font-bold">{supplier.total_weight} kg</div>
-                                </div>
-                              </div>
-                              {safeArray(supplier.fruit_varieties).length > 0 && (
-                                <div className="mt-3">
-                                  <div className="text-gray-500 mb-1">Fruit Varieties</div>
-                                  <div className="flex flex-wrap gap-2">
-                                    {safeArray(supplier.fruit_varieties).map((fruit, idx) => (
-                                      <Badge key={idx} variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                                        {fruit.name}: {fruit.weight}kg ({fruit.crates} crates)
-                                      </Badge>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-                            </CollapsibleContent>
-                          </Collapsible>
-                        ))}
-                      </div>
-                    )}
-                  </ScrollArea>
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="quality" className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Scale className="w-5 h-5" />
-                    Accepted Suppliers (QC Approved)
-                  </CardTitle>
-                  <CardDescription>
-                    {acceptedSuppliers.length} supplier(s) approved for counting
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <ScrollArea className="h-[400px] pr-4">
-                    {isLoading.quality ? (
-                      <div className="flex flex-col items-center justify-center py-12">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-4"></div>
-                        <p className="text-muted-foreground">Loading quality checks...</p>
-                      </div>
-                    ) : acceptedSuppliers.length === 0 ? (
-                      <div className="text-center py-8">
-                        <CheckCircle className="w-12 h-12 mx-auto text-gray-300 mb-3" />
-                        <p className="text-gray-500 font-medium">No accepted suppliers pending counting</p>
-                        <p className="text-sm text-gray-400 mt-1">
-                          All QC-approved suppliers have been counted. Check the History tab.
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {acceptedSuppliers.map((supplier) => {
-                          const qc = qualityChecks.find(q => q.weight_entry_id === supplier.id);
+                        {supplierIntakeRecords.map((supplier) => {
+                          const hasFuerte = supplier.fuerte_weight > 0;
+                          const hasHass = supplier.hass_weight > 0;
+                          
                           return (
                             <Collapsible
                               key={supplier.id}
-                              open={expandedQuality.has(supplier.supplier_name)}
-                              onOpenChange={() => toggleQualityExpansion(supplier.supplier_name)}
+                              open={expandedIntake.has(supplier.supplier_name)}
+                              onOpenChange={() => toggleIntakeExpansion(supplier.supplier_name)}
                               className="border rounded-lg overflow-hidden"
                             >
                               <CollapsibleTrigger asChild>
                                 <div className="flex items-center justify-between p-4 bg-black-50 hover:bg-black-100 cursor-pointer">
                                   <div className="flex items-center gap-3">
-                                    <div className={`transition-transform ${expandedQuality.has(supplier.supplier_name) ? 'rotate-180' : ''}`}>
+                                    <div className={`transition-transform ${expandedIntake.has(supplier.supplier_name) ? 'rotate-180' : ''}`}>
                                       <ChevronDown className="w-4 h-4" />
                                     </div>
                                     <div>
                                       <div className="font-semibold">{supplier.supplier_name}</div>
                                       <div className="text-sm text-gray-500 flex items-center gap-4">
                                         <span>Pallet: {supplier.pallet_id}</span>
-                                        <span>QC Date: {qc ? formatDate(qc.processed_at) : 'N/A'}</span>
+                                        <span>Weight: {supplier.total_weight} kg</span>
+                                        <span>{formatDate(supplier.timestamp)}</span>
                                       </div>
                                     </div>
                                   </div>
                                   <div className="flex items-center gap-2">
-                                    <Button
-                                      size="sm"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleSelectSupplier(supplier, qc || null);
-                                      }}
-                                      className="bg-blue-600 hover:bg-blue-700"
-                                    >
-                                      Select for Counting
-                                    </Button>
+                                    {hasFuerte && (
+                                      <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                                        <Apple className="w-3 h-3 mr-1" />
+                                        Fuerte: {supplier.fuerte_weight}kg
+                                      </Badge>
+                                    )}
+                                    {hasHass && (
+                                      <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200">
+                                        <Apple className="w-3 h-3 mr-1" />
+                                        Hass: {supplier.hass_weight}kg
+                                      </Badge>
+                                    )}
                                     <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
-                                      QC Approved
+                                      Intake Complete
                                     </Badge>
                                   </div>
                                 </div>
@@ -1411,68 +2125,67 @@ export default function WarehousePage() {
                               <CollapsibleContent className="p-4 bg-black border-t">
                                 <div className="grid grid-cols-2 gap-4 text-sm">
                                   <div>
-                                    <div className="text-gray-500">Total Weight</div>
-                                    <div className="font-bold">{supplier.total_weight} kg</div>
+                                    <div className="text-gray-500">Driver</div>
+                                    <div className="font-medium">{supplier.driver_name}</div>
+                                  </div>
+                                  <div>
+                                    <div className="text-gray-500">Vehicle Plate</div>
+                                    <div className="font-medium">{supplier.vehicle_plate}</div>
                                   </div>
                                   <div>
                                     <div className="text-gray-500">Region</div>
                                     <div className="font-medium">{supplier.region}</div>
                                   </div>
+                                  <div>
+                                    <div className="text-gray-500">Phone</div>
+                                    <div className="font-medium">{supplier.supplier_phone || 'N/A'}</div>
+                                  </div>
+                                  <div>
+                                    <div className="text-gray-500">KRA PIN</div>
+                                    <div className="font-medium">{supplier.kra_pin || 'N/A'}</div>
+                                  </div>
                                 </div>
-                                {qc && (qc.fuerte_overall > 0 || qc.hass_overall > 0) && (
-                                  <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-                                    {qc.fuerte_overall > 0 && (
-                                      <div className="bg-gray-50 p-3 rounded border">
-                                        <div className="font-medium">Avocado Fuerte</div>
-                                        <div className="grid grid-cols-3 gap-1 mt-1 text-xs">
-                                          <div>
-                                            <div className="text-gray-500">Class 1</div>
-                                            <div className="font-semibold">{qc.fuerte_class1}%</div>
-                                          </div>
-                                          <div>
-                                            <div className="text-gray-500">Class 2</div>
-                                            <div className="font-semibold">{qc.fuerte_class2}%</div>
-                                          </div>
-                                          <div>
-                                            <div className="text-gray-500">Overall</div>
-                                            <div className="font-bold text-green-600">{qc.fuerte_overall}%</div>
-                                          </div>
+                                
+                                {/* Variety Details */}
+                                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  {hasFuerte && (
+                                    <div className="bg-black-50 p-3 rounded border">
+                                      <div className="font-medium text-green-800 flex items-center gap-2">
+                                        <Apple className="w-4 h-4" />
+                                        Fuerte Avocado
+                                      </div>
+                                      <div className="mt-2 grid grid-cols-2 gap-2">
+                                        <div>
+                                          <div className="text-xs text-gray-500">Weight</div>
+                                          <div className="font-bold">{supplier.fuerte_weight} kg</div>
+                                        </div>
+                                        <div>
+                                          <div className="text-xs text-gray-500">Crates</div>
+                                          <div className="font-bold">{supplier.fuerte_crates}</div>
                                         </div>
                                       </div>
-                                    )}
-                                    {qc.hass_overall > 0 && (
-                                      <div className="bg-gray-50 p-3 rounded border">
-                                        <div className="font-medium">Avocado Hass</div>
-                                        <div className="grid grid-cols-3 gap-1 mt-1 text-xs">
-                                          <div>
-                                            <div className="text-gray-500">Class 1</div>
-                                            <div className="font-semibold">{qc.hass_class1}%</div>
-                                          </div>
-                                          <div>
-                                            <div className="text-gray-500">Class 2</div>
-                                            <div className="font-semibold">{qc.hass_class2}%</div>
-                                          </div>
-                                          <div>
-                                            <div className="text-gray-500">Overall</div>
-                                            <div className="font-bold text-green-600">{qc.hass_overall}%</div>
-                                          </div>
-                                        </div>
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-                                {safeArray(supplier.fruit_varieties).length > 0 && (
-                                  <div className="mt-3">
-                                    <div className="text-gray-500 mb-1">Fruit Varieties</div>
-                                    <div className="flex flex-wrap gap-2">
-                                      {safeArray(supplier.fruit_varieties).map((fruit, idx) => (
-                                        <Badge key={idx} variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                                          {fruit.name}: {fruit.weight}kg
-                                        </Badge>
-                                      ))}
                                     </div>
-                                  </div>
-                                )}
+                                  )}
+                                  
+                                  {hasHass && (
+                                    <div className="bg-black-50 p-3 rounded border">
+                                      <div className="font-medium text-purple-800 flex items-center gap-2">
+                                        <Apple className="w-4 h-4" />
+                                        Hass Avocado
+                                      </div>
+                                      <div className="mt-2 grid grid-cols-2 gap-2">
+                                        <div>
+                                          <div className="text-xs text-gray-500">Weight</div>
+                                          <div className="font-bold">{supplier.hass_weight} kg</div>
+                                        </div>
+                                        <div>
+                                          <div className="text-xs text-gray-500">Crates</div>
+                                          <div className="font-bold">{supplier.hass_crates}</div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
                               </CollapsibleContent>
                             </Collapsible>
                           );
@@ -1484,7 +2197,232 @@ export default function WarehousePage() {
               </Card>
             </TabsContent>
 
-            {/* UPDATED: Counting Tab with Collapsible Sections */}
+            {/* Quality Control Tab - UPDATED TO FILTER OUT COUNTED SUPPLIERS */}
+            <TabsContent value="quality" className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Scale className="w-5 h-5" />
+                    Quality Control Results
+                  </CardTitle>
+                  <CardDescription>
+                    {qualityChecks.filter(qc => {
+                      const alreadyCounted = isSupplierCounted(qc.weight_entry_id, countingRecords);
+                      return qc.overall_status === 'approved' && !alreadyCounted;
+                    }).length} approved supplier(s) ready for counting
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <ScrollArea className="h-[400px] pr-4">
+                    {isLoading.quality ? (
+                      <div className="flex flex-col items-center justify-center py-12">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-4"></div>
+                        <p className="text-muted-foreground">Loading quality checks...</p>
+                      </div>
+                    ) : qualityChecks.length === 0 ? (
+                      <div className="text-center py-8">
+                        <Scale className="w-12 h-12 mx-auto text-gray-300 mb-3" />
+                        <p className="text-gray-500 font-medium">No quality checks found</p>
+                        <p className="text-sm text-gray-400 mt-1">
+                          Quality control assessments will appear here after inspection
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {qualityChecks
+                          .filter(qc => {
+                            // Check if this supplier has been counted
+                            const alreadyCounted = isSupplierCounted(qc.weight_entry_id, countingRecords);
+                            
+                            // Only show if: approved AND not already counted
+                            return qc.overall_status === 'approved' && !alreadyCounted;
+                          })
+                          .map((qc) => {
+                            const supplierIntake = supplierIntakeRecords.find(r => r.id === qc.weight_entry_id);
+                            const hasFuerteQC = qc.fuerte_overall > 0;
+                            const hasHassQC = qc.hass_overall > 0;
+                            const alreadyCounted = isSupplierCounted(qc.weight_entry_id, countingRecords);
+                            
+                            return (
+                              <Collapsible
+                                key={qc.id}
+                                open={expandedQuality.has(qc.supplier_name)}
+                                onOpenChange={() => toggleQualityExpansion(qc.supplier_name)}
+                                className="border rounded-lg overflow-hidden"
+                              >
+                                <CollapsibleTrigger asChild>
+                                  <div className="flex items-center justify-between p-4 bg-black-50 hover:bg-black-100 cursor-pointer">
+                                    <div className="flex items-center gap-3">
+                                      <div className={`transition-transform ${expandedQuality.has(qc.supplier_name) ? 'rotate-180' : ''}`}>
+                                        <ChevronDown className="w-4 h-4" />
+                                      </div>
+                                      <div>
+                                        <div className="font-semibold">{qc.supplier_name}</div>
+                                        <div className="text-sm text-gray-500 flex items-center gap-4">
+                                          <span>Pallet: {qc.pallet_id}</span>
+                                          <span>Status: {qc.overall_status}</span>
+                                          <span>{formatDate(qc.processed_at)}</span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      {hasFuerteQC && (
+                                        <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                                          Fuerte: {qc.fuerte_overall}%
+                                        </Badge>
+                                      )}
+                                      {hasHassQC && (
+                                        <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200">
+                                          Hass: {qc.hass_overall}%
+                                        </Badge>
+                                      )}
+                                      <Badge variant="outline" className={
+                                        qc.overall_status === 'approved' 
+                                          ? "bg-green-50 text-green-700 border-green-200"
+                                          : "bg-red-50 text-red-700 border-red-200"
+                                      }>
+                                        {qc.overall_status === 'approved' ? 'Approved' : 'Rejected'}
+                                      </Badge>
+                                    </div>
+                                  </div>
+                                </CollapsibleTrigger>
+                                <CollapsibleContent className="p-4 bg-black border-t">
+                                  <div className="space-y-4">
+                                    {/* Supplier Intake Info */}
+                                    {supplierIntake && (
+                                      <div className="bg-black-50 p-3 rounded">
+                                        <div className="font-medium text-gray-700 mb-2">Intake Details</div>
+                                        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+                                          <div>
+                                            <div className="text-gray-500">Weight</div>
+                                            <div className="font-medium">{supplierIntake.total_weight} kg</div>
+                                          </div>
+                                          {supplierIntake.fuerte_weight > 0 && (
+                                            <div>
+                                              <div className="text-gray-500">Fuerte Weight</div>
+                                              <div className="font-medium text-green-700">{supplierIntake.fuerte_weight} kg</div>
+                                            </div>
+                                          )}
+                                          {supplierIntake.hass_weight > 0 && (
+                                            <div>
+                                              <div className="text-gray-500">Hass Weight</div>
+                                              <div className="font-medium text-purple-700">{supplierIntake.hass_weight} kg</div>
+                                            </div>
+                                          )}
+                                          <div>
+                                            <div className="text-gray-500">Region</div>
+                                            <div className="font-medium">{supplierIntake.region}</div>
+                                          </div>
+                                          <div>
+                                            <div className="text-gray-500">Driver</div>
+                                            <div className="font-medium">{supplierIntake.driver_name}</div>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    )}
+                                    
+                                    {/* Quality Check Results */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                      {hasFuerteQC && (
+                                        <div className="bg-green-50 p-4 rounded border border-green-200">
+                                          <div className="font-semibold text-green-800 mb-3 flex items-center gap-2">
+                                            <Apple className="w-4 h-4" />
+                                            Fuerte Avocado Quality
+                                          </div>
+                                          <div className="space-y-3">
+                                            <div className="flex justify-between items-center">
+                                              <span className="text-sm">Class 1 (Premium):</span>
+                                              <span className="font-bold text-green-700">{qc.fuerte_class1}%</span>
+                                            </div>
+                                            <div className="flex justify-between items-center">
+                                              <span className="text-sm">Class 2 (Standard):</span>
+                                              <span className="font-bold text-yellow-600">{qc.fuerte_class2}%</span>
+                                            </div>
+                                            <div className="flex justify-between items-center pt-3 border-t border-green-200">
+                                              <span className="font-semibold">Overall Quality:</span>
+                                              <span className={`font-bold text-lg ${
+                                                qc.fuerte_overall >= 80 ? 'text-green-700' : 
+                                                qc.fuerte_overall >= 60 ? 'text-yellow-600' : 'text-red-600'
+                                              }`}>
+                                                {qc.fuerte_overall}%
+                                              </span>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      )}
+                                      
+                                      {hasHassQC && (
+                                        <div className="bg-purple-50 p-4 rounded border border-purple-200">
+                                          <div className="font-semibold text-purple-800 mb-3 flex items-center gap-2">
+                                            <Apple className="w-4 h-4" />
+                                            Hass Avocado Quality
+                                          </div>
+                                          <div className="space-y-3">
+                                            <div className="flex justify-between items-center">
+                                              <span className="text-sm">Class 1 (Premium):</span>
+                                              <span className="font-bold text-purple-700">{qc.hass_class1}%</span>
+                                            </div>
+                                            <div className="flex justify-between items-center">
+                                              <span className="text-sm">Class 2 (Standard):</span>
+                                              <span className="font-bold text-yellow-600">{qc.hass_class2}%</span>
+                                            </div>
+                                            <div className="flex justify-between items-center pt-3 border-t border-purple-200">
+                                              <span className="font-semibold">Overall Quality:</span>
+                                              <span className={`font-bold text-lg ${
+                                                qc.hass_overall >= 80 ? 'text-green-700' : 
+                                                qc.hass_overall >= 60 ? 'text-yellow-600' : 'text-red-600'
+                                              }`}>
+                                                {qc.hass_overall}%
+                                              </span>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                    
+                                    {/* Action Button for Accepted Suppliers */}
+                                    {qc.overall_status === 'approved' && supplierIntake && !alreadyCounted && (
+                                      <div className="pt-4 border-t">
+                                        <Button
+                                          onClick={() => {
+                                            const intakeRecord = supplierIntakeRecords.find(r => r.id === qc.weight_entry_id);
+                                            if (intakeRecord) {
+                                              handleSelectSupplier(intakeRecord, qc);
+                                            }
+                                          }}
+                                          className="w-full bg-blue-600 hover:bg-blue-700"
+                                        >
+                                          <Calculator className="w-4 h-4 mr-2" />
+                                          Select for Counting
+                                        </Button>
+                                      </div>
+                                    )}
+
+                                    {/* Show message if already counted */}
+                                    {alreadyCounted && (
+                                      <div className="pt-4 border-t">
+                                        <div className="text-center p-3 bg-blue-50 rounded-lg">
+                                          <CheckCircle className="w-5 h-5 text-blue-600 mx-auto mb-2" />
+                                          <p className="text-sm font-medium text-blue-700">Already Counted</p>
+                                          <p className="text-xs text-blue-600">
+                                            This supplier has been processed and is in the History tab
+                                          </p>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                </CollapsibleContent>
+                              </Collapsible>
+                            );
+                          })}
+                      </div>
+                    )}
+                  </ScrollArea>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* Counting Tab */}
             <TabsContent value="counting" className="space-y-6">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <Card>
@@ -1519,15 +2457,45 @@ export default function WarehousePage() {
                           </div>
                         </div>
                         
-                        <div>
-                          <div className="text-sm text-gray-500 mb-2">Fruit Varieties</div>
-                          <div className="flex flex-wrap gap-2">
-                            {safeArray(selectedSupplier.fruit_varieties).map((fruit, idx) => (
-                              <Badge key={idx} variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                                {fruit.name}: {fruit.weight}kg
-                              </Badge>
-                            ))}
-                          </div>
+                        {/* Variety Details */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {selectedSupplier.fuerte_weight > 0 && (
+                            <div className="bg-black-50 p-3 rounded border">
+                              <div className="font-medium text-green-800 flex items-center gap-2">
+                                <Apple className="w-4 h-4" />
+                                Fuerte Avocado
+                              </div>
+                              <div className="mt-2 grid grid-cols-2 gap-2">
+                                <div>
+                                  <div className="text-xs text-gray-500">Weight</div>
+                                  <div className="font-bold">{selectedSupplier.fuerte_weight} kg</div>
+                                </div>
+                                <div>
+                                  <div className="text-xs text-gray-500">Crates</div>
+                                  <div className="font-bold">{selectedSupplier.fuerte_crates}</div>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                          
+                          {selectedSupplier.hass_weight > 0 && (
+                            <div className="bg-black-50 p-3 rounded border">
+                              <div className="font-medium text-purple-800 flex items-center gap-2">
+                                <Apple className="w-4 h-4" />
+                                Hass Avocado
+                              </div>
+                              <div className="mt-2 grid grid-cols-2 gap-2">
+                                <div>
+                                  <div className="text-xs text-gray-500">Weight</div>
+                                  <div className="font-bold">{selectedSupplier.hass_weight} kg</div>
+                                </div>
+                                <div>
+                                  <div className="text-xs text-gray-500">Crates</div>
+                                  <div className="font-bold">{selectedSupplier.hass_crates}</div>
+                                </div>
+                              </div>
+                            </div>
+                          )}
                         </div>
                         
                         {selectedQC && (
@@ -1547,16 +2515,117 @@ export default function WarehousePage() {
                             </div>
                           </div>
                         )}
-                        
+                                                
+                        {/* Supplier Payment Details */}
                         <div className="pt-4 border-t">
-                          <Label htmlFor="supplier_phone" className="mb-2">Supplier Phone Number</Label>
-                          <Input
-                            id="supplier_phone"
-                            value={countingForm.supplier_phone}
-                            onChange={(e) => handleInputChange('supplier_phone', e.target.value)}
-                            placeholder="Enter supplier phone number"
-                          />
+                          <h4 className="font-semibold mb-3 flex items-center gap-2">
+                            <Wallet className="w-4 h-4" />
+                            Supplier Payment Details
+                          </h4>
+                          <div className="space-y-3">
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <Label htmlFor="supplier_phone" className="mb-2 flex items-center gap-2">
+                                  <Smartphone className="w-4 h-4" />
+                                  Phone Number
+                                </Label>
+                                <Input
+                                  id="supplier_phone"
+                                  value={countingForm.supplier_phone}
+                                  onChange={(e) => handleInputChange('supplier_phone', e.target.value)}
+                                  placeholder="Enter supplier phone number"
+                                />
+                              </div>
+                              <div>
+                                <Label htmlFor="kra_pin" className="mb-2 flex items-center gap-2">
+                                  <Fingerprint className="w-4 h-4" />
+                                  KRA PIN
+                                </Label>
+                                <Input
+                                  id="kra_pin"
+                                  value={countingForm.kra_pin}
+                                  onChange={(e) => handleInputChange('kra_pin', e.target.value)}
+                                  placeholder="Enter KRA PIN"
+                                />
+                              </div>
+                            </div>
+                            
+                            <div>
+                              <Label htmlFor="bank_name" className="mb-2 flex items-center gap-2">
+                                <Building className="w-4 h-4" />
+                                Bank Name
+                              </Label>
+                              <Input
+                                id="bank_name"
+                                value={countingForm.bank_name}
+                                onChange={(e) => handleInputChange('bank_name', e.target.value)}
+                                placeholder="Enter bank name"
+                              />
+                            </div>
+                            
+                            <div>
+                              <Label htmlFor="bank_account" className="mb-2 flex items-center gap-2">
+                                <CreditCard className="w-4 h-4" />
+                                Bank Account Number
+                              </Label>
+                              <Input
+                                id="bank_account"
+                                value={countingForm.bank_account}
+                                onChange={(e) => handleInputChange('bank_account', e.target.value)}
+                                placeholder="Enter account number"
+                              />
+                            </div>
+                          </div>
                         </div>
+                        
+                        {/* Supplier Information Dropdown */}
+                        <Collapsible className="mt-4 border rounded-lg overflow-hidden">
+                          <CollapsibleTrigger asChild>
+                            <div className="flex items-center justify-between p-3 bg-black-50 hover:bg-black-100 cursor-pointer">
+                              <div className="flex items-center gap-2">
+                                <Info className="w-4 h-4" />
+                                <span className="font-medium">View Supplier Information from Intake</span>
+                              </div>
+                              <ChevronDown className="w-4 h-4" />
+                            </div>
+                          </CollapsibleTrigger>
+                          <CollapsibleContent className="p-4">
+                            <div className="space-y-3 text-sm">
+                              <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                  <div className="text-gray-500">Driver Name</div>
+                                  <div className="font-medium">{selectedSupplier.driver_name}</div>
+                                </div>
+                                <div>
+                                  <div className="text-gray-500">Vehicle Plate</div>
+                                  <div className="font-medium">{selectedSupplier.vehicle_plate}</div>
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-gray-500">Intake Date</div>
+                                <div className="font-medium">{formatDate(selectedSupplier.timestamp)}</div>
+                              </div>
+                              {selectedSupplier.supplier_phone && (
+                                <div>
+                                  <div className="text-gray-500">Phone</div>
+                                  <div className="font-medium">{selectedSupplier.supplier_phone}</div>
+                                </div>
+                              )}
+                              {selectedSupplier.bank_name && (
+                                <div>
+                                  <div className="text-gray-500">Bank</div>
+                                  <div className="font-medium">{selectedSupplier.bank_name}</div>
+                                </div>
+                              )}
+                              {selectedSupplier.kra_pin && (
+                                <div>
+                                  <div className="text-gray-500">KRA PIN</div>
+                                  <div className="font-medium">{selectedSupplier.kra_pin}</div>
+                                </div>
+                              )}
+                            </div>
+                          </CollapsibleContent>
+                        </Collapsible>
                       </div>
                     ) : (
                       <div className="text-center py-8">
@@ -1812,6 +2881,7 @@ export default function WarehousePage() {
               </div>
             </TabsContent>
 
+            {/* History Tab */}
             <TabsContent value="history" className="space-y-6">
               <Card>
                 <CardHeader>
@@ -1845,7 +2915,6 @@ export default function WarehousePage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-
                   <div className="space-y-4 mb-6">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div className="space-y-2">
@@ -1944,17 +3013,21 @@ export default function WarehousePage() {
                         {filteredHistory.map((record) => {
                           const boxesSummary = getBoxesSummary(record.totals);
                           const supplierInfo = getSupplierInfoFromCountingData(record.counting_data);
+                          const isExpanded = expandedHistory.has(record.id);
+                          const hasFuerte = record.fuerte_4kg_total + record.fuerte_10kg_total > 0;
+                          const hasHass = record.hass_4kg_total + record.hass_10kg_total > 0;
+                          
                           return (
                             <Collapsible
                               key={record.id}
-                              open={expandedHistory.has(record.id)}
+                              open={isExpanded}
                               onOpenChange={() => toggleHistoryExpansion(record.id)}
                               className="border rounded-lg overflow-hidden"
                             >
                               <CollapsibleTrigger asChild>
                                 <div className="flex items-center justify-between p-4 bg-black-50 hover:bg-black-100 cursor-pointer">
                                   <div className="flex items-center gap-3">
-                                    <div className={`transition-transform ${expandedHistory.has(record.id) ? 'rotate-180' : ''}`}>
+                                    <div className={`transition-transform ${isExpanded ? 'rotate-180' : ''}`}>
                                       <ChevronDown className="w-4 h-4" />
                                     </div>
                                     <div>
@@ -1968,6 +3041,30 @@ export default function WarehousePage() {
                                     </div>
                                   </div>
                                   <div className="flex items-center gap-2">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={async (e) => {
+                                        e.stopPropagation();
+                                        await downloadWarehouseGRN(record);
+                                      }}
+                                      className="gap-2"
+                                    >
+                                      <FileText className="w-4 h-4" />
+                                      Download GRN
+                                    </Button>
+                                    <div className="flex gap-1">
+                                      {hasFuerte && (
+                                        <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                                          Fuerte: {record.fuerte_4kg_total + record.fuerte_10kg_total}
+                                        </Badge>
+                                      )}
+                                      {hasHass && (
+                                        <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200">
+                                          Hass: {record.hass_4kg_total + record.hass_10kg_total}
+                                        </Badge>
+                                      )}
+                                    </div>
                                     <Badge variant="outline" className={
                                       record.for_coldroom && record.status === 'pending_coldroom' 
                                         ? "bg-green-50 text-green-700 border-green-200"
@@ -1986,33 +3083,65 @@ export default function WarehousePage() {
                               </CollapsibleTrigger>
                               <CollapsibleContent className="p-4 bg-black border-t">
                                 <div className="space-y-4">
-                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                                    <div>
-                                      <div className="text-gray-500">Supplier</div>
-                                      <div className="font-semibold">{record.supplier_name}</div>
+                                  {/* Supplier Information */}
+                                  <div className="bg-black p-4 rounded-lg">
+                                    <h4 className="font-semibold mb-3">Supplier Information</h4>
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                                      <div>
+                                        <div className="text-gray-500">Supplier Name</div>
+                                        <div className="font-semibold">{record.supplier_name}</div>
+                                      </div>
+                                      <div>
+                                        <div className="text-gray-500">Phone Number</div>
+                                        <div className="font-medium">{record.supplier_phone || 'N/A'}</div>
+                                      </div>
+                                      <div>
+                                        <div className="text-gray-500">Region</div>
+                                        <div className="font-medium">{record.region}</div>
+                                      </div>
+                                      <div>
+                                        <div className="text-gray-500">Pallet ID</div>
+                                        <div className="font-medium">{record.pallet_id}</div>
+                                      </div>
+                                      <div>
+                                        <div className="text-gray-500">Driver</div>
+                                        <div className="font-medium">{record.driver_name || supplierInfo.driver_name || 'N/A'}</div>
+                                      </div>
+                                      <div>
+                                        <div className="text-gray-500">Vehicle Plate</div>
+                                        <div className="font-medium">{record.vehicle_plate || supplierInfo.vehicle_plate || 'N/A'}</div>
+                                      </div>
+                                      <div>
+                                        <div className="text-gray-500">Processed By</div>
+                                        <div className="font-medium">{record.processed_by}</div>
+                                      </div>
+                                      <div>
+                                        <div className="text-gray-500">Date</div>
+                                        <div className="font-medium">{formatDate(record.submitted_at)}</div>
+                                      </div>
                                     </div>
-                                    <div>
-                                      <div className="text-gray-500">Pallet ID</div>
-                                      <div className="font-medium">{record.pallet_id}</div>
-                                    </div>
-                                    <div>
-                                      <div className="text-gray-500">Region</div>
-                                      <div className="font-medium">{record.region}</div>
-                                    </div>
-                                    <div>
-                                      <div className="text-gray-500">Processed By</div>
-                                      <div className="font-medium">{record.processed_by}</div>
-                                    </div>
-                                    <div>
-                                      <div className="text-gray-500">Driver</div>
-                                      <div className="font-medium">{supplierInfo.driver_name || 'N/A'}</div>
-                                    </div>
-                                    <div>
-                                      <div className="text-gray-500">Vehicle Plate</div>
-                                      <div className="font-medium">{supplierInfo.vehicle_plate || 'N/A'}</div>
+                                    
+                                    {/* Payment Details */}
+                                    <div className="mt-4 pt-4 border-t border-gray-200">
+                                      <h5 className="font-semibold mb-2 text-gray-700">Payment Details</h5>
+                                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                                        <div>
+                                          <div className="text-gray-500">Bank Name</div>
+                                          <div className="font-medium">{record.bank_name || 'N/A'}</div>
+                                        </div>
+                                        <div>
+                                          <div className="text-gray-500">Account Number</div>
+                                          <div className="font-medium">{record.bank_account || 'N/A'}</div>
+                                        </div>
+                                        <div>
+                                          <div className="text-gray-500">KRA PIN</div>
+                                          <div className="font-medium">{record.kra_pin || 'N/A'}</div>
+                                        </div>
+                                      </div>
                                     </div>
                                   </div>
 
+                                  {/* Weight Information */}
                                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                                     <div className="bg-black-50 p-3 rounded border">
                                       <div className="text-gray-500">Intake Weight</div>
@@ -2046,77 +3175,68 @@ export default function WarehousePage() {
                                     </div>
                                   </div>
 
-                                  <div className="bg-black-50 p-3 rounded border">
-                                    <div className="font-medium mb-2">Boxes Summary</div>
-                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                                      <div>
-                                        <div className="text-gray-500">Fuerte 4kg</div>
-                                        <div className="font-semibold text-green-700">{boxesSummary.fuerte_4kg} boxes</div>
-                                      </div>
-                                      <div>
-                                        <div className="text-gray-500">Fuerte 10kg</div>
-                                        <div className="font-semibold text-green-700">{boxesSummary.fuerte_10kg} crates</div>
-                                      </div>
-                                      <div>
-                                        <div className="text-gray-500">Hass 4kg</div>
-                                        <div className="font-semibold text-purple-700">{boxesSummary.hass_4kg} boxes</div>
-                                      </div>
-                                      <div>
-                                        <div className="text-gray-500">Hass 10kg</div>
-                                        <div className="font-semibold text-purple-700">{boxesSummary.hass_10kg} crates</div>
-                                      </div>
-                                    </div>
-                                    <div className="mt-2 pt-2 border-t">
-                                      <div className="flex justify-between text-sm">
-                                        <span className="text-gray-500">Total Boxes:</span>
-                                        <span className="font-bold">{boxesSummary.total} boxes/crates</span>
-                                      </div>
+                                  {/* Variety Breakdown */}
+                                  <div className="bg-black-50 p-4 rounded-lg">
+                                    <h4 className="font-semibold mb-3">Variety Breakdown</h4>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                      {hasFuerte && (
+                                        <div className="bg-black-50 p-3 rounded border">
+                                          <h5 className="font-semibold text-green-800 mb-2">Fuerte Avocado</h5>
+                                          <div className="grid grid-cols-2 gap-2">
+                                            <div>
+                                              <div className="text-xs text-gray-500">4kg Boxes</div>
+                                              <div className="font-bold">{record.fuerte_4kg_total}</div>
+                                            </div>
+                                            <div>
+                                              <div className="text-xs text-gray-500">10kg Crates</div>
+                                              <div className="font-bold">{record.fuerte_10kg_total}</div>
+                                            </div>
+                                            <div className="col-span-2">
+                                              <div className="text-xs text-gray-500">Total Weight</div>
+                                              <div className="font-bold text-green-700">
+                                                {(record.fuerte_4kg_total * 4 + record.fuerte_10kg_total * 10).toFixed(1)} kg
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      )}
+                                      
+                                      {hasHass && (
+                                        <div className="bg-black-50 p-3 rounded border">
+                                          <h5 className="font-semibold text-purple-800 mb-2">Hass Avocado</h5>
+                                          <div className="grid grid-cols-2 gap-2">
+                                            <div>
+                                              <div className="text-xs text-gray-500">4kg Boxes</div>
+                                              <div className="font-bold">{record.hass_4kg_total}</div>
+                                            </div>
+                                            <div>
+                                              <div className="text-xs text-gray-500">10kg Crates</div>
+                                              <div className="font-bold">{record.hass_10kg_total}</div>
+                                            </div>
+                                            <div className="col-span-2">
+                                              <div className="text-xs text-gray-500">Total Weight</div>
+                                              <div className="font-bold text-purple-700">
+                                                {(record.hass_4kg_total * 4 + record.hass_10kg_total * 10).toFixed(1)} kg
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      )}
                                     </div>
                                   </div>
 
-                                  <div>
-                                    <div className="text-gray-500 mb-2">Detailed Box Counts</div>
-                                    <div className="bg-black-50 p-3 rounded border">
-                                      <div className="grid grid-cols-4 gap-2 text-sm mb-2 font-medium">
-                                        <div>Type</div>
-                                        <div>Class 1</div>
-                                        <div>Class 2</div>
-                                        <div>Total</div>
-                                      </div>
-                                      {boxesSummary.fuerte_4kg > 0 && (
-                                        <div className="grid grid-cols-4 gap-2 text-sm py-1 border-t">
-                                          <div className="font-medium">Fuerte 4kg</div>
-                                          <div>{parseCountingTotals(record.totals).fuerte_4kg_class1 || 0}</div>
-                                          <div>{parseCountingTotals(record.totals).fuerte_4kg_class2 || 0}</div>
-                                          <div className="font-bold">{boxesSummary.fuerte_4kg}</div>
-                                        </div>
-                                      )}
-                                      {boxesSummary.fuerte_10kg > 0 && (
-                                        <div className="grid grid-cols-4 gap-2 text-sm py-1 border-t">
-                                          <div className="font-medium">Fuerte 10kg</div>
-                                          <div>{parseCountingTotals(record.totals).fuerte_10kg_class1 || 0}</div>
-                                          <div>{parseCountingTotals(record.totals).fuerte_10kg_class2 || 0}</div>
-                                          <div className="font-bold">{boxesSummary.fuerte_10kg}</div>
-                                        </div>
-                                      )}
-                                      {boxesSummary.hass_4kg > 0 && (
-                                        <div className="grid grid-cols-4 gap-2 text-sm py-1 border-t">
-                                          <div className="font-medium">Hass 4kg</div>
-                                          <div>{parseCountingTotals(record.totals).hass_4kg_class1 || 0}</div>
-                                          <div>{parseCountingTotals(record.totals).hass_4kg_class2 || 0}</div>
-                                          <div className="font-bold">{boxesSummary.hass_4kg}</div>
-                                        </div>
-                                      )}
-                                      {boxesSummary.hass_10kg > 0 && (
-                                        <div className="grid grid-cols-4 gap-2 text-sm py-1 border-t">
-                                          <div className="font-medium">Hass 10kg</div>
-                                          <div>{parseCountingTotals(record.totals).hass_10kg_class1 || 0}</div>
-                                          <div>{parseCountingTotals(record.totals).hass_10kg_class2 || 0}</div>
-                                          <div className="font-bold">{boxesSummary.hass_10kg}</div>
-                                        </div>
-                                      )}
+                                  {/* Weight Breakdown (if expanded) */}
+                                  {isExpanded && selectedSupplierDetails && (
+                                    renderWeightBreakdown(record)
+                                  )}
+
+                                  {/* Boxes Breakdown */}
+                                  {isExpanded && (
+                                    <div>
+                                      <h4 className="font-semibold mb-3">Detailed Box Breakdown</h4>
+                                      {renderBoxesBreakdown(record)}
                                     </div>
-                                  </div>
+                                  )}
 
                                   {record.notes && (
                                     <div>
@@ -2127,35 +3247,18 @@ export default function WarehousePage() {
                                     </div>
                                   )}
 
-                                  {record.for_coldroom && record.status === 'pending_coldroom' && (
-                                    <div className="bg-green-50 p-3 rounded border border-green-200">
-                                      <div className="flex justify-between items-center">
-                                        <div>
-                                          <div className="font-medium text-green-800">Ready for Cold Room</div>
-                                          <div className="text-sm text-green-600">This record can be loaded to cold room</div>
-                                        </div>
-                                        <Button
-                                          size="sm"
-                                          onClick={() => {
-                                            window.open('/cold-room', '_blank');
-                                            localStorage.setItem('coldRoomSupplierData', JSON.stringify({
-                                              id: record.id,
-                                              supplier_name: record.supplier_name,
-                                              pallet_id: record.pallet_id,
-                                              region: record.region,
-                                              counting_data: record.counting_data,
-                                              counting_totals: record.totals,
-                                              total_weight: record.total_weight,
-                                              total_counted_weight: record.total_counted_weight
-                                            }));
-                                          }}
-                                          className="bg-green-600 hover:bg-green-700"
-                                        >
-                                          Load to Cold Room
-                                        </Button>
-                                      </div>
-                                    </div>
-                                  )}
+                                  {/* Action Buttons */}
+                                  <div className="flex justify-between pt-4 border-t">
+                                    <Button
+                                      onClick={async () => {
+                                        await downloadWarehouseGRN(record);
+                                      }}
+                                      className="gap-2"
+                                    >
+                                      <FileDown className="w-4 h-4" />
+                                      Download Complete GRN
+                                    </Button>
+                                  </div>
                                 </div>
                               </CollapsibleContent>
                             </Collapsible>
