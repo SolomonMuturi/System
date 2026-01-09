@@ -69,7 +69,10 @@ export async function GET(request: NextRequest) {
           for_coldroom: record.for_coldroom !== undefined ? Boolean(record.for_coldroom) : true,
           status: record.status || 'pending_coldroom',
           driver_name: record.driver_name || '',
-          vehicle_plate: record.vehicle_plate || ''
+          vehicle_plate: record.vehicle_plate || '',
+          bank_name: record.bank_name || '',
+          bank_account: record.bank_account || '',
+          kra_pin: record.kra_pin || ''
         };
       }) : [];
       
@@ -193,7 +196,10 @@ export async function GET(request: NextRequest) {
           return {
             ...record,
             counting_data: countingData,
-            totals: totals
+            totals: totals,
+            bank_name: record.bank_name || '',
+            bank_account: record.bank_account || '',
+            kra_pin: record.kra_pin || ''
           };
         }) : [];
         
@@ -277,7 +283,10 @@ export async function GET(request: NextRequest) {
             hass_10kg_total: record.hass_10kg_total || totals?.hass_10kg_total || 0,
             total_counted_weight: record.total_counted_weight || 0,
             for_coldroom: record.for_coldroom !== undefined ? Boolean(record.for_coldroom) : true,
-            status: record.status || 'pending_coldroom'
+            status: record.status || 'pending_coldroom',
+            bank_name: record.bank_name || '',
+            bank_account: record.bank_account || '',
+            kra_pin: record.kra_pin || ''
           };
         }) : [];
         
@@ -291,6 +300,75 @@ export async function GET(request: NextRequest) {
           success: true,
           data: []
         });
+      }
+      
+    } else if (action === 'supplier-details') {
+      // Get supplier details from weight entries
+      const supplierId = searchParams.get('supplierId');
+      
+      if (!supplierId) {
+        return NextResponse.json({
+          success: false,
+          error: 'Supplier ID is required'
+        }, { status: 400 });
+      }
+      
+      try {
+        // Get weight entry details
+        const weightEntryResult = await prisma.$queryRaw`
+          SELECT * FROM weight_entries 
+          WHERE id = ${supplierId}
+          LIMIT 1
+        `;
+        
+        if (!Array.isArray(weightEntryResult) || weightEntryResult.length === 0) {
+          return NextResponse.json({
+            success: false,
+            error: 'Supplier not found'
+          }, { status: 404 });
+        }
+        
+        const weightEntry = weightEntryResult[0];
+        
+        // Get supplier details if exists
+        const supplierResult = await prisma.$queryRaw`
+          SELECT * FROM suppliers 
+          WHERE contact_phone = ${weightEntry.supplier_phone} 
+          OR name = ${weightEntry.supplier}
+          LIMIT 1
+        `;
+        
+        const supplier = Array.isArray(supplierResult) && supplierResult.length > 0 ? supplierResult[0] : null;
+        
+        // Get quality check for this weight entry
+        const qualityCheckResult = await prisma.$queryRaw`
+          SELECT * FROM quality_checks 
+          WHERE weight_entry_id = ${supplierId}
+          LIMIT 1
+        `;
+        
+        const qualityCheck = Array.isArray(qualityCheckResult) && qualityCheckResult.length > 0 ? qualityCheckResult[0] : null;
+        
+        return NextResponse.json({
+          success: true,
+          data: {
+            weight_entry: weightEntry,
+            supplier: supplier,
+            quality_check: qualityCheck,
+            payment_details: {
+              phone_number: weightEntry.supplier_phone || supplier?.contact_phone || '',
+              bank_name: weightEntry.bank_name || supplier?.bank_name || '',
+              bank_account: weightEntry.bank_account || supplier?.bank_account_number || '',
+              kra_pin: weightEntry.kra_pin || supplier?.kra_pin || ''
+            }
+          }
+        });
+      } catch (error) {
+        console.error('Error fetching supplier details:', error);
+        return NextResponse.json({
+          success: false,
+          error: 'Failed to fetch supplier details'
+        }, { status: 500 });
       }
       
     } else {
@@ -325,7 +403,10 @@ export async function GET(request: NextRequest) {
           return {
             ...record,
             counting_data: countingData,
-            totals: totals
+            totals: totals,
+            bank_name: record.bank_name || '',
+            bank_account: record.bank_account || '',
+            kra_pin: record.kra_pin || ''
           };
         }) : [];
         
@@ -362,7 +443,10 @@ export async function POST(request: NextRequest) {
       pallet_id: data.pallet_id,
       total_weight: data.total_weight,
       counting_data: data.counting_data ? 'Present' : 'Missing',
-      totals: data.totals ? 'Present' : 'Missing'
+      totals: data.totals ? 'Present' : 'Missing',
+      bank_name: data.bank_name,
+      bank_account: data.bank_account,
+      kra_pin: data.kra_pin
     });
 
     // Validate required fields
@@ -468,7 +552,10 @@ export async function POST(request: NextRequest) {
       driver_name: data.driver_name || data.counting_data?.driver_name || '',
       vehicle_plate: data.vehicle_plate || data.counting_data?.vehicle_plate || '',
       supplier_phone: data.supplier_phone || '',
-      region: data.region || ''
+      region: data.region || '',
+      bank_name: data.bank_name || '',
+      bank_account: data.bank_account || '',
+      kra_pin: data.kra_pin || ''
     };
 
     // Save to database
@@ -506,7 +593,10 @@ export async function POST(request: NextRequest) {
         processed_by,
         notes,
         driver_name,
-        vehicle_plate
+        vehicle_plate,
+        bank_name,
+        bank_account,
+        kra_pin
       ) VALUES (
         ${id},
         ${data.supplier_id},
@@ -538,7 +628,10 @@ export async function POST(request: NextRequest) {
         ${data.processed_by || 'Warehouse Staff'},
         ${data.notes || ''},
         ${data.driver_name || countingDataWithMetadata.driver_name || ''},
-        ${data.vehicle_plate || countingDataWithMetadata.vehicle_plate || ''}
+        ${data.vehicle_plate || countingDataWithMetadata.vehicle_plate || ''},
+        ${data.bank_name || ''},
+        ${data.bank_account || ''},
+        ${data.kra_pin || ''}
       )
     `;
 
@@ -608,7 +701,10 @@ export async function POST(request: NextRequest) {
         processed_by: savedRecord.processed_by,
         notes: savedRecord.notes,
         driver_name: savedRecord.driver_name || '',
-        vehicle_plate: savedRecord.vehicle_plate || ''
+        vehicle_plate: savedRecord.vehicle_plate || '',
+        bank_name: savedRecord.bank_name || '',
+        bank_account: savedRecord.bank_account || '',
+        kra_pin: savedRecord.kra_pin || ''
       },
       message: 'Counting data saved successfully to database and marked ready for cold room'
     }, { status: 201 });
