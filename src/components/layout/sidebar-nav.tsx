@@ -80,11 +80,13 @@ const allNavItems: NavItem[] = [
   // Operations
   { name: 'Intake', href: '/weight-capture', icon: Weight, permission: 'suppliers.weigh' },
   { name: 'Quality Control', href: '/quality-control', icon: FlaskConical, permissions: ['qc.view', 'qc.perform'] },
-  { name: 'Counting', href: '/warehouse', icon: Warehouse, permission: 'inventory.view' },
+  // UPDATED: Counting now requires counting.perform instead of inventory.view
+  { name: 'Counting', href: '/warehouse', icon: Warehouse, permission: 'counting.perform' },
   { name: 'Cold Room', href: '/cold-room', icon: Thermometer, permissions: ['cold_room.view', 'cold_room.temperature'] },
   { name: 'Shipments', href: '/shipments', icon: Truck, permissions: ['shipments.view', 'shipments.track'] },
   { name: 'Carriers', href: '/carriers', icon: Briefcase, permissions: ['carriers.view', 'carriers.manage'] },
   { name: 'Loading', href: '/outbound', icon: Truck, permissions: ['loading.view', 'loading.create'] },
+  // UPDATED: Inventory requires inventory.view or inventory.manage
   { name: 'Inventory', href: '/inventory', icon: Boxes, permissions: ['inventory.view', 'inventory.manage'] },
   { name: 'Utility Management', href: '/utility', icon: Zap, permissions: ['utilities.view', 'utilities.record'] },
   
