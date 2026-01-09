@@ -13,7 +13,7 @@ import { SidebarNav } from '@/components/layout/sidebar-nav';
 import { Header } from '@/components/layout/header';
 import { WeightCapture } from '@/components/dashboard/weight-capture';
 import { FinalTagDialog } from '@/components/dashboard/final-tag-dialog';
-import { Scale, Boxes, GitCompareArrows, Loader2, RefreshCw, AlertCircle, Truck, CheckCircle, Package, TrendingUp, TrendingDown, Minus, Clock, CheckCheck, Download, Calendar, FileSpreadsheet, Search, Filter } from 'lucide-react';
+import { Scale, Boxes, GitCompareArrows, Loader2, RefreshCw, AlertCircle, Truck, CheckCircle, Package, TrendingUp, TrendingDown, Minus, Clock, CheckCheck, Download, Calendar, FileSpreadsheet, Search, Filter, Printer, FileText } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -26,41 +26,70 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar as CalendarComponent } from '@/components/ui/calendar';
 import { format, isSameDay, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
-// Define types based on your schema
+// Define types based on your API response
 interface WeightEntry {
+  // Basic info
   id: string;
-  pallet_id: string | null;
-  palletId?: string | null;
-  product: string | null;
-  weight: number | null;
+  palletId: string;
+  pallet_id: string;
+  product: string;
+  weight: number;
   unit: 'kg' | 'lb';
-  timestamp: string | null;
-  supplier: string | null;
-  supplier_id: string | null;
-  supplier_phone: string | null;
-  fruit_variety: string[] | string | null;
-  number_of_crates: number | null;
-  region: string | null;
-  image_url: string | null;
-  driver_name: string | null;
-  driver_phone: string | null;
-  driver_id_number: string | null;
-  vehicle_plate: string | null;
-  truck_id: string | null;
-  driver_id: string | null;
-  gross_weight: number | null;
-  grossWeight?: number | null;
-  tare_weight: number | null;
-  tareWeight?: number | null;
-  net_weight: number | null;
-  netWeight?: number | null;
-  declared_weight: number | null;
-  declaredWeight?: number | null;
-  rejected_weight: number | null;
-  rejectedWeight?: number | null;
-  notes: string | null;
+  timestamp: string;
   created_at: string;
+  
+  // Supplier info
+  supplier: string;
+  supplier_id: string;
+  supplier_phone: string;
+  
+  // Driver info
+  driver_name: string;
+  driver_phone: string;
+  driver_id_number: string;
+  vehicle_plate: string;
+  truckId: string;
+  truck_id: string;
+  driverId: string;
+  driver_id: string;
+  
+  // Weight calculations
+  grossWeight: number;
+  gross_weight: number;
+  tareWeight: number;
+  tare_weight: number;
+  netWeight: number;
+  net_weight: number;
+  declaredWeight: number;
+  declared_weight: number;
+  rejectedWeight: number;
+  rejected_weight: number;
+  
+  // FRUIT VARIETY WEIGHTS - SEPARATED
+  fuerte_weight: number;
+  fuerte_crates: number;
+  hass_weight: number;
+  hass_crates: number;
+  number_of_crates: number;
+  
+  // Fruit variety arrays
+  fruit_variety: string[];
+  perVarietyWeights: Array<{
+    variety: string;
+    weight: number;
+    crates: number;
+  }>;
+  
+  // Other info
+  region: string;
+  image_url: string;
+  notes: string;
+  bank_name: string;
+  bank_account: string;
+  kra_pin: string;
 }
 
 interface KPIData {
@@ -76,60 +105,30 @@ interface KPIData {
     change: string;
     changeType: 'increase' | 'decrease' | 'neutral';
   };
-  discrepancyRate: {
-    title: string;
-    value: string;
-    change: string;
-    changeType: 'increase' | 'decrease' | 'neutral';
-  };
   suppliersToday: {
     title: string;
     value: string;
     change: string;
     changeType: 'increase' | 'decrease' | 'neutral';
   };
-}
-
-interface WeightEntryAPI {
-  id: string;
-  pallet_id: string | null;
-  product: string | null;
-  weight: number | null;
-  unit: 'kg' | 'lb';
-  timestamp: string | null;
-  supplier: string | null;
-  supplier_id: string | null;
-  supplier_phone: string | null;
-  fruit_variety: string[];
-  number_of_crates: number | null;
-  region: string | null;
-  image_url: string | null;
-  driver_name: string | null;
-  driver_phone: string | null;
-  driver_id_number: string | null;
-  vehicle_plate: string | null;
-  truck_id: string | null;
-  driver_id: string | null;
-  gross_weight: number | null;
-  tare_weight: number | null;
-  net_weight: number | null;
-  declared_weight: number | null;
-  rejected_weight: number | null;
-  notes: string | null;
-  created_at: string;
+  pendingSuppliers: {
+    title: string;
+    value: string;
+    change: string;
+    changeType: 'increase' | 'decrease' | 'neutral';
+  };
 }
 
 interface KPIApiResponse {
   todayCount: number;
   changeSinceLastHour: number;
   totalWeightToday: number;
-  discrepancyRate: number;
 }
 
 interface CheckedInSupplier {
   id: string;
   supplier_code: string;
-  company_name: string;
+  company_name: string; 
   driver_name: string;
   phone_number: string;
   id_number: string;
@@ -150,6 +149,44 @@ interface CSVRow {
   fuerte_crates_in: number;
   hass_crates_in: number;
   region: string;
+}
+
+interface SupplierGRNData {
+  supplier_id: string;
+  company_name: string;
+  driver_name: string;
+  vehicle_plate: string;
+  phone_number: string;
+  check_in_time: string;
+  weights: Array<{
+    variety: string;
+    weight: number;
+    crates: number;
+    timestamp: string;
+  }>;
+  pallets: Array<{
+    pallet_id: string;
+    varieties: string[];
+    weight: number;
+    crates: number;
+    time: string;
+    region: string;
+  }>;
+  total_weight: number;
+  total_crates: number;
+}
+
+interface VarietyData {
+  variety: string;
+  weight: number;
+  crates: number;
+}
+
+interface FruitWeights {
+  fuerte_weight: number;
+  fuerte_crates: number;
+  hass_weight: number;
+  hass_crates: number;
 }
 
 const getChangeIcon = (changeType: 'increase' | 'decrease' | 'neutral') => {
@@ -182,65 +219,74 @@ export default function WeightCapturePage() {
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   
+  // State for pallet ID counter
+  const [palletCounter, setPalletCounter] = useState<number>(1);
+  
   const { toast } = useToast();
 
-  // Fetch ALL weight entries from database
+  // Fetch ALL weight entries from database - UPDATED FOR API STRUCTURE
   const fetchWeights = async () => {
     try {
       setError(null);
+      console.log('Fetching weights from API...');
+      
       const response = await fetch('/api/weights?limit=1000&order=desc');
+      
+      console.log('API Response status:', response.status);
       
       if (!response.ok) {
         throw new Error(`Failed to fetch weights: ${response.statusText}`);
       }
       
-      const data: WeightEntryAPI[] = await response.json();
+      const data = await response.json();
+      console.log('Fetched weights:', data.length);
+      console.log('Sample weight entry:', data[0] ? {
+        id: data[0].id,
+        fuerte_weight: data[0].fuerte_weight,
+        hass_weight: data[0].hass_weight,
+        fruit_variety: data[0].fruit_variety
+      } : 'No data');
       
-      // Transform to match WeightEntry type
-      const transformedWeights: WeightEntry[] = data.map(entry => ({
-        id: entry.id,
-        pallet_id: entry.pallet_id,
-        product: entry.product,
-        weight: entry.weight,
-        unit: entry.unit,
-        timestamp: entry.timestamp,
-        supplier: entry.supplier,
-        supplier_id: entry.supplier_id,
-        supplier_phone: entry.supplier_phone,
-        fruit_variety: entry.fruit_variety || [],
-        number_of_crates: entry.number_of_crates,
-        region: entry.region,
-        image_url: entry.image_url,
-        driver_name: entry.driver_name,
-        driver_phone: entry.driver_phone,
-        driver_id_number: entry.driver_id_number,
-        vehicle_plate: entry.vehicle_plate,
-        truck_id: entry.truck_id,
-        driver_id: entry.driver_id,
-        gross_weight: entry.gross_weight,
-        tare_weight: entry.tare_weight,
-        net_weight: entry.net_weight,
-        declared_weight: entry.declared_weight,
-        rejected_weight: entry.rejected_weight,
-        notes: entry.notes,
-        created_at: entry.created_at,
-      }));
-      
-      setWeights(transformedWeights);
+      setWeights(data);
       
       // Update processed suppliers based on existing weights
       const processedSet = new Set<string>();
-      transformedWeights.forEach(entry => {
+      data.forEach((entry: WeightEntry) => {
         if (entry.supplier_id) {
           processedSet.add(entry.supplier_id);
         }
       });
       setProcessedSuppliers(processedSet);
       
+      // Calculate the highest pallet number for today
+      const today = new Date();
+      const todayString = today.toISOString().split('T')[0];
+      const todayPallets = data
+        .filter((entry: WeightEntry) => entry.created_at.startsWith(todayString))
+        .filter((entry: WeightEntry) => entry.pallet_id && entry.pallet_id.startsWith('PAL-'));
+      
+      if (todayPallets.length > 0) {
+        const palletNumbers = todayPallets.map((entry: WeightEntry) => {
+          const match = entry.pallet_id.match(/PAL-(\d+)/);
+          return match ? parseInt(match[1]) : 0;
+        }).filter(num => num > 0);
+        
+        if (palletNumbers.length > 0) {
+          setPalletCounter(Math.max(...palletNumbers) + 1);
+        }
+      }
+      
     } catch (error: any) {
       console.error('Error fetching weights:', error);
       setError(error.message || 'Failed to load weight data');
       setWeights([]);
+      
+      // Show user-friendly error
+      toast({
+        title: 'Error Loading Data',
+        description: 'Could not load weight entries. Please try refreshing.',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -272,9 +318,6 @@ export default function WeightCapturePage() {
     
     setIsHistoryLoading(true);
     try {
-      // Instead of calling a non-existent API endpoint, we'll filter the existing weights client-side
-      // We already have all weights loaded from fetchWeights()
-      
       // Filter weights by selected date
       const filteredWeights = weights.filter(entry => {
         const entryDate = new Date(entry.created_at);
@@ -325,29 +368,24 @@ export default function WeightCapturePage() {
       
       const data: KPIApiResponse = await response.json();
       
-      // Calculate discrepancy rate
+      // Calculate today's entries
       const todayEntries = weights.filter(entry => {
         const entryDate = new Date(entry.created_at);
         const today = new Date();
         return isSameDay(entryDate, today);
       });
       
-      let calculatedDiscrepancy = 0;
-      if (todayEntries.length > 0) {
-        const totalDeclared = todayEntries.reduce((sum, entry) => 
-          sum + (entry.declared_weight || entry.net_weight || 0), 0);
-        const totalActual = todayEntries.reduce((sum, entry) => 
-          sum + (entry.net_weight || 0), 0);
-        
-        if (totalDeclared > 0) {
-          calculatedDiscrepancy = Math.abs(totalDeclared - totalActual) / totalDeclared * 100;
-        }
-      }
-      
       // Get unique suppliers today
       const uniqueSuppliers = new Set(
         todayEntries.map(entry => entry.supplier_id).filter(Boolean)
       ).size;
+      
+      // Get pending suppliers count
+      const pendingSuppliers = checkedInSuppliers.filter(s => !processedSuppliers.has(s.id)).length;
+      
+      // Calculate total weight - USING SEPARATED VARIETIES
+      const totalWeightToday = todayEntries.reduce((sum, entry) => 
+        sum + (entry.fuerte_weight || 0) + (entry.hass_weight || 0), 0);
       
       setKpiData({
         palletsWeighed: {
@@ -360,49 +398,64 @@ export default function WeightCapturePage() {
         },
         totalWeight: {
           title: 'Total Weight Today',
-          value: `${(data.totalWeightToday / 1000).toFixed(1)} t`,
-          change: 'across all entries',
+          value: `${(totalWeightToday / 1000).toFixed(1)} t`,
+          change: `${todayEntries.length} entries recorded`,
           changeType: 'increase',
         },
-        discrepancyRate: {
-          title: 'Discrepancy Rate',
-          value: `${calculatedDiscrepancy.toFixed(1)}%`,
-          change: 'net vs. declared weight',
-          changeType: calculatedDiscrepancy > 5 ? 'increase' : 'decrease',
-        },
         suppliersToday: {
-          title: 'Suppliers Today',
+          title: 'Suppliers Processed',
           value: uniqueSuppliers.toString(),
-          change: `${checkedInSuppliers.length} checked-in now`,
-          changeType: checkedInSuppliers.length > 0 ? 'increase' : 'neutral',
+          change: `${pendingSuppliers} still pending`,
+          changeType: pendingSuppliers > 0 ? 'increase' : 'neutral',
+        },
+        pendingSuppliers: {
+          title: 'Pending Weighing',
+          value: pendingSuppliers.toString(),
+          change: `${checkedInSuppliers.length} checked-in total`,
+          changeType: 'neutral',
         },
       });
     } catch (error: any) {
       console.error('Error fetching KPI data:', error);
-      // Set default KPI data
+      // Set default KPI data using separated variety weights
+      const todayEntries = weights.filter(entry => {
+        const entryDate = new Date(entry.created_at);
+        const today = new Date();
+        return isSameDay(entryDate, today);
+      });
+      
+      // Calculate total weight using separated varieties
+      const totalWeightToday = todayEntries.reduce((sum, entry) => 
+        sum + (entry.fuerte_weight || 0) + (entry.hass_weight || 0), 0);
+      
+      const uniqueSuppliers = new Set(
+        todayEntries.map(entry => entry.supplier_id).filter(Boolean)
+      ).size;
+      const pendingSuppliers = checkedInSuppliers.filter(s => !processedSuppliers.has(s.id)).length;
+      
       setKpiData({
         palletsWeighed: {
           title: 'Pallets Weighed Today',
-          value: '0',
-          change: 'No data',
+          value: todayEntries.length.toString(),
+          change: 'Local data',
           changeType: 'neutral',
         },
         totalWeight: {
           title: 'Total Weight Today',
-          value: '0 t',
-          change: 'No data',
-          changeType: 'neutral',
-        },
-        discrepancyRate: {
-          title: 'Discrepancy Rate',
-          value: '0%',
-          change: 'No data',
+          value: `${(totalWeightToday / 1000).toFixed(1)} t`,
+          change: `${todayEntries.length} entries`,
           changeType: 'neutral',
         },
         suppliersToday: {
-          title: 'Suppliers Today',
-          value: '0',
-          change: 'No suppliers',
+          title: 'Suppliers Processed',
+          value: uniqueSuppliers.toString(),
+          change: `${pendingSuppliers} pending`,
+          changeType: 'neutral',
+        },
+        pendingSuppliers: {
+          title: 'Pending Weighing',
+          value: pendingSuppliers.toString(),
+          change: `${checkedInSuppliers.length} checked-in`,
           changeType: 'neutral',
         },
       });
@@ -436,7 +489,7 @@ export default function WeightCapturePage() {
     if (activeTab === 'history' && historyDate) {
       fetchHistoryWeights(historyDate);
     }
-  }, [historyDate, activeTab, weights]); // Added weights to dependencies
+  }, [historyDate, activeTab, weights]);
 
   // Function to refresh all data
   const refreshAllData = async () => {
@@ -454,50 +507,128 @@ export default function WeightCapturePage() {
     });
   };
 
+  // Function to generate pallet ID with sequential numbering
+  const generatePalletId = () => {
+    const today = new Date();
+    const dateStr = `${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`;
+    const palletNum = palletCounter.toString().padStart(3, '0');
+    
+    // Increment counter for next use
+    setPalletCounter(prev => prev + 1);
+    
+    return `PAL-${palletNum}/${dateStr}`;
+  };
+
+  // Handle Add Weight function - UPDATED FOR API STRUCTURE
   const handleAddWeight = async (weightData: any) => {
     try {
-      console.log('Submitting weight data:', weightData); // Debug log
+      console.log('DEBUG - Raw weight data received:', weightData);
+      
+      // Extract fruit weights from weightData
+      const fuerteWeight = weightData.fuerte_weight ? parseFloat(String(weightData.fuerte_weight)) : 0;
+      const fuerteCrates = weightData.fuerte_crates ? parseInt(String(weightData.fuerte_crates)) : 0;
+      const hassWeight = weightData.hass_weight ? parseFloat(String(weightData.hass_weight)) : 0;
+      const hassCrates = weightData.hass_crates ? parseInt(String(weightData.hass_crates)) : 0;
+      
+      console.log('DEBUG - Parsed fruit weights:', {
+        fuerteWeight,
+        fuerteCrates,
+        hassWeight,
+        hassCrates
+      });
+      
+      // Validate at least one weight is provided
+      if (fuerteWeight <= 0 && hassWeight <= 0) {
+        toast({
+          title: 'Validation Error',
+          description: 'Please enter weight for at least one variety (Fuerte or Hass)',
+          variant: 'destructive',
+        });
+        return;
+      }
+      
+      // Validate at least one crate count is provided
+      if (fuerteCrates <= 0 && hassCrates <= 0) {
+        toast({
+          title: 'Validation Error',
+          description: 'Please enter number of crates for at least one variety',
+          variant: 'destructive',
+        });
+        return;
+      }
+      
       setError(null);
       
       // Capture supplier info before submission
       const submittedSupplierId = weightData.supplier_id;
+      
+      // Generate sequential pallet ID
+      const generatedPalletId = weightData.pallet_id || generatePalletId();
+      
+      // Calculate totals
+      const totalWeight = fuerteWeight + hassWeight;
+      const totalCrates = fuerteCrates + hassCrates;
+      
+      console.log('DEBUG - Totals:', {
+        totalWeight,
+        totalCrates
+      });
+      
+      // Create fruit varieties array based on weights
+      const fruitVarieties = [];
+      if (fuerteWeight > 0) fruitVarieties.push('Fuerte');
+      if (hassWeight > 0) fruitVarieties.push('Hass');
+      
+      // Prepare payload for API
+      const payload = {
+        // Pallet info
+        pallet_id: generatedPalletId,
+        unit: weightData.unit || 'kg',
+        timestamp: weightData.timestamp || new Date().toISOString(),
+        
+        // SEPARATED FRUIT WEIGHTS - THIS IS WHAT THE API EXPECTS
+        fuerte_weight: String(fuerteWeight),
+        fuerte_crates: String(fuerteCrates),
+        hass_weight: String(hassWeight),
+        hass_crates: String(hassCrates),
+        
+        // Supplier details
+        supplier: weightData.supplier || weightData.supplier_name || '',
+        supplier_name: weightData.supplier_name || weightData.supplier || '',
+        supplier_id: weightData.supplier_id || '',
+        supplier_phone: weightData.supplier_phone || '',
+        
+        // Region
+        region: weightData.region || '',
+        
+        // Driver/vehicle details
+        driver_name: weightData.driver_name || '',
+        driver_phone: weightData.driver_phone || '',
+        driver_id_number: weightData.driver_id_number || '',
+        vehicle_plate: weightData.vehicle_plate || '',
+        truck_id: weightData.truck_id || weightData.vehicle_plate || '',
+        driver_id: weightData.driver_id || weightData.driver_id_number || '',
+        
+        // Optional fields
+        image_url: weightData.image_url || '',
+        notes: weightData.notes || '',
+      };
+      
+      console.log('DEBUG - Sending payload to API:', payload);
       
       const response = await fetch('/api/weights', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          product: weightData.product || '',
-          net_weight: parseFloat(weightData.net_weight || weightData.netWeight || '0'),
-          unit: weightData.unit || 'kg',
-          gross_weight: parseFloat(weightData.gross_weight || weightData.grossWeight || '0'),
-          tare_weight: parseFloat(weightData.tare_weight || weightData.tareWeight || '0'),
-          declared_weight: parseFloat(weightData.declared_weight || weightData.declaredWeight || '0'),
-          rejected_weight: parseFloat(weightData.rejected_weight || weightData.rejectedWeight || '0'),
-          supplier: weightData.supplier || '',
-          supplier_id: weightData.supplier_id || '',
-          supplier_phone: weightData.supplier_phone || '',
-          fruit_variety: Array.isArray(weightData.fruit_variety) ? weightData.fruit_variety : [],
-          number_of_crates: parseInt(weightData.number_of_crates || '0'),
-          region: weightData.region || '',
-          image_url: weightData.image_url || '',
-          driver_name: weightData.driver_name || '',
-          driver_phone: weightData.driver_phone || '',
-          driver_id_number: weightData.driver_id_number || '',
-          vehicle_plate: weightData.vehicle_plate || '',
-          truck_id: weightData.truck_id || '',
-          driver_id: weightData.driver_id || '',
-          timestamp: weightData.timestamp || new Date().toISOString(),
-          notes: weightData.notes || '',
-        }),
+        body: JSON.stringify(payload),
       });
       
       if (!response.ok) {
         let errorMessage = 'Failed to save weight';
         try {
           const errorData = await response.json();
-          errorMessage = errorData.error || errorData.message || errorMessage;
+          errorMessage = errorData.error || errorData.details || errorData.message || errorMessage;
         } catch (parseError) {
           errorMessage = `HTTP ${response.status}: ${response.statusText}`;
         }
@@ -506,45 +637,11 @@ export default function WeightCapturePage() {
 
       const savedEntry = await response.json();
       
-      // Transform saved entry to match WeightEntry type
-      const transformedEntry: WeightEntry = {
-        id: savedEntry.id,
-        pallet_id: savedEntry.pallet_id || '',
-        palletId: savedEntry.pallet_id || '',
-        product: savedEntry.product || '',
-        weight: savedEntry.net_weight || 0,
-        unit: savedEntry.unit || 'kg',
-        timestamp: savedEntry.timestamp || savedEntry.created_at,
-        supplier: savedEntry.supplier || '',
-        supplier_id: savedEntry.supplier_id || '',
-        supplier_phone: savedEntry.supplier_phone || '',
-        fruit_variety: savedEntry.fruit_variety || [],
-        number_of_crates: savedEntry.number_of_crates || 0,
-        region: savedEntry.region || '',
-        image_url: savedEntry.image_url || '',
-        driver_name: savedEntry.driver_name || '',
-        driver_phone: savedEntry.driver_phone || '',
-        driver_id_number: savedEntry.driver_id_number || '',
-        vehicle_plate: savedEntry.vehicle_plate || '',
-        truck_id: savedEntry.truck_id || '',
-        driver_id: savedEntry.driver_id || '',
-        gross_weight: savedEntry.gross_weight || 0,
-        grossWeight: savedEntry.gross_weight || 0,
-        tare_weight: savedEntry.tare_weight || 0,
-        tareWeight: savedEntry.tare_weight || 0,
-        net_weight: savedEntry.net_weight || 0,
-        netWeight: savedEntry.net_weight || 0,
-        declared_weight: savedEntry.declared_weight || 0,
-        declaredWeight: savedEntry.declared_weight || 0,
-        rejected_weight: savedEntry.rejected_weight || 0,
-        rejectedWeight: savedEntry.rejected_weight || 0,
-        notes: savedEntry.notes || '',
-        created_at: savedEntry.created_at || new Date().toISOString(),
-      };
+      console.log('DEBUG - Received saved entry:', savedEntry);
       
       // Update local state
-      setWeights(prev => [transformedEntry, ...prev]);
-      setLastWeightEntry(transformedEntry);
+      setWeights(prev => [savedEntry, ...prev]);
+      setLastWeightEntry(savedEntry);
       
       // Mark supplier as processed
       if (submittedSupplierId) {
@@ -562,11 +659,6 @@ export default function WeightCapturePage() {
               : supplier
           )
         );
-        
-        toast({
-          title: 'Intake Complete',
-          description: 'Supplier has been successfully weighed and processed.',
-        });
       }
       
       setIsReceiptOpen(true);
@@ -576,87 +668,19 @@ export default function WeightCapturePage() {
       
       toast({
         title: 'Weight Saved Successfully',
-        description: `Pallet ${transformedEntry.pallet_id} has been recorded.`,
+        description: `Pallet ${savedEntry.pallet_id} has been recorded with ${fruitVarieties.length} varieties (Fuerte: ${fuerteWeight}kg, Hass: ${hassWeight}kg).`,
       });
       
     } catch (error: any) {
       console.error('Error adding weight:', error);
       setError(error.message || 'Failed to save weight entry');
       
-      // Fallback: add to local state even if API fails
-      const fallbackEntry: WeightEntry = {
-        id: `weight-${Date.now()}`,
-        pallet_id: weightData.pallet_id || generateDefaultPalletId(),
-        palletId: weightData.pallet_id || generateDefaultPalletId(),
-        product: weightData.product || '',
-        weight: parseFloat(weightData.net_weight) || parseFloat(weightData.netWeight) || 0,
-        unit: (weightData.unit || 'kg'),
-        timestamp: new Date().toISOString(),
-        supplier: weightData.supplier || '',
-        supplier_id: weightData.supplier_id || '',
-        supplier_phone: weightData.supplier_phone || '',
-        fruit_variety: Array.isArray(weightData.fruit_variety) ? weightData.fruit_variety : [],
-        number_of_crates: parseInt(weightData.number_of_crates) || 0,
-        region: weightData.region || '',
-        image_url: weightData.image_url || '',
-        driver_name: weightData.driver_name || '',
-        driver_phone: weightData.driver_phone || '',
-        driver_id_number: weightData.driver_id_number || '',
-        vehicle_plate: weightData.vehicle_plate || '',
-        truck_id: weightData.truck_id || '',
-        driver_id: weightData.driver_id || '',
-        gross_weight: parseFloat(weightData.gross_weight) || parseFloat(weightData.net_weight) || parseFloat(weightData.netWeight) || 0,
-        grossWeight: parseFloat(weightData.gross_weight) || parseFloat(weightData.net_weight) || parseFloat(weightData.netWeight) || 0,
-        tare_weight: parseFloat(weightData.tare_weight) || 0,
-        tareWeight: parseFloat(weightData.tare_weight) || 0,
-        net_weight: parseFloat(weightData.net_weight) || parseFloat(weightData.netWeight) || 0,
-        netWeight: parseFloat(weightData.net_weight) || parseFloat(weightData.netWeight) || 0,
-        declared_weight: parseFloat(weightData.declared_weight) || parseFloat(weightData.net_weight) || parseFloat(weightData.netWeight) || 0,
-        declaredWeight: parseFloat(weightData.declared_weight) || parseFloat(weightData.net_weight) || parseFloat(weightData.netWeight) || 0,
-        rejected_weight: parseFloat(weightData.rejected_weight) || 0,
-        rejectedWeight: parseFloat(weightData.rejected_weight) || 0,
-        notes: weightData.notes || '',
-        created_at: new Date().toISOString(),
-      };
-      
-      setWeights(prev => [fallbackEntry, ...prev]);
-      setLastWeightEntry(fallbackEntry);
-      
-      // Still mark supplier as processed even if API fails
-      if (weightData.supplier_id) {
-        setProcessedSuppliers(prev => {
-          const newSet = new Set(prev);
-          newSet.add(weightData.supplier_id);
-          return newSet;
-        });
-        
-        // Update the checked-in suppliers list locally
-        setCheckedInSuppliers(prev => 
-          prev.map(supplier => 
-            supplier.id === weightData.supplier_id 
-              ? { ...supplier, status: 'weighed' } 
-              : supplier
-          )
-        );
-      }
-      
-      setIsReceiptOpen(true);
-      
       toast({
-        title: 'Save Failed (Local Only)',
+        title: 'Save Failed',
         description: error.message || 'Failed to save weight entry to server',
         variant: 'destructive',
       });
     }
-  };
-
-  // Helper function to generate a default pallet ID
-  const generateDefaultPalletId = () => {
-    const now = new Date();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    const randomNum = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-    return `PAL${randomNum}/${month}${day}`;
   };
 
   // Handle supplier selection for weighing
@@ -679,7 +703,57 @@ export default function WeightCapturePage() {
     });
   };
 
-  // Function to generate CSV data
+  // Function to extract variety data from weight entries with SEPARATED weights
+  const extractVarietyData = (weights: WeightEntry[]): VarietyData[] => {
+    const varietyMap = new Map<string, { weight: number; crates: number }>();
+    
+    weights.forEach(entry => {
+      // Use separated variety weights from the API
+      if (entry.fuerte_weight && entry.fuerte_weight > 0) {
+        const key = 'Fuerte';
+        if (!varietyMap.has(key)) {
+          varietyMap.set(key, { weight: 0, crates: 0 });
+        }
+        const data = varietyMap.get(key)!;
+        data.weight += entry.fuerte_weight;
+        data.crates += entry.fuerte_crates || 0;
+      }
+      
+      if (entry.hass_weight && entry.hass_weight > 0) {
+        const key = 'Hass';
+        if (!varietyMap.has(key)) {
+          varietyMap.set(key, { weight: 0, crates: 0 });
+        }
+        const data = varietyMap.get(key)!;
+        data.weight += entry.hass_weight;
+        data.crates += entry.hass_crates || 0;
+      }
+      
+      // Also check perVarietyWeights for any other varieties
+      if (entry.perVarietyWeights && entry.perVarietyWeights.length > 0) {
+        entry.perVarietyWeights.forEach(variety => {
+          const key = variety.variety;
+          if (!varietyMap.has(key)) {
+            varietyMap.set(key, { weight: 0, crates: 0 });
+          }
+          const data = varietyMap.get(key)!;
+          data.weight += variety.weight || 0;
+          data.crates += variety.crates || 0;
+        });
+      }
+    });
+    
+    // Convert map to array and sort by variety name
+    return Array.from(varietyMap.entries())
+      .map(([variety, data]) => ({
+        variety,
+        weight: data.weight,
+        crates: data.crates
+      }))
+      .sort((a, b) => a.variety.localeCompare(b.variety));
+  };
+
+  // Function to generate CSV data with SEPARATED variety weights
   const generateCSVData = (weights: WeightEntry[]): CSVRow[] => {
     // Group weights by supplier and date
     const supplierMap = new Map<string, CSVRow>();
@@ -708,50 +782,12 @@ export default function WeightCapturePage() {
       }
       
       const row = supplierMap.get(key)!;
-      const fruitVarieties = Array.isArray(entry.fruit_variety) 
-        ? entry.fruit_variety 
-        : entry.fruit_variety 
-          ? [entry.fruit_variety.toString()]
-          : [];
       
-      // Check for Fuerte and Hass varieties (case insensitive)
-      const hasFuerte = fruitVarieties.some(v => 
-        v.toLowerCase().includes('fuerte') || v.toLowerCase().includes('fuert')
-      );
-      const hasHass = fruitVarieties.some(v => 
-        v.toLowerCase().includes('hass')
-      );
-      
-      const weight = entry.net_weight || entry.netWeight || 0;
-      const crates = entry.number_of_crates || 0;
-      
-      if (hasFuerte) {
-        row.fuerte_weight += weight;
-        row.fuerte_crates_in += crates;
-      }
-      
-      if (hasHass) {
-        row.hass_weight += weight;
-        row.hass_crates_in += crates;
-      }
-      
-      // If no specific variety detected, distribute based on product name
-      if (!hasFuerte && !hasHass) {
-        const productName = entry.product?.toLowerCase() || '';
-        if (productName.includes('fuerte')) {
-          row.fuerte_weight += weight;
-          row.fuerte_crates_in += crates;
-        } else if (productName.includes('hass')) {
-          row.hass_weight += weight;
-          row.hass_crates_in += crates;
-        } else {
-          // Default distribution if no specific variety
-          row.fuerte_weight += weight / 2;
-          row.hass_weight += weight / 2;
-          row.fuerte_crates_in += Math.floor(crates / 2);
-          row.hass_crates_in += Math.ceil(crates / 2);
-        }
-      }
+      // Add separated variety weights directly
+      row.fuerte_weight += entry.fuerte_weight || 0;
+      row.fuerte_crates_in += entry.fuerte_crates || 0;
+      row.hass_weight += entry.hass_weight || 0;
+      row.hass_crates_in += entry.hass_crates || 0;
     });
     
     return Array.from(supplierMap.values());
@@ -817,57 +853,307 @@ export default function WeightCapturePage() {
     });
   };
 
+// Function to download Supplier GRN as PDF with SEPARATED variety display
+const downloadSupplierGRN = async (supplierId: string) => {
+  try {
+    // First, get all weights for this supplier from local state
+    const supplierWeights = weights.filter(w => w.supplier_id === supplierId);
+    
+    if (supplierWeights.length === 0) {
+      toast({
+        title: 'No Data Found',
+        description: 'No weight entries found for this supplier.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
+    // Use the supplier name from the FIRST weight entry (from Weight Capture Form)
+    const supplierName = supplierWeights[0]?.supplier || 'Unknown Supplier';
+    const supplierPhone = supplierWeights[0]?.supplier_phone || '';
+    const driverName = supplierWeights[0]?.driver_name || '';
+    const vehiclePlate = supplierWeights[0]?.vehicle_plate || '';
+    
+    // Find the supplier for additional info from check-in data
+    const supplier = checkedInSuppliers.find(s => s.id === supplierId);
+    
+    // Extract variety data with SEPARATED weights
+    const varietyData = extractVarietyData(supplierWeights);
+    
+    // Calculate totals
+    const totalFuerteWeight = supplierWeights.reduce((sum, w) => sum + (w.fuerte_weight || 0), 0);
+    const totalHassWeight = supplierWeights.reduce((sum, w) => sum + (w.hass_weight || 0), 0);
+    const totalFuerteCrates = supplierWeights.reduce((sum, w) => sum + (w.fuerte_crates || 0), 0);
+    const totalHassCrates = supplierWeights.reduce((sum, w) => sum + (w.hass_crates || 0), 0);
+    const totalWeight = totalFuerteWeight + totalHassWeight;
+    const totalCrates = totalFuerteCrates + totalHassCrates;
+    
+    // Create PDF
+    const doc = new jsPDF('p', 'mm', 'a4');
+    
+    // =========== CENTERED LOGO AND TITLE ===========
+    let hasLogo = false;
+    let logoHeight = 0;
+    
+    // Try to load logo
+    try {
+      const logoPaths = [
+        '/Harirlogo.svg',
+        '/Harirlogo.png',
+        '/Harirlogo.jpg',
+        '/logo.png',
+        '/logo.jpg',
+        '/favicon.ico',
+        '/public/favicon.ico'
+      ];
+      
+      for (const path of logoPaths) {
+        try {
+          const response = await fetch(path);
+          if (response.ok) {
+            const blob = await response.blob();
+            const base64String = await new Promise((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result);
+              reader.readAsDataURL(blob);
+            });
+            
+            // Add centered logo (15mm height)
+            doc.addImage(base64String as string, 'PNG', 92.5, 10, 15, 15);
+            hasLogo = true;
+            logoHeight = 15;
+            break;
+          }
+        } catch (e) {
+          continue;
+        }
+      }
+    } catch (error) {
+      console.log('Logo loading failed:', error);
+    }
+    
+    // If no logo found, create a centered text logo
+    if (!hasLogo) {
+      doc.setFillColor(34, 139, 34); // Green
+      doc.circle(100, 17.5, 7, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.text('HI', 100, 19.5, { align: 'center' });
+      logoHeight = 15;
+      hasLogo = true;
+    }
+    
+    // Company name - Centered and larger
+    const startY = hasLogo ? 30 : 15;
+    doc.setTextColor(34, 139, 34); // Green text
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'bold');
+    doc.text('HARIR INTERNATIONAL', 105, startY, { align: 'center' });
+    
+    // Division name
+    doc.setFontSize(11);
+    doc.text('FRESH PRODUCE EXPORTER', 105, startY + 6, { align: 'center' });
+    
+    // Draw a green line under the header
+    doc.setDrawColor(34, 139, 34);
+    doc.setLineWidth(0.5);
+    doc.line(10, startY + 10, 200, startY + 10);
+    
+    // =========== GRN TITLE ===========
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(0, 0, 0); // Black text
+    doc.text('GOODS RECEIVED NOTE (GRN)', 105, startY + 20, { align: 'center' });
+    
+    // =========== GRN DETAILS ===========
+    let yPos = startY + 30;
+    
+    // GRN Details box
+    doc.setFillColor(248, 249, 250); // Very light gray
+    doc.rect(10, yPos, 190, 15, 'F');
+    
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.text('GRN Details', 15, yPos + 6);
+    
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    
+    // GRN details in two columns
+    doc.text(`GRN: GRN-${supplierId.slice(0, 8)}`, 15, yPos + 12);
+    doc.text(`Date: ${format(new Date(), 'dd/MM/yyyy')}`, 50, yPos + 12);
+    doc.text(`Time: ${format(new Date(), 'HH:mm')}`, 85, yPos + 12);
+    doc.text(`Code: ${supplier?.supplier_code || 'N/A'}`, 120, yPos + 12);
+    
+    yPos += 20;
+    
+    // =========== SUPPLIER INFORMATION ===========
+    doc.setFillColor(233, 236, 239); // Light gray
+    doc.rect(10, yPos, 190, 20, 'F');
+    
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Supplier Information', 15, yPos + 6);
+    
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Supplier: ${supplierName}`, 15, yPos + 12);
+    doc.text(`Phone: ${supplierPhone}`, 80, yPos + 12);
+    doc.text(`Driver: ${driverName || 'N/A'}`, 120, yPos + 12);
+    doc.text(`Vehicle: ${vehiclePlate || 'N/A'}`, 160, yPos + 12);
+    
+    doc.text(`Check-in: ${format(new Date(supplier?.check_in_time || new Date()), 'dd/MM/yyyy HH:mm')}`, 15, yPos + 18);
+    
+    yPos += 25;
+    
+    // =========== RECEIVED GOODS TABLE ===========
+    if (varietyData.length > 0) {
+      // Table header
+      doc.setFillColor(52, 58, 64); // Dark gray header
+      doc.rect(10, yPos, 190, 8, 'F');
+      
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(255, 255, 255); // White text
+      doc.text('Received Goods Details', 15, yPos + 5.5);
+      
+      yPos += 10;
+      
+      // Column headers
+      doc.setFillColor(248, 249, 250);
+      doc.rect(10, yPos, 190, 7, 'F');
+      doc.setTextColor(0, 0, 0);
+      
+      doc.text('Fruit Variety', 15, yPos + 4.5);
+      doc.text('Weight (kg)', 130, yPos + 4.5, { align: 'right' });
+      doc.text('Crates', 180, yPos + 4.5, { align: 'right' });
+      
+      yPos += 7;
+      
+      // Table rows
+      varietyData.forEach((item, index) => {
+        // Alternate row colors
+        doc.setFillColor(index % 2 === 0 ? 255 : 248, 249, 250);
+        doc.rect(10, yPos, 190, 7, 'F');
+        
+        // Variety name with color
+        if (item.variety.toLowerCase().includes('fuerte')) {
+          doc.setTextColor(0, 102, 204); // Blue
+        } else if (item.variety.toLowerCase().includes('hass')) {
+          doc.setTextColor(0, 153, 0); // Green
+        } else {
+          doc.setTextColor(102, 102, 102);
+        }
+        
+        doc.setFont('helvetica', 'bold');
+        doc.text(item.variety, 15, yPos + 4.5);
+        
+        // Numbers
+        doc.setTextColor(0, 0, 0);
+        doc.setFont('helvetica', 'normal');
+        doc.text(item.weight.toFixed(2), 130, yPos + 4.5, { align: 'right' });
+        doc.text(item.crates.toString(), 180, yPos + 4.5, { align: 'right' });
+        
+        yPos += 7;
+      });
+      
+      // Grand total row - SHOWING ONLY TOTAL WEIGHT AND TOTAL CRATES
+      yPos += 3;
+      doc.setFillColor(40, 167, 69); // Green
+      doc.rect(10, yPos, 190, 8, 'F');
+      
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(255, 255, 255);
+      doc.text('GRAND TOTAL', 15, yPos + 5);
+      doc.text(totalWeight.toFixed(2), 130, yPos + 5, { align: 'right' });
+      doc.text(totalCrates.toString(), 180, yPos + 5, { align: 'right' });
+      
+      yPos += 12;
+    }
+    
+    // =========== FOOTER AND SIGNATURES ===========
+    // Notes (very compact)
+    doc.setFontSize(7);
+    doc.setTextColor(108, 117, 125); // Gray
+    doc.setFont('helvetica', 'italic');
+    
+    const notes = [
+      '• All weights in kilograms (kg) • Quality inspection within 24 hours • Discrepancies must be reported immediately'
+    ];
+    
+    notes.forEach((note, index) => {
+      doc.text(note, 105, yPos + (index * 5), { align: 'center' });
+    });
+    
+    yPos += 10;
+    
+    // Signature lines (compact)
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.2);
+    
+    // Received by
+    doc.line(20, yPos, 90, yPos);
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(0, 0, 0);
+    doc.text('Received By (Name & Signature)', 55, yPos + 3, { align: 'center' });
+    doc.text(`Date: ${format(new Date(), 'dd/MM/yyyy')}`, 55, yPos + 6, { align: 'center' });
+    
+    // Supplier/Driver
+    doc.line(120, yPos, 190, yPos);
+    doc.text('Supplier/Driver (Name & Signature)', 155, yPos + 3, { align: 'center' });
+    doc.text(`Date: ${format(new Date(), 'dd/MM/yyyy')}`, 155, yPos + 6, { align: 'center' });
+    
+    yPos += 15;
+    
+    // Final footer
+    doc.setFontSize(6);
+    doc.setTextColor(128, 128, 128);
+    doc.text('This is a computer-generated document. No physical signature required.', 105, yPos, { align: 'center' });
+    doc.text('Harir International © 2024 | GRN System v1.0', 105, yPos + 3, { align: 'center' });
+    
+    // =========== SAVE PDF ===========
+    const fileName = `GRN_${supplierName.replace(/\s+/g, '_')}_${format(new Date(), 'yyyy-MM-dd_HHmm')}.pdf`;
+    doc.save(fileName);
+    
+    toast({
+      title: 'GRN Downloaded',
+      description: `Goods Received Note has been downloaded for ${supplierName}.`,
+    });
+    
+  } catch (error: any) {
+    console.error('Error downloading GRN:', error);
+    toast({
+      title: 'Error Downloading GRN',
+      description: error.message || 'Failed to download GRN. Please try again.',
+      variant: 'destructive',
+    });
+  }
+};
+
   // Filter history weights based on search query
   const filteredHistoryWeights = historyWeights.filter(entry => {
     if (!searchQuery) return true;
     
     const query = searchQuery.toLowerCase();
+    const varieties = entry.fruit_variety || [];
+    
     return (
       (entry.supplier?.toLowerCase().includes(query)) ||
       (entry.driver_name?.toLowerCase().includes(query)) ||
       (entry.vehicle_plate?.toLowerCase().includes(query)) ||
       (entry.region?.toLowerCase().includes(query)) ||
-      (Array.isArray(entry.fruit_variety) && 
-        entry.fruit_variety.some(v => v.toLowerCase().includes(query))) ||
+      varieties.some(v => v.toLowerCase().includes(query)) ||
       (entry.pallet_id?.toLowerCase().includes(query))
     );
   });
 
-  // Default KPI data while loading
-  const defaultKpiData: KPIData = {
-    palletsWeighed: {
-      title: 'Pallets Weighed Today',
-      value: isLoading ? '...' : '0',
-      change: isLoading ? 'Loading...' : 'No data',
-      changeType: 'neutral',
-    },
-    totalWeight: {
-      title: 'Total Weight Today',
-      value: isLoading ? '...' : '0 t',
-      change: isLoading ? 'Loading...' : 'No data',
-      changeType: 'neutral',
-    },
-    discrepancyRate: {
-      title: 'Discrepancy Rate',
-      value: isLoading ? '...' : '0%',
-      change: isLoading ? 'Loading...' : 'No data',
-      changeType: 'neutral',
-    },
-    suppliersToday: {
-      title: 'Suppliers Today',
-      value: isLoading ? '...' : '0',
-      change: isLoading ? 'Loading...' : 'No suppliers',
-      changeType: 'neutral',
-    },
-  };
-
-  // Calculate statistics
+  // Calculate statistics - UPDATED FOR SEPARATED WEIGHTS
   const totalWeightToday = weights
     .filter(w => {
       const today = new Date();
       return isSameDay(new Date(w.created_at), today);
     })
-    .reduce((sum, w) => sum + (w.net_weight || 0), 0);
+    .reduce((sum, w) => sum + (w.fuerte_weight || 0) + (w.hass_weight || 0), 0);
 
   const uniqueSuppliersToday = new Set(
     weights
@@ -881,6 +1167,21 @@ export default function WeightCapturePage() {
   // Count pending and weighed suppliers
   const pendingSuppliersCount = checkedInSuppliers.filter(s => !processedSuppliers.has(s.id)).length;
   const weighedSuppliersCount = checkedInSuppliers.filter(s => processedSuppliers.has(s.id)).length;
+
+  // Calculate total Fuerte and Hass weights for today
+  const totalFuerteWeightToday = weights
+    .filter(w => {
+      const today = new Date();
+      return isSameDay(new Date(w.created_at), today);
+    })
+    .reduce((sum, w) => sum + (w.fuerte_weight || 0), 0);
+
+  const totalHassWeightToday = weights
+    .filter(w => {
+      const today = new Date();
+      return isSameDay(new Date(w.created_at), today);
+    })
+    .reduce((sum, w) => sum + (w.hass_weight || 0), 0);
 
   return (
     <SidebarProvider>
@@ -939,7 +1240,7 @@ export default function WeightCapturePage() {
             </Alert>
           )}
 
-          {/* Quick Stats */}
+          {/* Quick Stats with SEPARATED VARIETIES */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <Card className="border-l-4 border-l-blue-500">
               <CardContent className="p-4">
@@ -960,11 +1261,17 @@ export default function WeightCapturePage() {
             <Card className="border-l-4 border-l-green-500">
               <CardContent className="p-4">
                 <div className="flex flex-col">
-                  <p className="text-sm font-medium text-gray-500">Weight Today</p>
+                  <p className="text-sm font-medium text-gray-500">Total Weight Today</p>
                   <h3 className="text-2xl font-bold mt-1">{(totalWeightToday / 1000).toFixed(1)} t</h3>
-                  <div className="flex items-center mt-1 text-sm text-gray-500">
-                    <Scale className="h-4 w-4 mr-1 text-green-500" />
-                    <span>Total weight</span>
+                  <div className="flex flex-col mt-1 text-xs text-gray-500">
+                    <div className="flex items-center">
+                      <div className="w-2 h-2 rounded-full bg-blue-500 mr-1"></div>
+                      Fuerte: {(totalFuerteWeightToday / 1000).toFixed(1)} t
+                    </div>
+                    <div className="flex items-center">
+                      <div className="w-2 h-2 rounded-full bg-green-500 mr-1"></div>
+                      Hass: {(totalHassWeightToday / 1000).toFixed(1)} t
+                    </div>
                   </div>
                 </div>
               </CardContent>
@@ -1017,28 +1324,30 @@ export default function WeightCapturePage() {
             {/* Overview Tab Content */}
             <TabsContent value="overview" className="space-y-6 mt-6">
               {/* KPI Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                {(Object.entries(kpiData || defaultKpiData) as [keyof KPIData, any][]).map(([key, data]) => (
-                  <Card key={key} className="hover:shadow-md transition-shadow">
-                    <CardContent className="p-6">
-                      <div className="flex flex-col space-y-3">
-                        <div className="flex items-center justify-between">
-                          <p className="text-sm font-medium text-gray-500">{data.title}</p>
-                          {getChangeIcon(data.changeType)}
+              {kpiData && (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {(Object.entries(kpiData) as [keyof KPIData, any][]).map(([key, data]) => (
+                    <Card key={key} className="hover:shadow-md transition-shadow">
+                      <CardContent className="p-6">
+                        <div className="flex flex-col space-y-3">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm font-medium text-gray-500">{data.title}</p>
+                            {getChangeIcon(data.changeType)}
+                          </div>
+                          <div className="flex items-baseline space-x-2">
+                            <h3 className="text-2xl font-bold">{data.value}</h3>
+                          </div>
+                          <div className="text-sm text-gray-500">
+                            {data.change}
+                          </div>
                         </div>
-                        <div className="flex items-baseline space-x-2">
-                          <h3 className="text-2xl font-bold">{data.value}</h3>
-                        </div>
-                        <div className="text-sm text-gray-500">
-                          {data.change}
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
 
-              {/* Checked-in Suppliers */}
+              {/* Checked-in Suppliers - UPDATED FOR SEPARATED WEIGHTS */}
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -1065,6 +1374,18 @@ export default function WeightCapturePage() {
                       checkedInSuppliers.map((supplier) => {
                         const isWeighed = processedSuppliers.has(supplier.id);
                         
+                        // Get weight entries for this supplier
+                        const supplierWeights = weights.filter(w => w.supplier_id === supplier.id);
+                        
+                        // Extract SEPARATED variety data
+                        const varietyData = extractVarietyData(supplierWeights);
+                        
+                        // Calculate total Fuerte and Hass weights for this supplier
+                        const supplierFuerteWeight = supplierWeights.reduce((sum, w) => sum + (w.fuerte_weight || 0), 0);
+                        const supplierHassWeight = supplierWeights.reduce((sum, w) => sum + (w.hass_weight || 0), 0);
+                        const supplierFuerteCrates = supplierWeights.reduce((sum, w) => sum + (w.fuerte_crates || 0), 0);
+                        const supplierHassCrates = supplierWeights.reduce((sum, w) => sum + (w.hass_crates || 0), 0);
+                        
                         return (
                           <div 
                             key={supplier.id} 
@@ -1074,7 +1395,7 @@ export default function WeightCapturePage() {
                                 : 'border-amber-200 bg-black-50 hover:bg-black-100'
                             } transition-colors`}
                           >
-                            <div className="flex items-center gap-4">
+                            <div className="flex items-center gap-4 flex-1">
                               <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${
                                 isWeighed 
                                   ? 'bg-black-100 border border-green-200' 
@@ -1086,12 +1407,49 @@ export default function WeightCapturePage() {
                                   <Clock className="w-6 h-6 text-amber-600" />
                                 )}
                               </div>
-                              <div>
+                              <div className="flex-1">
                                 <div className="font-semibold text-lg">{supplier.driver_name}</div>
                                 <div className="text-sm text-muted-foreground">
-                                  {supplier.company_name} • {supplier.vehicle_plate}
+                                  {supplier.company_name} • {supplier.vehicle_plate} • {supplier.region}
                                 </div>
-                                {supplier.fruit_varieties.length > 0 && (
+                                
+                                {/* SEPARATED variety weights display */}
+                                {isWeighed && varietyData.length > 0 && (
+                                  <div className="mt-2 grid grid-cols-2 md:grid-cols-3 gap-2">
+                                    {varietyData.map((item) => (
+                                      <div 
+                                        key={item.variety} 
+                                        className={`p-2 rounded ${
+                                          item.variety.toLowerCase().includes('fuerte') 
+                                            ? 'bg-black-50 border border-blue-200' 
+                                            : item.variety.toLowerCase().includes('hass')
+                                            ? 'bg-black-50 border border-green-200'
+                                            : 'bg-black-50 border border-gray-200'
+                                        }`}
+                                      >
+                                        <div className="text-xs font-medium flex items-center gap-1">
+                                          {item.variety.toLowerCase().includes('fuerte') ? (
+                                            <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+                                          ) : item.variety.toLowerCase().includes('hass') ? (
+                                            <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                                          ) : (
+                                            <div className="w-2 h-2 rounded-full bg-gray-500"></div>
+                                          )}
+                                          {item.variety}
+                                        </div>
+                                        <div className="text-sm font-semibold mt-1">
+                                          {item.weight.toFixed(1)} kg
+                                        </div>
+                                        <div className="text-xs text-gray-500">
+                                          {item.crates} crates
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                                
+                                {/* Show pending varieties if not weighed yet */}
+                                {supplier.fruit_varieties.length > 0 && !isWeighed && (
                                   <div className="flex flex-wrap gap-1 mt-2">
                                     {supplier.fruit_varieties.slice(0, 2).map((variety, idx) => (
                                       <Badge key={idx} variant="outline" className={`text-xs ${
@@ -1121,13 +1479,24 @@ export default function WeightCapturePage() {
                                 Checked in: {new Date(supplier.check_in_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                               </div>
                               {isWeighed ? (
-                                <Badge 
-                                  variant="outline" 
-                                  className="mt-2 px-3 py-1 text-xs bg-green-100 text-green-800 border-green-300"
-                                >
-                                  <CheckCheck className="w-3 h-3 mr-1" />
-                                  Weighed
-                                </Badge>
+                                <div className="flex gap-2 mt-2">
+                                  <Badge 
+                                    variant="outline" 
+                                    className="px-3 py-1 text-xs bg-green-100 text-green-800 border-green-300"
+                                  >
+                                    <CheckCheck className="w-3 h-3 mr-1" />
+                                    Weighed
+                                  </Badge>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="text-xs gap-1"
+                                    onClick={() => downloadSupplierGRN(supplier.id)}
+                                  >
+                                    <FileText className="w-3 h-3" />
+                                    Download GRN
+                                  </Button>
+                                </div>
                               ) : (
                                 <Button 
                                   size="sm" 
@@ -1196,13 +1565,14 @@ export default function WeightCapturePage() {
                       processedSupplierIds={processedSuppliers}
                       selectedSupplier={selectedSupplier}
                       onClearSelectedSupplier={() => setSelectedSupplier(null)}
+                      palletCounter={palletCounter}
                     />
                   )}
                 </CardContent>
               </Card>
             </TabsContent>
 
-            {/* History Tab Content */}
+            {/* History Tab Content - UPDATED FOR SEPARATED WEIGHTS */}
             <TabsContent value="history" className="space-y-6 mt-6">
               <Card>
                 <CardHeader>
@@ -1211,17 +1581,20 @@ export default function WeightCapturePage() {
                       <FileSpreadsheet className="w-5 h-5" />
                       Weight History & Export
                     </div>
-                    <Button
-                      onClick={() => historyDate && downloadCSV(filteredHistoryWeights, historyDate)}
-                      disabled={isHistoryLoading || filteredHistoryWeights.length === 0}
-                      className="gap-2"
-                    >
-                      <Download className="w-4 h-4" />
-                      Download CSV
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={() => historyDate && downloadCSV(filteredHistoryWeights, historyDate)}
+                        disabled={isHistoryLoading || filteredHistoryWeights.length === 0}
+                        className="gap-2"
+                        variant="outline"
+                      >
+                        <Download className="w-4 h-4" />
+                        CSV
+                      </Button>
+                    </div>
                   </CardTitle>
                   <CardDescription>
-                    View weight history by date and export data in CSV format
+                    View weight history by date and export data in multiple formats
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -1272,20 +1645,21 @@ export default function WeightCapturePage() {
                     <div className="bg-black-50 p-4 rounded-lg">
                       <div className="flex items-center gap-2 mb-2">
                         <FileSpreadsheet className="w-5 h-5 text-green-600" />
-                        <span className="font-medium">CSV Format Preview</span>
+                        <span className="font-medium">Export Options</span>
                       </div>
                       <div className="text-sm text-gray-600">
-                        <p>Your download will include the following columns:</p>
-                        <div className="grid grid-cols-9 gap-1 mt-2 text-xs font-mono bg-black p-2 rounded border">
-                          <span className="font-semibold">Date</span>
-                          <span className="font-semibold">Supplier Name</span>
-                          <span className="font-semibold">Phone Number</span>
-                          <span className="font-semibold">Vehicle Plate</span>
-                          <span className="font-semibold">Fuerte Weight</span>
-                          <span className="font-semibold">Hass Weight</span>
-                          <span className="font-semibold">Fuerte Crates</span>
-                          <span className="font-semibold">Hass Crates</span>
-                          <span className="font-semibold">Region</span>
+                        <p>Export data in CSV format or download individual supplier GRNs as PDF</p>
+                        <div className="flex gap-2 mt-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-1"
+                            onClick={() => historyDate && downloadCSV(filteredHistoryWeights, historyDate)}
+                            disabled={filteredHistoryWeights.length === 0}
+                          >
+                            <Download className="w-3 h-3" />
+                            Download All as CSV
+                          </Button>
                         </div>
                       </div>
                     </div>
@@ -1305,7 +1679,7 @@ export default function WeightCapturePage() {
                           </div>
                           {filteredHistoryWeights.length > 0 && (
                             <div className="text-sm text-gray-500">
-                              Total Weight: {(filteredHistoryWeights.reduce((sum, w) => sum + (w.net_weight || 0), 0) / 1000).toFixed(1)} t
+                              Total Weight: {(filteredHistoryWeights.reduce((sum, w) => sum + (w.fuerte_weight || 0) + (w.hass_weight || 0), 0) / 1000).toFixed(1)} t
                             </div>
                           )}
                         </div>
@@ -1324,22 +1698,24 @@ export default function WeightCapturePage() {
                             <thead>
                               <tr className="bg-black-50 border-b">
                                 <th className="text-left p-3 text-sm font-semibold text-gray-700">Time</th>
+                                <th className="text-left p-3 text-sm font-semibold text-gray-700">Pallet ID</th>
                                 <th className="text-left p-3 text-sm font-semibold text-gray-700">Supplier</th>
                                 <th className="text-left p-3 text-sm font-semibold text-gray-700">Driver</th>
                                 <th className="text-left p-3 text-sm font-semibold text-gray-700">Vehicle</th>
-                                <th className="text-left p-3 text-sm font-semibold text-gray-700">Varieties</th>
-                                <th className="text-left p-3 text-sm font-semibold text-gray-700">Net Weight</th>
+                                <th className="text-left p-3 text-sm font-semibold text-gray-700">Separated Varieties</th>
+                                <th className="text-left p-3 text-sm font-semibold text-gray-700">Fuerte Weight</th>
+                                <th className="text-left p-3 text-sm font-semibold text-gray-700">Hass Weight</th>
                                 <th className="text-left p-3 text-sm font-semibold text-gray-700">Crates</th>
                                 <th className="text-left p-3 text-sm font-semibold text-gray-700">Region</th>
+                                <th className="text-left p-3 text-sm font-semibold text-gray-700">Actions</th>
                               </tr>
                             </thead>
                             <tbody>
                               {filteredHistoryWeights.map((entry) => {
-                                const fruitVarieties = Array.isArray(entry.fruit_variety) 
-                                  ? entry.fruit_variety 
-                                  : entry.fruit_variety 
-                                    ? [entry.fruit_variety.toString()]
-                                    : [];
+                                // Get varieties from separated weights
+                                const varieties = [];
+                                if (entry.fuerte_weight > 0) varieties.push('Fuerte');
+                                if (entry.hass_weight > 0) varieties.push('Hass');
                                 
                                 return (
                                   <tr key={entry.id} className="border-b hover:bg-black-50">
@@ -1348,6 +1724,9 @@ export default function WeightCapturePage() {
                                         hour: '2-digit', 
                                         minute: '2-digit' 
                                       })}
+                                    </td>
+                                    <td className="p-3 font-mono font-medium">
+                                      {entry.pallet_id || '-'}
                                     </td>
                                     <td className="p-3 font-medium">{entry.supplier || '-'}</td>
                                     <td className="p-3">{entry.driver_name || '-'}</td>
@@ -1358,37 +1737,67 @@ export default function WeightCapturePage() {
                                     </td>
                                     <td className="p-3">
                                       <div className="flex flex-wrap gap-1">
-                                        {fruitVarieties.slice(0, 2).map((variety, idx) => (
-                                          <span 
-                                            key={idx} 
-                                            className={`text-xs px-2 py-1 rounded ${
-                                              variety.toLowerCase().includes('fuerte') 
-                                                ? 'bg-blue-100 text-blue-800' 
-                                                : variety.toLowerCase().includes('hass')
-                                                ? 'bg-green-100 text-green-800'
-                                                : 'bg-gray-100 text-gray-800'
-                                            }`}
-                                          >
-                                            {variety}
-                                          </span>
-                                        ))}
-                                        {fruitVarieties.length > 2 && (
-                                          <span className="text-xs text-gray-500">
-                                            +{fruitVarieties.length - 2}
-                                          </span>
+                                        {varieties.length > 0 ? (
+                                          varieties.map((variety, idx) => (
+                                            <div 
+                                              key={idx} 
+                                              className={`text-xs px-2 py-1 rounded flex items-center gap-1 ${
+                                                variety.toLowerCase().includes('fuerte') 
+                                                  ? 'bg-blue-100 text-blue-800' 
+                                                  : 'bg-green-100 text-green-800'
+                                              }`}
+                                            >
+                                              {variety.toLowerCase().includes('fuerte') ? (
+                                                <div className="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
+                                              ) : (
+                                                <div className="w-1.5 h-1.5 rounded-full bg-green-600"></div>
+                                              )}
+                                              {variety}
+                                            </div>
+                                          ))
+                                        ) : (
+                                          <span className="text-xs text-gray-500">No varieties</span>
                                         )}
                                       </div>
                                     </td>
-                                    <td className="p-3 font-semibold">
-                                      {(entry.net_weight || 0).toFixed(1)} {entry.unit}
+                                    <td className="p-3 font-semibold text-blue-700">
+                                      {(entry.fuerte_weight || 0).toFixed(1)} {entry.unit}
+                                    </td>
+                                    <td className="p-3 font-semibold text-green-700">
+                                      {(entry.hass_weight || 0).toFixed(1)} {entry.unit}
                                     </td>
                                     <td className="p-3">
-                                      {entry.number_of_crates || 0}
+                                      <div className="flex flex-col">
+                                        <span className="text-xs">Total: {entry.number_of_crates || 0}</span>
+                                        {(entry.fuerte_crates > 0 || entry.hass_crates > 0) && (
+                                          <div className="flex gap-2 text-xs text-gray-500">
+                                            {entry.fuerte_crates > 0 && (
+                                              <span>F: {entry.fuerte_crates}</span>
+                                            )}
+                                            {entry.hass_crates > 0 && (
+                                              <span>H: {entry.hass_crates}</span>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
                                     </td>
                                     <td className="p-3">
                                       <Badge variant="secondary" className="text-xs">
                                         {entry.region || '-'}
                                       </Badge>
+                                    </td>
+                                    <td className="p-3">
+                                      {entry.supplier_id && (
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          className="h-8 w-8 p-0"
+                                          onClick={() => downloadSupplierGRN(entry.supplier_id!)}
+                                          title="Download Supplier GRN"
+                                        >
+                                          <Printer className="h-4 w-4" />
+                                        </Button>
+                                      )}
                                     </td>
                                   </tr>
                                 );
@@ -1414,38 +1823,47 @@ export default function WeightCapturePage() {
                       )}
                     </div>
 
-                    {/* CSV Summary */}
+                    {/* Export Summary */}
                     {filteredHistoryWeights.length > 0 && (
                       <Card>
                         <CardHeader>
-                          <CardTitle className="text-sm">CSV Export Summary</CardTitle>
+                          <CardTitle className="text-sm">Export Summary</CardTitle>
                         </CardHeader>
                         <CardContent>
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                             <div className="text-center">
                               <div className="text-2xl font-bold text-blue-600">
-                                {generateCSVData(filteredHistoryWeights).length}
+                                {new Set(filteredHistoryWeights.map(w => w.supplier_id)).size}
                               </div>
                               <div className="text-sm text-gray-600">Total Suppliers</div>
                             </div>
                             <div className="text-center">
                               <div className="text-2xl font-bold text-blue-600">
-                                {(generateCSVData(filteredHistoryWeights).reduce((sum, row) => sum + row.fuerte_weight, 0) / 1000).toFixed(1)} t
+                                {filteredHistoryWeights.length}
                               </div>
-                              <div className="text-sm text-gray-600">Total Fuerte Weight</div>
+                              <div className="text-sm text-gray-600">Total Pallets</div>
                             </div>
                             <div className="text-center">
                               <div className="text-2xl font-bold text-green-600">
-                                {(generateCSVData(filteredHistoryWeights).reduce((sum, row) => sum + row.hass_weight, 0) / 1000).toFixed(1)} t
+                                {(filteredHistoryWeights.reduce((sum, w) => sum + (w.fuerte_weight || 0) + (w.hass_weight || 0), 0) / 1000).toFixed(1)} t
                               </div>
-                              <div className="text-sm text-gray-600">Total Hass Weight</div>
+                              <div className="text-sm text-gray-600">Total Weight</div>
                             </div>
                             <div className="text-center">
                               <div className="text-2xl font-bold text-purple-600">
-                                {new Set(generateCSVData(filteredHistoryWeights).map(row => row.region)).size}
+                                {new Set(filteredHistoryWeights.map(w => w.region)).size}
                               </div>
-                              <div className="text-sm text-gray-600">Unique Regions</div>
+                              <div className="text-sm text-gray-600">Regions</div>
                             </div>
+                          </div>
+                          <div className="mt-4 flex justify-center">
+                            <Button
+                              onClick={() => historyDate && downloadCSV(filteredHistoryWeights, historyDate)}
+                              className="gap-2"
+                            >
+                              <Download className="w-4 h-4" />
+                              Download All Data as CSV
+                            </Button>
                           </div>
                         </CardContent>
                       </Card>
@@ -1464,36 +1882,31 @@ export default function WeightCapturePage() {
             onOpenChange={setIsReceiptOpen}
             weightEntry={{
               id: lastWeightEntry.id,
-              palletId: lastWeightEntry.pallet_id || lastWeightEntry.palletId || '',
+              palletId: lastWeightEntry.pallet_id || '',
               shipmentId: '',
-              weight: `${(lastWeightEntry.net_weight || lastWeightEntry.netWeight || 0)} kg`,
+              weight: `${((lastWeightEntry.fuerte_weight || 0) + (lastWeightEntry.hass_weight || 0))} kg`,
               timestamp: lastWeightEntry.timestamp || lastWeightEntry.created_at,
               status: 'approved',
               operator: 'operator',
               notes: lastWeightEntry.notes || '',
               supplier: lastWeightEntry.supplier || '',
-              truckId: lastWeightEntry.vehicle_plate || lastWeightEntry.truck_id || '',
-              driverId: lastWeightEntry.driver_name || lastWeightEntry.driver_id || '',
+              truckId: lastWeightEntry.vehicle_plate || '',
+              driverId: lastWeightEntry.driver_name || '',
               driverName: lastWeightEntry.driver_name || '',
               driverPhone: lastWeightEntry.driver_phone || '',
-              fruitVariety: Array.isArray(lastWeightEntry.fruit_variety) 
-                ? lastWeightEntry.fruit_variety.join(', ')
-                : (typeof lastWeightEntry.fruit_variety === 'string' 
-                    ? lastWeightEntry.fruit_variety 
-                    : ''),
+              fruitVariety: lastWeightEntry.fruit_variety?.join(', ') || '',
               numberOfCrates: lastWeightEntry.number_of_crates || 0,
               region: lastWeightEntry.region || '',
               imageUrl: lastWeightEntry.image_url || '',
-              netWeight: lastWeightEntry.net_weight || lastWeightEntry.netWeight || 0,
+              netWeight: (lastWeightEntry.fuerte_weight || 0) + (lastWeightEntry.hass_weight || 0),
               unit: lastWeightEntry.unit || 'kg',
               client: lastWeightEntry.supplier || '',
-              products: Array.isArray(lastWeightEntry.fruit_variety) 
-                ? lastWeightEntry.fruit_variety.map(variety => ({
-                    product: variety,
-                    quantity: 1,
-                    weight: lastWeightEntry.net_weight || lastWeightEntry.netWeight || 0
-                  })) 
-                : [],
+              products: lastWeightEntry.fruit_variety?.map(variety => ({
+                product: variety,
+                quantity: 1,
+                weight: variety.toLowerCase().includes('fuerte') ? lastWeightEntry.fuerte_weight : lastWeightEntry.hass_weight
+              })) || [],
+              supplierPhone: lastWeightEntry.supplier_phone || '',
             }}
           />
         )}
