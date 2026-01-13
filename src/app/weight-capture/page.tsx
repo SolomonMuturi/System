@@ -1,3 +1,4 @@
+// app/weights/page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -13,7 +14,7 @@ import { SidebarNav } from '@/components/layout/sidebar-nav';
 import { Header } from '@/components/layout/header';
 import { WeightCapture } from '@/components/dashboard/weight-capture';
 import { FinalTagDialog } from '@/components/dashboard/final-tag-dialog';
-import { Scale, Boxes, GitCompareArrows, Loader2, RefreshCw, AlertCircle, Truck, CheckCircle, Package, TrendingUp, TrendingDown, Minus, Clock, CheckCheck, Download, Calendar, FileSpreadsheet, Search, Filter, Printer, FileText } from 'lucide-react';
+import { Scale, Boxes, Truck, Loader2, RefreshCw, AlertCircle, CheckCircle, Package, TrendingUp, TrendingDown, Minus, Clock, CheckCheck, Download, Calendar, FileSpreadsheet, Search, Printer, FileText, AlertTriangle, XCircle, Trash2, Plus, Filter, Eye, EyeOff, Users, Apple, PieChart, History, Calculator, BarChart3, Layers } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -28,68 +29,62 @@ import { format, isSameDay, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
-// Define types based on your API response
+// Define types
 interface WeightEntry {
-  // Basic info
   id: string;
-  palletId: string;
   pallet_id: string;
   product: string;
   weight: number;
   unit: 'kg' | 'lb';
   timestamp: string;
   created_at: string;
-  
-  // Supplier info
   supplier: string;
   supplier_id: string;
   supplier_phone: string;
-  
-  // Driver info
   driver_name: string;
   driver_phone: string;
   driver_id_number: string;
   vehicle_plate: string;
-  truckId: string;
   truck_id: string;
-  driverId: string;
-  driver_id: string;
-  
-  // Weight calculations
-  grossWeight: number;
   gross_weight: number;
-  tareWeight: number;
   tare_weight: number;
-  netWeight: number;
   net_weight: number;
-  declaredWeight: number;
   declared_weight: number;
-  rejectedWeight: number;
   rejected_weight: number;
-  
-  // FRUIT VARIETY WEIGHTS - SEPARATED
   fuerte_weight: number;
   fuerte_crates: number;
   hass_weight: number;
   hass_crates: number;
   number_of_crates: number;
-  
-  // Fruit variety arrays
   fruit_variety: string[];
   perVarietyWeights: Array<{
     variety: string;
     weight: number;
     crates: number;
   }>;
-  
-  // Other info
   region: string;
   image_url: string;
   notes: string;
   bank_name: string;
   bank_account: string;
   kra_pin: string;
+}
+
+interface CheckedInSupplier {
+  id: string;
+  supplier_code: string;
+  company_name: string; 
+  driver_name: string;
+  phone_number: string;
+  id_number: string;
+  vehicle_plate: string;
+  fruit_varieties: string[];
+  region: string;
+  check_in_time: string;
+  status?: 'pending' | 'weighed';
 }
 
 interface KPIData {
@@ -119,74 +114,70 @@ interface KPIData {
   };
 }
 
-interface KPIApiResponse {
-  todayCount: number;
-  changeSinceLastHour: number;
-  totalWeightToday: number;
-}
-
-interface CheckedInSupplier {
-  id: string;
-  supplier_code: string;
-  company_name: string; 
-  driver_name: string;
-  phone_number: string;
-  id_number: string;
-  vehicle_plate: string;
-  fruit_varieties: string[];
-  region: string;
-  check_in_time: string;
-  status?: 'pending' | 'weighed';
-}
-
-interface CSVRow {
-  date: string;
-  supplier_name: string;
-  phone_number: string;
-  vehicle_plate_number: string;
-  fuerte_weight: number;
-  hass_weight: number;
-  fuerte_crates_in: number;
-  hass_crates_in: number;
-  region: string;
-}
-
-interface SupplierGRNData {
+interface RejectionEntry {
+  id?: string;
+  weight_entry_id: string;
+  pallet_id: string;
   supplier_id: string;
-  company_name: string;
+  supplier_name: string;
   driver_name: string;
   vehicle_plate: string;
-  phone_number: string;
-  check_in_time: string;
-  weights: Array<{
-    variety: string;
-    weight: number;
-    crates: number;
-    timestamp: string;
-  }>;
-  pallets: Array<{
-    pallet_id: string;
-    varieties: string[];
-    weight: number;
-    crates: number;
-    time: string;
-    region: string;
-  }>;
-  total_weight: number;
-  total_crates: number;
-}
-
-interface VarietyData {
-  variety: string;
-  weight: number;
-  crates: number;
-}
-
-interface FruitWeights {
+  region: string;
   fuerte_weight: number;
   fuerte_crates: number;
   hass_weight: number;
   hass_crates: number;
+  total_rejected_weight: number;
+  total_rejected_crates: number;
+  counted_weight: number;
+  variance: number;
+  reason?: string;
+  notes?: string;
+  rejected_at: string;
+  created_by: string;
+}
+
+interface CountingHistoryRecord {
+  id: string;
+  supplier_id: string;
+  supplier_name: string;
+  pallet_id: string;
+  region: string;
+  total_weight: number;
+  total_counted_weight: number;
+  fuerte_4kg_total: number;
+  fuerte_10kg_total: number;
+  hass_4kg_total: number;
+  hass_10kg_total: number;
+  counting_data: any;
+  totals: any;
+  status: string;
+  for_coldroom: boolean;
+  submitted_at: string;
+  processed_by: string;
+  notes?: string;
+  driver_name?: string;
+  vehicle_plate?: string;
+  supplier_phone?: string;
+  bank_name?: string;
+  bank_account?: string;
+  kra_pin?: string;
+}
+
+interface VarietyStats {
+  variety: string;
+  total_weight: number;
+  total_crates: number;
+  avg_weight_per_crate: number;
+}
+
+interface DailySummary {
+  date: string;
+  total_weight: number;
+  total_crates: number;
+  total_pallets: number;
+  total_suppliers: number;
+  varieties: VarietyStats[];
 }
 
 const getChangeIcon = (changeType: 'increase' | 'decrease' | 'neutral') => {
@@ -205,6 +196,7 @@ export default function WeightCapturePage() {
   const [kpiData, setKpiData] = useState<KPIData | null>(null);
   const [checkedInSuppliers, setCheckedInSuppliers] = useState<CheckedInSupplier[]>([]);
   const [lastWeightEntry, setLastWeightEntry] = useState<WeightEntry | null>(null);
+  const [countingHistory, setCountingHistory] = useState<CountingHistoryRecord[]>([]);
   const [isReceiptOpen, setIsReceiptOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -218,38 +210,58 @@ export default function WeightCapturePage() {
   const [historyWeights, setHistoryWeights] = useState<WeightEntry[]>([]);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [filterRegion, setFilterRegion] = useState<string>('all');
+  
+  // Rejects tab states
+  const [rejects, setRejects] = useState<RejectionEntry[]>([]);
+  const [isRejectsLoading, setIsRejectsLoading] = useState(false);
+  const [newRejection, setNewRejection] = useState<RejectionEntry>({
+    weight_entry_id: '',
+    pallet_id: '',
+    supplier_id: '',
+    supplier_name: '',
+    driver_name: '',
+    vehicle_plate: '',
+    region: '',
+    fuerte_weight: 0,
+    fuerte_crates: 0,
+    hass_weight: 0,
+    hass_crates: 0,
+    total_rejected_weight: 0,
+    total_rejected_crates: 0,
+    counted_weight: 0,
+    variance: 0,
+    reason: '',
+    notes: '',
+    rejected_at: new Date().toISOString(),
+    created_by: 'Weight Capture Station'
+  });
+  const [selectedWeightForReject, setSelectedWeightForReject] = useState<WeightEntry | null>(null);
+  const [selectedCountingRecordForReject, setSelectedCountingRecordForReject] = useState<CountingHistoryRecord | null>(null);
+  const [isAddingRejection, setIsAddingRejection] = useState(false);
+  
+  // Statistics tab states
+  const [statsPeriod, setStatsPeriod] = useState<'today' | 'week' | 'month'>('today');
+  const [dailySummaries, setDailySummaries] = useState<DailySummary[]>([]);
   
   // State for pallet ID counter
   const [palletCounter, setPalletCounter] = useState<number>(1);
   
   const { toast } = useToast();
 
-  // Fetch ALL weight entries from database - UPDATED FOR API STRUCTURE
+  // Fetch all weight entries
   const fetchWeights = async () => {
     try {
       setError(null);
-      console.log('Fetching weights from API...');
-      
       const response = await fetch('/api/weights?limit=1000&order=desc');
-      
-      console.log('API Response status:', response.status);
       
       if (!response.ok) {
         throw new Error(`Failed to fetch weights: ${response.statusText}`);
       }
       
       const data = await response.json();
-      console.log('Fetched weights:', data.length);
-      console.log('Sample weight entry:', data[0] ? {
-        id: data[0].id,
-        fuerte_weight: data[0].fuerte_weight,
-        hass_weight: data[0].hass_weight,
-        fruit_variety: data[0].fruit_variety
-      } : 'No data');
-      
       setWeights(data);
       
-      // Update processed suppliers based on existing weights
       const processedSet = new Set<string>();
       data.forEach((entry: WeightEntry) => {
         if (entry.supplier_id) {
@@ -258,7 +270,6 @@ export default function WeightCapturePage() {
       });
       setProcessedSuppliers(processedSet);
       
-      // Calculate the highest pallet number for today
       const today = new Date();
       const todayString = today.toISOString().split('T')[0];
       const todayPallets = data
@@ -281,7 +292,6 @@ export default function WeightCapturePage() {
       setError(error.message || 'Failed to load weight data');
       setWeights([]);
       
-      // Show user-friendly error
       toast({
         title: 'Error Loading Data',
         description: 'Could not load weight entries. Please try refreshing.',
@@ -300,7 +310,6 @@ export default function WeightCapturePage() {
       }
       
       const data: CheckedInSupplier[] = await response.json();
-      // Initialize suppliers with status based on processedSuppliers
       const suppliersWithStatus = data.map(supplier => ({
         ...supplier,
         status: processedSuppliers.has(supplier.id) ? 'weighed' : 'pending' as const
@@ -312,41 +321,154 @@ export default function WeightCapturePage() {
     }
   };
 
-  // Fetch history weights by date - client-side filtering
-  const fetchHistoryWeights = async (date: Date) => {
-    if (!date) return;
-    
-    setIsHistoryLoading(true);
+  // Fetch counting history
+  const fetchCountingHistory = async () => {
     try {
-      // Filter weights by selected date
-      const filteredWeights = weights.filter(entry => {
-        const entryDate = new Date(entry.created_at);
-        return isSameDay(entryDate, date);
-      });
+      const response = await fetch('/api/counting?action=history');
       
-      setHistoryWeights(filteredWeights);
-      
-      if (filteredWeights.length === 0) {
-        toast({
-          title: 'No Data Found',
-          description: `No weight entries found for ${format(date, 'MMMM d, yyyy')}`,
-          variant: 'default',
-        });
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success) {
+          setCountingHistory(result.data || []);
+        }
       }
     } catch (error: any) {
-      console.error('Error filtering history:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to filter history data',
-        variant: 'destructive',
-      });
-      setHistoryWeights([]);
-    } finally {
-      setIsHistoryLoading(false);
+      console.error('Error fetching counting history:', error);
+      setCountingHistory([]);
     }
   };
 
-  // Update supplier status when processedSuppliers changes
+  // Add this helper function near the top (after imports):
+const safeFormatDate = (dateString: string, formatStr: string = 'PPpp') => {
+  if (!dateString) return '-';
+  try {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return 'Invalid Date';
+    return format(date, formatStr);
+  } catch {
+    return 'Date Error';
+  }
+};
+
+const safeFormatTime = (dateString: string) => {
+  if (!dateString) return '-';
+  try {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return 'Invalid';
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return 'Error';
+  }
+};
+
+  // Fetch rejects
+  const fetchRejects = async () => {
+    try {
+      setIsRejectsLoading(true);
+      const response = await fetch('/api/rejects');
+      
+      if (response.ok) {
+        const data: RejectionEntry[] = await response.json();
+        setRejects(data);
+      } else {
+        // If no rejects API, use empty array
+        setRejects([]);
+      }
+    } catch (error: any) {
+      console.error('Error fetching rejects:', error);
+      setRejects([]);
+    } finally {
+      setIsRejectsLoading(false);
+    }
+  };
+
+  // Calculate statistics
+  const calculateStatistics = () => {
+    const today = new Date();
+    const weekAgo = new Date();
+    weekAgo.setDate(today.getDate() - 7);
+    const monthAgo = new Date();
+    monthAgo.setDate(today.getDate() - 30);
+    
+    let periodWeights: WeightEntry[] = [];
+    
+    switch (statsPeriod) {
+      case 'today':
+        periodWeights = weights.filter(w => isSameDay(new Date(w.created_at), today));
+        break;
+      case 'week':
+        periodWeights = weights.filter(w => new Date(w.created_at) >= weekAgo);
+        break;
+      case 'month':
+        periodWeights = weights.filter(w => new Date(w.created_at) >= monthAgo);
+        break;
+    }
+    
+    // Group by date
+    const summariesMap = new Map<string, DailySummary>();
+    
+    periodWeights.forEach(entry => {
+      const date = new Date(entry.created_at).toISOString().split('T')[0];
+      
+      if (!summariesMap.has(date)) {
+        summariesMap.set(date, {
+          date,
+          total_weight: 0,
+          total_crates: 0,
+          total_pallets: 0,
+          total_suppliers: 0,
+          varieties: []
+        });
+      }
+      
+      const summary = summariesMap.get(date)!;
+      summary.total_weight += (entry.fuerte_weight || 0) + (entry.hass_weight || 0);
+      summary.total_crates += (entry.fuerte_crates || 0) + (entry.hass_crates || 0);
+      summary.total_pallets++;
+      
+      // Add supplier if not counted yet
+      if (entry.supplier_id && !summary.total_suppliers) {
+        summary.total_suppliers = 1;
+      }
+      
+      // Update variety stats
+      if (entry.fuerte_weight > 0) {
+        let variety = summary.varieties.find(v => v.variety === 'Fuerte');
+        if (!variety) {
+          variety = { variety: 'Fuerte', total_weight: 0, total_crates: 0, avg_weight_per_crate: 0 };
+          summary.varieties.push(variety);
+        }
+        variety.total_weight += entry.fuerte_weight;
+        variety.total_crates += entry.fuerte_crates || 0;
+      }
+      
+      if (entry.hass_weight > 0) {
+        let variety = summary.varieties.find(v => v.variety === 'Hass');
+        if (!variety) {
+          variety = { variety: 'Hass', total_weight: 0, total_crates: 0, avg_weight_per_crate: 0 };
+          summary.varieties.push(variety);
+        }
+        variety.total_weight += entry.hass_weight;
+        variety.total_crates += entry.hass_crates || 0;
+      }
+    });
+    
+    // Calculate averages
+    summariesMap.forEach(summary => {
+      summary.varieties.forEach(variety => {
+        variety.avg_weight_per_crate = variety.total_crates > 0 
+          ? variety.total_weight / variety.total_crates 
+          : 0;
+      });
+    });
+    
+    const summaries = Array.from(summariesMap.values())
+      .sort((a, b) => b.date.localeCompare(a.date));
+    
+    setDailySummaries(summaries);
+  };
+
+  // Update supplier status
   useEffect(() => {
     if (checkedInSuppliers.length > 0) {
       const updatedSuppliers = checkedInSuppliers.map(supplier => ({
@@ -362,69 +484,62 @@ export default function WeightCapturePage() {
     try {
       const response = await fetch('/api/weights/kpi');
       
-      if (!response.ok) {
-        throw new Error('Failed to fetch KPI data');
+      if (response.ok) {
+        const data = await response.json();
+        
+        const todayEntries = weights.filter(entry => {
+          const entryDate = new Date(entry.created_at);
+          const today = new Date();
+          return isSameDay(entryDate, today);
+        });
+        
+        const uniqueSuppliers = new Set(
+          todayEntries.map(entry => entry.supplier_id).filter(Boolean)
+        ).size;
+        
+        const pendingSuppliers = checkedInSuppliers.filter(s => !processedSuppliers.has(s.id)).length;
+        
+        const totalWeightToday = todayEntries.reduce((sum, entry) => 
+          sum + (entry.fuerte_weight || 0) + (entry.hass_weight || 0), 0);
+        
+        setKpiData({
+          palletsWeighed: {
+            title: 'Pallets Weighed Today',
+            value: data.todayCount?.toString() || todayEntries.length.toString(),
+            change: data.changeSinceLastHour >= 0 ? 
+              `+${data.changeSinceLastHour} since last hour` : 
+              `${data.changeSinceLastHour} since last hour`,
+            changeType: data.changeSinceLastHour >= 0 ? 'increase' : 'decrease',
+          },
+          totalWeight: {
+            title: 'Total Weight Today',
+            value: `${(totalWeightToday / 1000).toFixed(1)} t`,
+            change: `${todayEntries.length} entries recorded`,
+            changeType: 'increase',
+          },
+          suppliersToday: {
+            title: 'Suppliers Processed',
+            value: uniqueSuppliers.toString(),
+            change: `${pendingSuppliers} still pending`,
+            changeType: pendingSuppliers > 0 ? 'increase' : 'neutral',
+          },
+          pendingSuppliers: {
+            title: 'Pending Weighing',
+            value: pendingSuppliers.toString(),
+            change: `${checkedInSuppliers.length} checked-in total`,
+            changeType: 'neutral',
+          },
+        });
       }
-      
-      const data: KPIApiResponse = await response.json();
-      
-      // Calculate today's entries
-      const todayEntries = weights.filter(entry => {
-        const entryDate = new Date(entry.created_at);
-        const today = new Date();
-        return isSameDay(entryDate, today);
-      });
-      
-      // Get unique suppliers today
-      const uniqueSuppliers = new Set(
-        todayEntries.map(entry => entry.supplier_id).filter(Boolean)
-      ).size;
-      
-      // Get pending suppliers count
-      const pendingSuppliers = checkedInSuppliers.filter(s => !processedSuppliers.has(s.id)).length;
-      
-      // Calculate total weight - USING SEPARATED VARIETIES
-      const totalWeightToday = todayEntries.reduce((sum, entry) => 
-        sum + (entry.fuerte_weight || 0) + (entry.hass_weight || 0), 0);
-      
-      setKpiData({
-        palletsWeighed: {
-          title: 'Pallets Weighed Today',
-          value: data.todayCount.toString(),
-          change: data.changeSinceLastHour >= 0 ? 
-            `+${data.changeSinceLastHour} since last hour` : 
-            `${data.changeSinceLastHour} since last hour`,
-          changeType: data.changeSinceLastHour >= 0 ? 'increase' : 'decrease',
-        },
-        totalWeight: {
-          title: 'Total Weight Today',
-          value: `${(totalWeightToday / 1000).toFixed(1)} t`,
-          change: `${todayEntries.length} entries recorded`,
-          changeType: 'increase',
-        },
-        suppliersToday: {
-          title: 'Suppliers Processed',
-          value: uniqueSuppliers.toString(),
-          change: `${pendingSuppliers} still pending`,
-          changeType: pendingSuppliers > 0 ? 'increase' : 'neutral',
-        },
-        pendingSuppliers: {
-          title: 'Pending Weighing',
-          value: pendingSuppliers.toString(),
-          change: `${checkedInSuppliers.length} checked-in total`,
-          changeType: 'neutral',
-        },
-      });
     } catch (error: any) {
       console.error('Error fetching KPI data:', error);
-      // Set default KPI data using separated variety weights
+      
       const todayEntries = weights.filter(entry => {
         const entryDate = new Date(entry.created_at);
         const today = new Date();
         return isSameDay(entryDate, today);
       });
       
-      // Calculate total weight using separated varieties
       const totalWeightToday = todayEntries.reduce((sum, entry) => 
         sum + (entry.fuerte_weight || 0) + (entry.hass_weight || 0), 0);
       
@@ -469,7 +584,8 @@ export default function WeightCapturePage() {
       await Promise.all([
         fetchWeights(),
         fetchCheckedInSuppliers(),
-        fetchKpiData()
+        fetchCountingHistory(),
+        fetchRejects()
       ]);
       setIsLoading(false);
     };
@@ -481,8 +597,9 @@ export default function WeightCapturePage() {
   useEffect(() => {
     if (!isLoading) {
       fetchKpiData();
+      calculateStatistics();
     }
-  }, [weights]);
+  }, [weights, statsPeriod]);
 
   // Fetch history when date changes
   useEffect(() => {
@@ -497,7 +614,8 @@ export default function WeightCapturePage() {
     await Promise.all([
       fetchWeights(),
       fetchCheckedInSuppliers(),
-      fetchKpiData()
+      fetchCountingHistory(),
+      fetchRejects()
     ]);
     setIsRefreshing(false);
     
@@ -507,37 +625,58 @@ export default function WeightCapturePage() {
     });
   };
 
-  // Function to generate pallet ID with sequential numbering
+  // Fetch history weights by date
+  const fetchHistoryWeights = async (date: Date) => {
+    if (!date) return;
+    
+    setIsHistoryLoading(true);
+    try {
+      const filteredWeights = weights.filter(entry => {
+        const entryDate = new Date(entry.created_at);
+        return isSameDay(entryDate, date);
+      });
+      
+      setHistoryWeights(filteredWeights);
+      
+      if (filteredWeights.length === 0) {
+        toast({
+          title: 'No Data Found',
+          description: `No weight entries found for ${format(date, 'MMMM d, yyyy')}`,
+          variant: 'default',
+        });
+      }
+    } catch (error: any) {
+      console.error('Error filtering history:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to filter history data',
+        variant: 'destructive',
+      });
+      setHistoryWeights([]);
+    } finally {
+      setIsHistoryLoading(false);
+    }
+  };
+
+  // Generate pallet ID
   const generatePalletId = () => {
     const today = new Date();
     const dateStr = `${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`;
     const palletNum = palletCounter.toString().padStart(3, '0');
     
-    // Increment counter for next use
     setPalletCounter(prev => prev + 1);
     
     return `PAL-${palletNum}/${dateStr}`;
   };
 
-  // Handle Add Weight function - UPDATED FOR API STRUCTURE
+  // Handle Add Weight
   const handleAddWeight = async (weightData: any) => {
     try {
-      console.log('DEBUG - Raw weight data received:', weightData);
-      
-      // Extract fruit weights from weightData
       const fuerteWeight = weightData.fuerte_weight ? parseFloat(String(weightData.fuerte_weight)) : 0;
       const fuerteCrates = weightData.fuerte_crates ? parseInt(String(weightData.fuerte_crates)) : 0;
       const hassWeight = weightData.hass_weight ? parseFloat(String(weightData.hass_weight)) : 0;
       const hassCrates = weightData.hass_crates ? parseInt(String(weightData.hass_crates)) : 0;
       
-      console.log('DEBUG - Parsed fruit weights:', {
-        fuerteWeight,
-        fuerteCrates,
-        hassWeight,
-        hassCrates
-      });
-      
-      // Validate at least one weight is provided
       if (fuerteWeight <= 0 && hassWeight <= 0) {
         toast({
           title: 'Validation Error',
@@ -547,7 +686,6 @@ export default function WeightCapturePage() {
         return;
       }
       
-      // Validate at least one crate count is provided
       if (fuerteCrates <= 0 && hassCrates <= 0) {
         toast({
           title: 'Validation Error',
@@ -559,62 +697,31 @@ export default function WeightCapturePage() {
       
       setError(null);
       
-      // Capture supplier info before submission
       const submittedSupplierId = weightData.supplier_id;
-      
-      // Generate sequential pallet ID
       const generatedPalletId = weightData.pallet_id || generatePalletId();
       
-      // Calculate totals
-      const totalWeight = fuerteWeight + hassWeight;
-      const totalCrates = fuerteCrates + hassCrates;
-      
-      console.log('DEBUG - Totals:', {
-        totalWeight,
-        totalCrates
-      });
-      
-      // Create fruit varieties array based on weights
-      const fruitVarieties = [];
-      if (fuerteWeight > 0) fruitVarieties.push('Fuerte');
-      if (hassWeight > 0) fruitVarieties.push('Hass');
-      
-      // Prepare payload for API
       const payload = {
-        // Pallet info
         pallet_id: generatedPalletId,
         unit: weightData.unit || 'kg',
         timestamp: weightData.timestamp || new Date().toISOString(),
-        
-        // SEPARATED FRUIT WEIGHTS - THIS IS WHAT THE API EXPECTS
         fuerte_weight: String(fuerteWeight),
         fuerte_crates: String(fuerteCrates),
         hass_weight: String(hassWeight),
         hass_crates: String(hassCrates),
-        
-        // Supplier details
         supplier: weightData.supplier || weightData.supplier_name || '',
         supplier_name: weightData.supplier_name || weightData.supplier || '',
         supplier_id: weightData.supplier_id || '',
         supplier_phone: weightData.supplier_phone || '',
-        
-        // Region
         region: weightData.region || '',
-        
-        // Driver/vehicle details
         driver_name: weightData.driver_name || '',
         driver_phone: weightData.driver_phone || '',
         driver_id_number: weightData.driver_id_number || '',
         vehicle_plate: weightData.vehicle_plate || '',
         truck_id: weightData.truck_id || weightData.vehicle_plate || '',
         driver_id: weightData.driver_id || weightData.driver_id_number || '',
-        
-        // Optional fields
         image_url: weightData.image_url || '',
         notes: weightData.notes || '',
       };
-      
-      console.log('DEBUG - Sending payload to API:', payload);
       
       const response = await fetch('/api/weights', {
         method: 'POST',
@@ -637,13 +744,9 @@ export default function WeightCapturePage() {
 
       const savedEntry = await response.json();
       
-      console.log('DEBUG - Received saved entry:', savedEntry);
-      
-      // Update local state
       setWeights(prev => [savedEntry, ...prev]);
       setLastWeightEntry(savedEntry);
       
-      // Mark supplier as processed
       if (submittedSupplierId) {
         setProcessedSuppliers(prev => {
           const newSet = new Set(prev);
@@ -651,7 +754,6 @@ export default function WeightCapturePage() {
           return newSet;
         });
         
-        // Update the checked-in suppliers list to reflect the new status
         setCheckedInSuppliers(prev => 
           prev.map(supplier => 
             supplier.id === submittedSupplierId 
@@ -662,13 +764,11 @@ export default function WeightCapturePage() {
       }
       
       setIsReceiptOpen(true);
-      
-      // Refresh KPI data
       await fetchKpiData();
       
       toast({
         title: 'Weight Saved Successfully',
-        description: `Pallet ${savedEntry.pallet_id} has been recorded with ${fruitVarieties.length} varieties (Fuerte: ${fuerteWeight}kg, Hass: ${hassWeight}kg).`,
+        description: `Pallet ${savedEntry.pallet_id} has been recorded.`,
       });
       
     } catch (error: any) {
@@ -683,7 +783,7 @@ export default function WeightCapturePage() {
     }
   };
 
-  // Handle supplier selection for weighing
+  // Handle supplier selection
   const handleSelectSupplierForWeighing = (supplier: CheckedInSupplier) => {
     if (processedSuppliers.has(supplier.id)) {
       toast({
@@ -699,16 +799,15 @@ export default function WeightCapturePage() {
     
     toast({
       title: 'Supplier Selected',
-      description: `${supplier.driver_name} from ${supplier.company_name} is ready for weighing. Details have been pre-filled.`,
+      description: `${supplier.driver_name} from ${supplier.company_name} is ready for weighing.`,
     });
   };
 
-  // Function to extract variety data from weight entries with SEPARATED weights
-  const extractVarietyData = (weights: WeightEntry[]): VarietyData[] => {
+  // Extract variety data
+  const extractVarietyData = (weights: WeightEntry[]) => {
     const varietyMap = new Map<string, { weight: number; crates: number }>();
     
     weights.forEach(entry => {
-      // Use separated variety weights from the API
       if (entry.fuerte_weight && entry.fuerte_weight > 0) {
         const key = 'Fuerte';
         if (!varietyMap.has(key)) {
@@ -729,7 +828,6 @@ export default function WeightCapturePage() {
         data.crates += entry.hass_crates || 0;
       }
       
-      // Also check perVarietyWeights for any other varieties
       if (entry.perVarietyWeights && entry.perVarietyWeights.length > 0) {
         entry.perVarietyWeights.forEach(variety => {
           const key = variety.variety;
@@ -743,7 +841,6 @@ export default function WeightCapturePage() {
       }
     });
     
-    // Convert map to array and sort by variety name
     return Array.from(varietyMap.entries())
       .map(([variety, data]) => ({
         variety,
@@ -753,10 +850,9 @@ export default function WeightCapturePage() {
       .sort((a, b) => a.variety.localeCompare(b.variety));
   };
 
-  // Function to generate CSV data with SEPARATED variety weights
-  const generateCSVData = (weights: WeightEntry[]): CSVRow[] => {
-    // Group weights by supplier and date
-    const supplierMap = new Map<string, CSVRow>();
+  // Generate CSV data
+  const generateCSVData = (weights: WeightEntry[]) => {
+    const supplierMap = new Map<string, any>();
     
     weights.forEach(entry => {
       const date = new Date(entry.created_at).toISOString().split('T')[0];
@@ -783,7 +879,6 @@ export default function WeightCapturePage() {
       
       const row = supplierMap.get(key)!;
       
-      // Add separated variety weights directly
       row.fuerte_weight += entry.fuerte_weight || 0;
       row.fuerte_crates_in += entry.fuerte_crates || 0;
       row.hass_weight += entry.hass_weight || 0;
@@ -793,7 +888,7 @@ export default function WeightCapturePage() {
     return Array.from(supplierMap.values());
   };
 
-  // Function to download CSV
+  // Download CSV
   const downloadCSV = (weights: WeightEntry[], date: Date) => {
     const csvData = generateCSVData(weights);
     
@@ -806,7 +901,6 @@ export default function WeightCapturePage() {
       return;
     }
     
-    // Create CSV content
     const headers = [
       'Date',
       'Supplier Name',
@@ -836,7 +930,6 @@ export default function WeightCapturePage() {
       ...rows.map(row => row.join(','))
     ].join('\n');
     
-    // Create and download file
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
@@ -853,301 +946,524 @@ export default function WeightCapturePage() {
     });
   };
 
-// Function to download Supplier GRN as PDF with SEPARATED variety display
-const downloadSupplierGRN = async (supplierId: string) => {
-  try {
-    // First, get all weights for this supplier from local state
-    const supplierWeights = weights.filter(w => w.supplier_id === supplierId);
-    
-    if (supplierWeights.length === 0) {
+  // Download Supplier GRN
+  const downloadSupplierGRN = async (supplierId: string) => {
+    try {
+      const supplierWeights = weights.filter(w => w.supplier_id === supplierId);
+      
+      if (supplierWeights.length === 0) {
+        toast({
+          title: 'No Data Found',
+          description: 'No weight entries found for this supplier.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      
+      const supplierName = supplierWeights[0]?.supplier || 'Unknown Supplier';
+      const supplierPhone = supplierWeights[0]?.supplier_phone || '';
+      const driverName = supplierWeights[0]?.driver_name || '';
+      const vehiclePlate = supplierWeights[0]?.vehicle_plate || '';
+      
+      const supplier = checkedInSuppliers.find(s => s.id === supplierId);
+      
+      const varietyData = extractVarietyData(supplierWeights);
+      
+      const totalFuerteWeight = supplierWeights.reduce((sum, w) => sum + (w.fuerte_weight || 0), 0);
+      const totalHassWeight = supplierWeights.reduce((sum, w) => sum + (w.hass_weight || 0), 0);
+      const totalFuerteCrates = supplierWeights.reduce((sum, w) => sum + (w.fuerte_crates || 0), 0);
+      const totalHassCrates = supplierWeights.reduce((sum, w) => sum + (w.hass_crates || 0), 0);
+      const totalWeight = totalFuerteWeight + totalHassWeight;
+      const totalCrates = totalFuerteCrates + totalHassCrates;
+      
+      const doc = new jsPDF('p', 'mm', 'a4');
+      
+      let hasLogo = false;
+      let logoHeight = 0;
+      
+      try {
+        const logoPaths = [
+          '/Harirlogo.svg',
+          '/Harirlogo.png',
+          '/Harirlogo.jpg',
+          '/logo.png',
+          '/logo.jpg',
+          '/favicon.ico',
+          '/public/favicon.ico'
+        ];
+        
+        for (const path of logoPaths) {
+          try {
+            const response = await fetch(path);
+            if (response.ok) {
+              const blob = await response.blob();
+              const base64String = await new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result);
+                reader.readAsDataURL(blob);
+              });
+              
+              doc.addImage(base64String as string, 'PNG', 92.5, 10, 15, 15);
+              hasLogo = true;
+              logoHeight = 15;
+              break;
+            }
+          } catch (e) {
+            continue;
+          }
+        }
+      } catch (error) {
+        console.log('Logo loading failed:', error);
+      }
+      
+      if (!hasLogo) {
+        doc.setFillColor(34, 139, 34);
+        doc.circle(100, 17.5, 7, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'bold');
+        doc.text('HI', 100, 19.5, { align: 'center' });
+        logoHeight = 15;
+        hasLogo = true;
+      }
+      
+      const startY = hasLogo ? 30 : 15;
+      doc.setTextColor(34, 139, 34);
+      doc.setFontSize(16);
+      doc.setFont('helvetica', 'bold');
+      doc.text('HARIR INTERNATIONAL', 105, startY, { align: 'center' });
+      
+      doc.setFontSize(11);
+      doc.text('FRESH PRODUCE EXPORTER', 105, startY + 6, { align: 'center' });
+      
+      doc.setDrawColor(34, 139, 34);
+      doc.setLineWidth(0.5);
+      doc.line(10, startY + 10, 200, startY + 10);
+      
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(0, 0, 0);
+      doc.text('GOODS RECEIVED NOTE (GRN)', 105, startY + 20, { align: 'center' });
+      
+      let yPos = startY + 30;
+      
+      doc.setFillColor(248, 249, 250);
+      doc.rect(10, yPos, 190, 15, 'F');
+      
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.text('GRN Details', 15, yPos + 6);
+      
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      
+      doc.text(`GRN: GRN-${supplierId.slice(0, 8)}`, 15, yPos + 12);
+      doc.text(`Date: ${format(new Date(), 'dd/MM/yyyy')}`, 50, yPos + 12);
+      doc.text(`Time: ${format(new Date(), 'HH:mm')}`, 85, yPos + 12);
+      doc.text(`Code: ${supplier?.supplier_code || 'N/A'}`, 120, yPos + 12);
+      
+      yPos += 20;
+      
+      doc.setFillColor(233, 236, 239);
+      doc.rect(10, yPos, 190, 20, 'F');
+      
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Supplier Information', 15, yPos + 6);
+      
+      doc.setFont('helvetica', 'normal');
+      doc.text(`Supplier: ${supplierName}`, 15, yPos + 12);
+      doc.text(`Phone: ${supplierPhone}`, 80, yPos + 12);
+      doc.text(`Driver: ${driverName || 'N/A'}`, 120, yPos + 12);
+      doc.text(`Vehicle: ${vehiclePlate || 'N/A'}`, 160, yPos + 12);
+      
+      doc.text(`Check-in: ${format(new Date(supplier?.check_in_time || new Date()), 'dd/MM/yyyy HH:mm')}`, 15, yPos + 18);
+      
+      yPos += 25;
+      
+      if (varietyData.length > 0) {
+        doc.setFillColor(52, 58, 64);
+        doc.rect(10, yPos, 190, 8, 'F');
+        
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(255, 255, 255);
+        doc.text('Received Goods Details', 15, yPos + 5.5);
+        
+        yPos += 10;
+        
+        doc.setFillColor(248, 249, 250);
+        doc.rect(10, yPos, 190, 7, 'F');
+        doc.setTextColor(0, 0, 0);
+        
+        doc.text('Fruit Variety', 15, yPos + 4.5);
+        doc.text('Weight (kg)', 130, yPos + 4.5, { align: 'right' });
+        doc.text('Crates', 180, yPos + 4.5, { align: 'right' });
+        
+        yPos += 7;
+        
+        varietyData.forEach((item, index) => {
+          doc.setFillColor(index % 2 === 0 ? 255 : 248, 249, 250);
+          doc.rect(10, yPos, 190, 7, 'F');
+          
+          if (item.variety.toLowerCase().includes('fuerte')) {
+            doc.setTextColor(0, 102, 204);
+          } else if (item.variety.toLowerCase().includes('hass')) {
+            doc.setTextColor(0, 153, 0);
+          } else {
+            doc.setTextColor(102, 102, 102);
+          }
+          
+          doc.setFont('helvetica', 'bold');
+          doc.text(item.variety, 15, yPos + 4.5);
+          
+          doc.setTextColor(0, 0, 0);
+          doc.setFont('helvetica', 'normal');
+          doc.text(item.weight.toFixed(2), 130, yPos + 4.5, { align: 'right' });
+          doc.text(item.crates.toString(), 180, yPos + 4.5, { align: 'right' });
+          
+          yPos += 7;
+        });
+        
+        yPos += 3;
+        doc.setFillColor(40, 167, 69);
+        doc.rect(10, yPos, 190, 8, 'F');
+        
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(255, 255, 255);
+        doc.text('GRAND TOTAL', 15, yPos + 5);
+        doc.text(totalWeight.toFixed(2), 130, yPos + 5, { align: 'right' });
+        doc.text(totalCrates.toString(), 180, yPos + 5, { align: 'right' });
+        
+        yPos += 12;
+      }
+      
+      doc.setFontSize(7);
+      doc.setTextColor(108, 117, 125);
+      doc.setFont('helvetica', 'italic');
+      
+      const notes = [
+        '• All weights in kilograms (kg) • Quality inspection within 24 hours • Discrepancies must be reported immediately'
+      ];
+      
+      notes.forEach((note, index) => {
+        doc.text(note, 105, yPos + (index * 5), { align: 'center' });
+      });
+      
+      yPos += 10;
+      
+      doc.setDrawColor(0, 0, 0);
+      doc.setLineWidth(0.2);
+      
+      doc.line(20, yPos, 90, yPos);
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(0, 0, 0);
+      doc.text('Received By (Name & Signature)', 55, yPos + 3, { align: 'center' });
+      doc.text(`Date: ${format(new Date(), 'dd/MM/yyyy')}`, 55, yPos + 6, { align: 'center' });
+      
+      doc.line(120, yPos, 190, yPos);
+      doc.text('Supplier/Driver (Name & Signature)', 155, yPos + 3, { align: 'center' });
+      doc.text(`Date: ${format(new Date(), 'dd/MM/yyyy')}`, 155, yPos + 6, { align: 'center' });
+      
+      yPos += 15;
+      
+      doc.setFontSize(6);
+      doc.setTextColor(128, 128, 128);
+      doc.text('This is a computer-generated document. No physical signature required.', 105, yPos, { align: 'center' });
+      doc.text('Harir International © 2024 | GRN System v1.0', 105, yPos + 3, { align: 'center' });
+      
+      const fileName = `GRN_${supplierName.replace(/\s+/g, '_')}_${format(new Date(), 'yyyy-MM-dd_HHmm')}.pdf`;
+      doc.save(fileName);
+      
       toast({
-        title: 'No Data Found',
-        description: 'No weight entries found for this supplier.',
+        title: 'GRN Downloaded',
+        description: `Goods Received Note has been downloaded for ${supplierName}.`,
+      });
+      
+    } catch (error: any) {
+      console.error('Error downloading GRN:', error);
+      toast({
+        title: 'Error Downloading GRN',
+        description: error.message || 'Failed to download GRN. Please try again.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  // Filter history weights
+  const filteredHistoryWeights = historyWeights.filter(entry => {
+    if (!searchQuery && filterRegion === 'all') return true;
+    
+    const query = searchQuery.toLowerCase();
+    const matchesSearch = !searchQuery || 
+      (entry.supplier?.toLowerCase().includes(query)) ||
+      (entry.driver_name?.toLowerCase().includes(query)) ||
+      (entry.vehicle_plate?.toLowerCase().includes(query)) ||
+      (entry.pallet_id?.toLowerCase().includes(query));
+    
+    const matchesRegion = filterRegion === 'all' || entry.region === filterRegion;
+    
+    return matchesSearch && matchesRegion;
+  });
+
+  // Handle weight selection for rejection from weight history
+  const handleSelectWeightForRejection = (weight: WeightEntry) => {
+    setSelectedWeightForReject(weight);
+    // Find counting record for this pallet/supplier
+    const countingRecord = countingHistory.find(
+      record => record.pallet_id === weight.pallet_id || record.supplier_id === weight.supplier_id
+    );
+    
+    setNewRejection({
+      ...newRejection,
+      weight_entry_id: weight.id,
+      pallet_id: weight.pallet_id,
+      supplier_id: weight.supplier_id || '',
+      supplier_name: weight.supplier || '',
+      driver_name: weight.driver_name || '',
+      vehicle_plate: weight.vehicle_plate || '',
+      region: weight.region || '',
+      fuerte_weight: 0,
+      fuerte_crates: 0,
+      hass_weight: 0,
+      hass_crates: 0,
+      counted_weight: countingRecord?.total_counted_weight || 0,
+      total_rejected_weight: 0,
+      total_rejected_crates: 0,
+      variance: calculateVariance(weight, countingRecord, 0, 0)
+    });
+    
+    toast({
+      title: 'Weight Selected',
+      description: `${weight.supplier} (Pallet: ${weight.pallet_id}) selected for rejection entry.`,
+    });
+  };
+
+  // Handle counting record selection for rejection
+  const handleSelectCountingRecordForRejection = (record: CountingHistoryRecord) => {
+    setSelectedCountingRecordForReject(record);
+    
+    // Find weight entry for this pallet/supplier
+    const weightEntry = weights.find(
+      weight => weight.pallet_id === record.pallet_id || weight.supplier_id === record.supplier_id
+    );
+    
+    setNewRejection({
+      ...newRejection,
+      weight_entry_id: record.id,
+      pallet_id: record.pallet_id,
+      supplier_id: record.supplier_id || '',
+      supplier_name: record.supplier_name || '',
+      driver_name: record.driver_name || '',
+      vehicle_plate: record.vehicle_plate || '',
+      region: record.region || '',
+      fuerte_weight: 0,
+      fuerte_crates: 0,
+      hass_weight: 0,
+      hass_crates: 0,
+      counted_weight: record.total_counted_weight || 0,
+      total_rejected_weight: 0,
+      total_rejected_crates: 0,
+      variance: calculateVariance(weightEntry || null, record, 0, 0)
+    });
+    
+    toast({
+      title: 'Counting Record Selected',
+      description: `${record.supplier_name} (Pallet: ${record.pallet_id}) selected for rejection entry.`,
+    });
+  };
+
+  // Calculate variance: intake weight - (counted weight + rejected weight)
+  const calculateVariance = (
+    weightEntry: WeightEntry | null, 
+    countingRecord: CountingHistoryRecord | null, 
+    rejectedWeight: number,
+    rejectedCrates: number
+  ) => {
+    // Get intake weight from weight entry if available, otherwise from counting record
+    let intakeWeight = 0;
+    
+    if (weightEntry) {
+      intakeWeight = (weightEntry.fuerte_weight || 0) + (weightEntry.hass_weight || 0);
+    } else if (countingRecord) {
+      intakeWeight = countingRecord.total_weight || 0;
+    }
+    
+    // Get counted weight from counting record
+    const countedWeight = countingRecord?.total_counted_weight || 0;
+    
+    // Calculate variance: intake - (counted + rejected)
+    const variance = intakeWeight - (countedWeight + rejectedWeight);
+    
+    return variance;
+  };
+
+  // Handle rejection input change
+  const handleRejectionInputChange = (field: keyof RejectionEntry, value: string | number) => {
+    const updatedRejection = {
+      ...newRejection,
+      [field]: value
+    };
+    
+    if (field === 'fuerte_weight' || field === 'hass_weight' || 
+        field === 'fuerte_crates' || field === 'hass_crates' ||
+        field === 'counted_weight') {
+      
+      const totalRejectedWeight = (updatedRejection.fuerte_weight || 0) + (updatedRejection.hass_weight || 0);
+      const totalRejectedCrates = (updatedRejection.fuerte_crates || 0) + (updatedRejection.hass_crates || 0);
+      
+      updatedRejection.total_rejected_weight = totalRejectedWeight;
+      updatedRejection.total_rejected_crates = totalRejectedCrates;
+      
+      // Recalculate variance with new counted weight and rejected weight
+      const intakeWeight = selectedWeightForReject 
+        ? (selectedWeightForReject.fuerte_weight || 0) + (selectedWeightForReject.hass_weight || 0)
+        : selectedCountingRecordForReject?.total_weight || 0;
+      
+      const countedWeight = updatedRejection.counted_weight || 0;
+      const rejectedWeight = updatedRejection.total_rejected_weight || 0;
+      
+      // Variance = intake - (counted + rejected)
+      updatedRejection.variance = intakeWeight - (countedWeight + rejectedWeight);
+    }
+    
+    setNewRejection(updatedRejection);
+  };
+
+  // Submit rejection
+  const handleSubmitRejection = async () => {
+    if (!selectedWeightForReject && !selectedCountingRecordForReject) {
+      toast({
+        title: 'No Record Selected',
+        description: 'Please select a weight entry or counting record first.',
         variant: 'destructive',
       });
       return;
     }
     
-    // Use the supplier name from the FIRST weight entry (from Weight Capture Form)
-    const supplierName = supplierWeights[0]?.supplier || 'Unknown Supplier';
-    const supplierPhone = supplierWeights[0]?.supplier_phone || '';
-    const driverName = supplierWeights[0]?.driver_name || '';
-    const vehiclePlate = supplierWeights[0]?.vehicle_plate || '';
+    if (newRejection.total_rejected_weight <= 0 && newRejection.counted_weight <= 0) {
+      toast({
+        title: 'Validation Error',
+        description: 'Please enter either rejected weight or counted weight.',
+        variant: 'destructive',
+      });
+      return;
+    }
     
-    // Find the supplier for additional info from check-in data
-    const supplier = checkedInSuppliers.find(s => s.id === supplierId);
-    
-    // Extract variety data with SEPARATED weights
-    const varietyData = extractVarietyData(supplierWeights);
-    
-    // Calculate totals
-    const totalFuerteWeight = supplierWeights.reduce((sum, w) => sum + (w.fuerte_weight || 0), 0);
-    const totalHassWeight = supplierWeights.reduce((sum, w) => sum + (w.hass_weight || 0), 0);
-    const totalFuerteCrates = supplierWeights.reduce((sum, w) => sum + (w.fuerte_crates || 0), 0);
-    const totalHassCrates = supplierWeights.reduce((sum, w) => sum + (w.hass_crates || 0), 0);
-    const totalWeight = totalFuerteWeight + totalHassWeight;
-    const totalCrates = totalFuerteCrates + totalHassCrates;
-    
-    // Create PDF
-    const doc = new jsPDF('p', 'mm', 'a4');
-    
-    // =========== CENTERED LOGO AND TITLE ===========
-    let hasLogo = false;
-    let logoHeight = 0;
-    
-    // Try to load logo
     try {
-      const logoPaths = [
-        '/Harirlogo.svg',
-        '/Harirlogo.png',
-        '/Harirlogo.jpg',
-        '/logo.png',
-        '/logo.jpg',
-        '/favicon.ico',
-        '/public/favicon.ico'
-      ];
+      setIsAddingRejection(true);
       
-      for (const path of logoPaths) {
-        try {
-          const response = await fetch(path);
-          if (response.ok) {
-            const blob = await response.blob();
-            const base64String = await new Promise((resolve) => {
-              const reader = new FileReader();
-              reader.onloadend = () => resolve(reader.result);
-              reader.readAsDataURL(blob);
-            });
-            
-            // Add centered logo (15mm height)
-            doc.addImage(base64String as string, 'PNG', 92.5, 10, 15, 15);
-            hasLogo = true;
-            logoHeight = 15;
-            break;
-          }
-        } catch (e) {
-          continue;
-        }
+      // Get the appropriate intake weight
+      let intakeWeight = 0;
+      if (selectedWeightForReject) {
+        intakeWeight = (selectedWeightForReject.fuerte_weight || 0) + (selectedWeightForReject.hass_weight || 0);
+      } else if (selectedCountingRecordForReject) {
+        intakeWeight = selectedCountingRecordForReject.total_weight || 0;
       }
-    } catch (error) {
-      console.log('Logo loading failed:', error);
-    }
-    
-    // If no logo found, create a centered text logo
-    if (!hasLogo) {
-      doc.setFillColor(34, 139, 34); // Green
-      doc.circle(100, 17.5, 7, 'F');
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'bold');
-      doc.text('HI', 100, 19.5, { align: 'center' });
-      logoHeight = 15;
-      hasLogo = true;
-    }
-    
-    // Company name - Centered and larger
-    const startY = hasLogo ? 30 : 15;
-    doc.setTextColor(34, 139, 34); // Green text
-    doc.setFontSize(16);
-    doc.setFont('helvetica', 'bold');
-    doc.text('HARIR INTERNATIONAL', 105, startY, { align: 'center' });
-    
-    // Division name
-    doc.setFontSize(11);
-    doc.text('FRESH PRODUCE EXPORTER', 105, startY + 6, { align: 'center' });
-    
-    // Draw a green line under the header
-    doc.setDrawColor(34, 139, 34);
-    doc.setLineWidth(0.5);
-    doc.line(10, startY + 10, 200, startY + 10);
-    
-    // =========== GRN TITLE ===========
-    doc.setFontSize(12);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(0, 0, 0); // Black text
-    doc.text('GOODS RECEIVED NOTE (GRN)', 105, startY + 20, { align: 'center' });
-    
-    // =========== GRN DETAILS ===========
-    let yPos = startY + 30;
-    
-    // GRN Details box
-    doc.setFillColor(248, 249, 250); // Very light gray
-    doc.rect(10, yPos, 190, 15, 'F');
-    
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'bold');
-    doc.text('GRN Details', 15, yPos + 6);
-    
-    doc.setFontSize(8);
-    doc.setFont('helvetica', 'normal');
-    
-    // GRN details in two columns
-    doc.text(`GRN: GRN-${supplierId.slice(0, 8)}`, 15, yPos + 12);
-    doc.text(`Date: ${format(new Date(), 'dd/MM/yyyy')}`, 50, yPos + 12);
-    doc.text(`Time: ${format(new Date(), 'HH:mm')}`, 85, yPos + 12);
-    doc.text(`Code: ${supplier?.supplier_code || 'N/A'}`, 120, yPos + 12);
-    
-    yPos += 20;
-    
-    // =========== SUPPLIER INFORMATION ===========
-    doc.setFillColor(233, 236, 239); // Light gray
-    doc.rect(10, yPos, 190, 20, 'F');
-    
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Supplier Information', 15, yPos + 6);
-    
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Supplier: ${supplierName}`, 15, yPos + 12);
-    doc.text(`Phone: ${supplierPhone}`, 80, yPos + 12);
-    doc.text(`Driver: ${driverName || 'N/A'}`, 120, yPos + 12);
-    doc.text(`Vehicle: ${vehiclePlate || 'N/A'}`, 160, yPos + 12);
-    
-    doc.text(`Check-in: ${format(new Date(supplier?.check_in_time || new Date()), 'dd/MM/yyyy HH:mm')}`, 15, yPos + 18);
-    
-    yPos += 25;
-    
-    // =========== RECEIVED GOODS TABLE ===========
-    if (varietyData.length > 0) {
-      // Table header
-      doc.setFillColor(52, 58, 64); // Dark gray header
-      doc.rect(10, yPos, 190, 8, 'F');
       
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(255, 255, 255); // White text
-      doc.text('Received Goods Details', 15, yPos + 5.5);
+      const rejectionData = {
+        ...newRejection,
+        rejected_at: new Date().toISOString(),
+        created_by: 'Weight Capture Station',
+        // Ensure variance is calculated correctly
+        variance: intakeWeight - (newRejection.counted_weight + newRejection.total_rejected_weight)
+      };
       
-      yPos += 10;
-      
-      // Column headers
-      doc.setFillColor(248, 249, 250);
-      doc.rect(10, yPos, 190, 7, 'F');
-      doc.setTextColor(0, 0, 0);
-      
-      doc.text('Fruit Variety', 15, yPos + 4.5);
-      doc.text('Weight (kg)', 130, yPos + 4.5, { align: 'right' });
-      doc.text('Crates', 180, yPos + 4.5, { align: 'right' });
-      
-      yPos += 7;
-      
-      // Table rows
-      varietyData.forEach((item, index) => {
-        // Alternate row colors
-        doc.setFillColor(index % 2 === 0 ? 255 : 248, 249, 250);
-        doc.rect(10, yPos, 190, 7, 'F');
-        
-        // Variety name with color
-        if (item.variety.toLowerCase().includes('fuerte')) {
-          doc.setTextColor(0, 102, 204); // Blue
-        } else if (item.variety.toLowerCase().includes('hass')) {
-          doc.setTextColor(0, 153, 0); // Green
-        } else {
-          doc.setTextColor(102, 102, 102);
-        }
-        
-        doc.setFont('helvetica', 'bold');
-        doc.text(item.variety, 15, yPos + 4.5);
-        
-        // Numbers
-        doc.setTextColor(0, 0, 0);
-        doc.setFont('helvetica', 'normal');
-        doc.text(item.weight.toFixed(2), 130, yPos + 4.5, { align: 'right' });
-        doc.text(item.crates.toString(), 180, yPos + 4.5, { align: 'right' });
-        
-        yPos += 7;
+      const response = await fetch('/api/rejects', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(rejectionData),
       });
       
-      // Grand total row - SHOWING ONLY TOTAL WEIGHT AND TOTAL CRATES
-      yPos += 3;
-      doc.setFillColor(40, 167, 69); // Green
-      doc.rect(10, yPos, 190, 8, 'F');
+      if (!response.ok) {
+        throw new Error('Failed to save rejection entry');
+      }
       
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(255, 255, 255);
-      doc.text('GRAND TOTAL', 15, yPos + 5);
-      doc.text(totalWeight.toFixed(2), 130, yPos + 5, { align: 'right' });
-      doc.text(totalCrates.toString(), 180, yPos + 5, { align: 'right' });
+      const savedRejection = await response.json();
       
-      yPos += 12;
+      setRejects(prev => [savedRejection, ...prev]);
+      
+      // Reset form
+      setNewRejection({
+        weight_entry_id: '',
+        pallet_id: '',
+        supplier_id: '',
+        supplier_name: '',
+        driver_name: '',
+        vehicle_plate: '',
+        region: '',
+        fuerte_weight: 0,
+        fuerte_crates: 0,
+        hass_weight: 0,
+        hass_crates: 0,
+        counted_weight: 0,
+        total_rejected_weight: 0,
+        total_rejected_crates: 0,
+        variance: 0,
+        reason: '',
+        notes: '',
+        rejected_at: new Date().toISOString(),
+        created_by: 'Weight Capture Station'
+      });
+      
+      setSelectedWeightForReject(null);
+      setSelectedCountingRecordForReject(null);
+      
+      toast({
+        title: 'Rejection Saved',
+        description: `Rejection entry saved for ${savedRejection.supplier_name}. Variance: ${savedRejection.variance.toFixed(1)} kg`,
+      });
+      
+    } catch (error: any) {
+      console.error('Error saving rejection:', error);
+      toast({
+        title: 'Save Failed',
+        description: error.message || 'Failed to save rejection entry',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsAddingRejection(false);
+    }
+  };
+
+  // Delete rejection
+  const handleDeleteRejection = async (rejectionId: string) => {
+    if (!confirm('Are you sure you want to delete this rejection entry?')) {
+      return;
     }
     
-    // =========== FOOTER AND SIGNATURES ===========
-    // Notes (very compact)
-    doc.setFontSize(7);
-    doc.setTextColor(108, 117, 125); // Gray
-    doc.setFont('helvetica', 'italic');
-    
-    const notes = [
-      '• All weights in kilograms (kg) • Quality inspection within 24 hours • Discrepancies must be reported immediately'
-    ];
-    
-    notes.forEach((note, index) => {
-      doc.text(note, 105, yPos + (index * 5), { align: 'center' });
-    });
-    
-    yPos += 10;
-    
-    // Signature lines (compact)
-    doc.setDrawColor(0, 0, 0);
-    doc.setLineWidth(0.2);
-    
-    // Received by
-    doc.line(20, yPos, 90, yPos);
-    doc.setFontSize(7);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(0, 0, 0);
-    doc.text('Received By (Name & Signature)', 55, yPos + 3, { align: 'center' });
-    doc.text(`Date: ${format(new Date(), 'dd/MM/yyyy')}`, 55, yPos + 6, { align: 'center' });
-    
-    // Supplier/Driver
-    doc.line(120, yPos, 190, yPos);
-    doc.text('Supplier/Driver (Name & Signature)', 155, yPos + 3, { align: 'center' });
-    doc.text(`Date: ${format(new Date(), 'dd/MM/yyyy')}`, 155, yPos + 6, { align: 'center' });
-    
-    yPos += 15;
-    
-    // Final footer
-    doc.setFontSize(6);
-    doc.setTextColor(128, 128, 128);
-    doc.text('This is a computer-generated document. No physical signature required.', 105, yPos, { align: 'center' });
-    doc.text('Harir International © 2024 | GRN System v1.0', 105, yPos + 3, { align: 'center' });
-    
-    // =========== SAVE PDF ===========
-    const fileName = `GRN_${supplierName.replace(/\s+/g, '_')}_${format(new Date(), 'yyyy-MM-dd_HHmm')}.pdf`;
-    doc.save(fileName);
-    
-    toast({
-      title: 'GRN Downloaded',
-      description: `Goods Received Note has been downloaded for ${supplierName}.`,
-    });
-    
-  } catch (error: any) {
-    console.error('Error downloading GRN:', error);
-    toast({
-      title: 'Error Downloading GRN',
-      description: error.message || 'Failed to download GRN. Please try again.',
-      variant: 'destructive',
-    });
-  }
-};
+    try {
+      const response = await fetch(`/api/rejects/${rejectionId}`, {
+        method: 'DELETE',
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to delete rejection entry');
+      }
+      
+      setRejects(prev => prev.filter(r => r.id !== rejectionId));
+      
+      toast({
+        title: 'Rejection Deleted',
+        description: 'Rejection entry has been deleted.',
+      });
+      
+    } catch (error: any) {
+      console.error('Error deleting rejection:', error);
+      toast({
+        title: 'Delete Failed',
+        description: error.message || 'Failed to delete rejection entry',
+        variant: 'destructive',
+      });
+    }
+  };
 
-  // Filter history weights based on search query
-  const filteredHistoryWeights = historyWeights.filter(entry => {
-    if (!searchQuery) return true;
-    
-    const query = searchQuery.toLowerCase();
-    const varieties = entry.fruit_variety || [];
-    
-    return (
-      (entry.supplier?.toLowerCase().includes(query)) ||
-      (entry.driver_name?.toLowerCase().includes(query)) ||
-      (entry.vehicle_plate?.toLowerCase().includes(query)) ||
-      (entry.region?.toLowerCase().includes(query)) ||
-      varieties.some(v => v.toLowerCase().includes(query)) ||
-      (entry.pallet_id?.toLowerCase().includes(query))
-    );
-  });
+  // Get regions for filter
+  const regions = Array.from(new Set(weights.map(w => w.region).filter(Boolean)));
 
-  // Calculate statistics - UPDATED FOR SEPARATED WEIGHTS
+  // Calculate totals
   const totalWeightToday = weights
     .filter(w => {
       const today = new Date();
@@ -1164,11 +1480,9 @@ const downloadSupplierGRN = async (supplierId: string) => {
       .map(w => w.supplier_id)
   ).size;
 
-  // Count pending and weighed suppliers
   const pendingSuppliersCount = checkedInSuppliers.filter(s => !processedSuppliers.has(s.id)).length;
   const weighedSuppliersCount = checkedInSuppliers.filter(s => processedSuppliers.has(s.id)).length;
 
-  // Calculate total Fuerte and Hass weights for today
   const totalFuerteWeightToday = weights
     .filter(w => {
       const today = new Date();
@@ -1182,6 +1496,13 @@ const downloadSupplierGRN = async (supplierId: string) => {
       return isSameDay(new Date(w.created_at), today);
     })
     .reduce((sum, w) => sum + (w.hass_weight || 0), 0);
+
+  const totalRejectedWeight = rejects.reduce((sum, r) => sum + r.total_rejected_weight, 0);
+  const totalRejectedToday = rejects.filter(r => {
+    const today = new Date();
+    const rejectDate = new Date(r.rejected_at);
+    return isSameDay(rejectDate, today);
+  }).length;
 
   return (
     <SidebarProvider>
@@ -1204,7 +1525,8 @@ const downloadSupplierGRN = async (supplierId: string) => {
           {/* Header Section */}
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight">
+              <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+                <Scale className="w-8 h-8" />
                 Weight Capture Station
               </h1>
               <p className="text-muted-foreground mt-1">
@@ -1240,7 +1562,7 @@ const downloadSupplierGRN = async (supplierId: string) => {
             </Alert>
           )}
 
-          {/* Quick Stats with SEPARATED VARIETIES */}
+          {/* Quick Stats */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <Card className="border-l-4 border-l-blue-500">
               <CardContent className="p-4">
@@ -1290,14 +1612,14 @@ const downloadSupplierGRN = async (supplierId: string) => {
               </CardContent>
             </Card>
 
-            <Card className="border-l-4 border-l-purple-500">
+            <Card className="border-l-4 border-l-red-500">
               <CardContent className="p-4">
                 <div className="flex flex-col">
-                  <p className="text-sm font-medium text-gray-500">Intake Complete</p>
-                  <h3 className="text-2xl font-bold mt-1">{weighedSuppliersCount}</h3>
+                  <p className="text-sm font-medium text-gray-500">Rejects Today</p>
+                  <h3 className="text-2xl font-bold mt-1">{totalRejectedToday}</h3>
                   <div className="flex items-center mt-1 text-sm text-gray-500">
-                    <CheckCheck className="h-4 w-4 mr-1 text-purple-500" />
-                    <span>Weighed today</span>
+                    <AlertTriangle className="h-4 w-4 mr-1 text-red-500" />
+                    <span>{totalRejectedWeight.toFixed(1)} kg rejected</span>
                   </div>
                 </div>
               </CardContent>
@@ -1306,22 +1628,30 @@ const downloadSupplierGRN = async (supplierId: string) => {
 
           {/* Main Content Tabs */}
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid grid-cols-3 w-full">
+            <TabsList className="grid grid-cols-5 w-full">
               <TabsTrigger value="overview" className="flex items-center gap-2">
                 <Boxes className="h-4 w-4" />
-                Dashboard Overview
+                Dashboard
               </TabsTrigger>
               <TabsTrigger value="capture" className="flex items-center gap-2">
                 <Scale className="h-4 w-4" />
-                Weight Capture
+                Capture
               </TabsTrigger>
               <TabsTrigger value="history" className="flex items-center gap-2">
                 <FileSpreadsheet className="h-4 w-4" />
                 History
               </TabsTrigger>
+              <TabsTrigger value="rejects" className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4" />
+                Rejects
+              </TabsTrigger>
+              <TabsTrigger value="statistics" className="flex items-center gap-2">
+                <PieChart className="h-4 w-4" />
+                Statistics
+              </TabsTrigger>
             </TabsList>
 
-            {/* Overview Tab Content */}
+            {/* Overview Tab */}
             <TabsContent value="overview" className="space-y-6 mt-6">
               {/* KPI Cards */}
               {kpiData && (
@@ -1347,7 +1677,7 @@ const downloadSupplierGRN = async (supplierId: string) => {
                 </div>
               )}
 
-              {/* Checked-in Suppliers - UPDATED FOR SEPARATED WEIGHTS */}
+              {/* Checked-in Suppliers */}
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -1373,18 +1703,8 @@ const downloadSupplierGRN = async (supplierId: string) => {
                     {checkedInSuppliers.length > 0 ? (
                       checkedInSuppliers.map((supplier) => {
                         const isWeighed = processedSuppliers.has(supplier.id);
-                        
-                        // Get weight entries for this supplier
                         const supplierWeights = weights.filter(w => w.supplier_id === supplier.id);
-                        
-                        // Extract SEPARATED variety data
                         const varietyData = extractVarietyData(supplierWeights);
-                        
-                        // Calculate total Fuerte and Hass weights for this supplier
-                        const supplierFuerteWeight = supplierWeights.reduce((sum, w) => sum + (w.fuerte_weight || 0), 0);
-                        const supplierHassWeight = supplierWeights.reduce((sum, w) => sum + (w.hass_weight || 0), 0);
-                        const supplierFuerteCrates = supplierWeights.reduce((sum, w) => sum + (w.fuerte_crates || 0), 0);
-                        const supplierHassCrates = supplierWeights.reduce((sum, w) => sum + (w.hass_crates || 0), 0);
                         
                         return (
                           <div 
@@ -1413,7 +1733,6 @@ const downloadSupplierGRN = async (supplierId: string) => {
                                   {supplier.company_name} • {supplier.vehicle_plate} • {supplier.region}
                                 </div>
                                 
-                                {/* SEPARATED variety weights display */}
                                 {isWeighed && varietyData.length > 0 && (
                                   <div className="mt-2 grid grid-cols-2 md:grid-cols-3 gap-2">
                                     {varietyData.map((item) => (
@@ -1448,7 +1767,6 @@ const downloadSupplierGRN = async (supplierId: string) => {
                                   </div>
                                 )}
                                 
-                                {/* Show pending varieties if not weighed yet */}
                                 {supplier.fruit_varieties.length > 0 && !isWeighed && (
                                   <div className="flex flex-wrap gap-1 mt-2">
                                     {supplier.fruit_varieties.slice(0, 2).map((variety, idx) => (
@@ -1572,7 +1890,7 @@ const downloadSupplierGRN = async (supplierId: string) => {
               </Card>
             </TabsContent>
 
-            {/* History Tab Content - UPDATED FOR SEPARATED WEIGHTS */}
+            {/* History Tab */}
             <TabsContent value="history" className="space-y-6 mt-6">
               <Card>
                 <CardHeader>
@@ -1600,8 +1918,8 @@ const downloadSupplierGRN = async (supplierId: string) => {
                 <CardContent>
                   <div className="space-y-4">
                     {/* Date Selection and Search */}
-                    <div className="flex flex-col md:flex-row gap-4">
-                      <div className="space-y-2 flex-1">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="space-y-2">
                         <Label htmlFor="history-date">Select Date</Label>
                         <Popover>
                           <PopoverTrigger asChild>
@@ -1626,7 +1944,7 @@ const downloadSupplierGRN = async (supplierId: string) => {
                           </PopoverContent>
                         </Popover>
                       </div>
-                      <div className="space-y-2 flex-1">
+                      <div className="space-y-2">
                         <Label htmlFor="search-history">Search Entries</Label>
                         <div className="relative">
                           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
@@ -1638,6 +1956,20 @@ const downloadSupplierGRN = async (supplierId: string) => {
                             className="pl-10"
                           />
                         </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="filter-region">Filter by Region</Label>
+                        <Select value={filterRegion} onValueChange={setFilterRegion}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="All Regions" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All Regions</SelectItem>
+                            {regions.map(region => (
+                              <SelectItem key={region} value={region}>{region}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                     </div>
 
@@ -1702,7 +2034,7 @@ const downloadSupplierGRN = async (supplierId: string) => {
                                 <th className="text-left p-3 text-sm font-semibold text-gray-700">Supplier</th>
                                 <th className="text-left p-3 text-sm font-semibold text-gray-700">Driver</th>
                                 <th className="text-left p-3 text-sm font-semibold text-gray-700">Vehicle</th>
-                                <th className="text-left p-3 text-sm font-semibold text-gray-700">Separated Varieties</th>
+                                <th className="text-left p-3 text-sm font-semibold text-gray-700">Varieties</th>
                                 <th className="text-left p-3 text-sm font-semibold text-gray-700">Fuerte Weight</th>
                                 <th className="text-left p-3 text-sm font-semibold text-gray-700">Hass Weight</th>
                                 <th className="text-left p-3 text-sm font-semibold text-gray-700">Crates</th>
@@ -1712,7 +2044,6 @@ const downloadSupplierGRN = async (supplierId: string) => {
                             </thead>
                             <tbody>
                               {filteredHistoryWeights.map((entry) => {
-                                // Get varieties from separated weights
                                 const varieties = [];
                                 if (entry.fuerte_weight > 0) varieties.push('Fuerte');
                                 if (entry.hass_weight > 0) varieties.push('Hass');
@@ -1787,17 +2118,28 @@ const downloadSupplierGRN = async (supplierId: string) => {
                                       </Badge>
                                     </td>
                                     <td className="p-3">
-                                      {entry.supplier_id && (
+                                      <div className="flex gap-2">
+                                        {entry.supplier_id && (
+                                          <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            className="h-8 w-8 p-0"
+                                            onClick={() => downloadSupplierGRN(entry.supplier_id!)}
+                                            title="Download Supplier GRN"
+                                          >
+                                            <Printer className="h-4 w-4" />
+                                          </Button>
+                                        )}
                                         <Button
                                           size="sm"
                                           variant="ghost"
                                           className="h-8 w-8 p-0"
-                                          onClick={() => downloadSupplierGRN(entry.supplier_id!)}
-                                          title="Download Supplier GRN"
+                                          onClick={() => handleSelectWeightForRejection(entry)}
+                                          title="Add Rejection"
                                         >
-                                          <Printer className="h-4 w-4" />
+                                          <AlertTriangle className="h-4 w-4 text-amber-600" />
                                         </Button>
-                                      )}
+                                      </div>
                                     </td>
                                   </tr>
                                 );
@@ -1864,6 +2206,656 @@ const downloadSupplierGRN = async (supplierId: string) => {
                               <Download className="w-4 h-4" />
                               Download All Data as CSV
                             </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* Rejects Tab */}
+            <TabsContent value="rejects" className="space-y-6 mt-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Rejects History */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <AlertTriangle className="w-5 h-5" />
+                      Rejects History
+                    </CardTitle>
+                    <CardDescription>
+                      {rejects.length} rejection entries recorded
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {isRejectsLoading ? (
+                      <div className="flex flex-col items-center justify-center py-12">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-4"></div>
+                        <p className="text-muted-foreground">Loading rejects...</p>
+                      </div>
+                    ) : rejects.length === 0 ? (
+                      <div className="text-center py-8">
+                        <AlertTriangle className="w-12 h-12 mx-auto text-gray-300 mb-3" />
+                        <p className="text-gray-500 font-medium">No rejection entries found</p>
+                        <p className="text-sm text-gray-400 mt-1">
+                          Rejection entries will appear here after they are recorded
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {rejects.map((reject) => {
+                          // Safe access with default values to prevent undefined errors
+                          const totalWeight = reject?.total_rejected_weight || 0;
+                          const variance = reject?.variance || 0;
+                          const countedWeight = reject?.counted_weight || 0;
+                          const fuerteWeight = reject?.fuerte_weight || 0;
+                          const hassWeight = reject?.hass_weight || 0;
+                          const fuerteCrates = reject?.fuerte_crates || 0;
+                          const hassCrates = reject?.hass_crates || 0;
+                          const totalCrates = reject?.total_rejected_crates || 0;
+                          
+                          return (
+                            <div key={reject.id} className="border rounded-lg p-4 hover:bg-black-50">
+                              <div className="flex items-start justify-between mb-2">
+                                <div>
+                                  <div className="font-semibold">{reject?.supplier_name || 'Unknown Supplier'}</div>
+                                  <div className="text-sm text-gray-500">
+                                    Pallet: {reject?.pallet_id || '-'} • {safeFormatDate(reject?.rejected_at, 'PPpp')}
+                                  </div>
+                                </div>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-8 w-8 p-0 text-red-600 hover:text-red-800 hover:bg-black-50"
+                                  onClick={() => reject?.id && handleDeleteRejection(reject.id)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                              
+                              <div className="grid grid-cols-2 gap-4 mt-3 text-sm">
+                                <div>
+                                  <div className="text-gray-500">Total Rejected</div>
+                                  <div className="font-bold text-red-700">{totalWeight.toFixed(1)} kg</div>
+                                </div>
+                                <div>
+                                  <div className="text-gray-500">Counted Weight</div>
+                                  <div className="font-bold text-blue-700">{countedWeight.toFixed(1)} kg</div>
+                                </div>
+                                <div>
+                                  <div className="text-gray-500">Total Crates</div>
+                                  <div className="font-bold">{totalCrates}</div>
+                                </div>
+                                <div>
+                                  <div className="text-gray-500">Variance</div>
+                                  <div className={`font-bold ${variance > 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                    {variance > 0 ? '+' : ''}{variance.toFixed(1)} kg
+                                  </div>
+                                </div>
+                                <div>
+                                  <div className="text-gray-500">Fuerte</div>
+                                  <div className="font-semibold">
+                                    {fuerteWeight > 0 ? `${fuerteWeight} kg (${fuerteCrates} crates)` : '-'}
+                                  </div>
+                                </div>
+                                <div>
+                                  <div className="text-gray-500">Hass</div>
+                                  <div className="font-semibold">
+                                    {hassWeight > 0 ? `${hassWeight} kg (${hassCrates} crates)` : '-'}
+                                  </div>
+                                </div>
+                              </div>
+                              
+                              {reject?.reason && (
+                                <div className="mt-3 pt-3 border-t">
+                                  <div className="text-sm text-gray-500">Reason</div>
+                                  <div className="text-sm">{reject.reason}</div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Add Rejection Form */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Plus className="w-5 h-5" />
+                      Add New Rejection
+                    </CardTitle>
+                    <CardDescription>
+                      Record rejected weight from quality control
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      {/* Source Selection */}
+                      <div className="space-y-2">
+                        <Label>Select Source</Label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Button
+                            variant={selectedWeightForReject ? "default" : "outline"}
+                            onClick={() => {
+                              setSelectedCountingRecordForReject(null);
+                              setActiveTab('history');
+                            }}
+                          >
+                            <Scale className="h-4 w-4 mr-2" />
+                            Weight History
+                          </Button>
+                          <Button
+                            variant={selectedCountingRecordForReject ? "default" : "outline"}
+                            onClick={() => {
+                              setSelectedWeightForReject(null);
+                              setActiveTab('statistics');
+                            }}
+                          >
+                            <Calculator className="h-4 w-4 mr-2" />
+                            Counting History
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Selected Record Info */}
+                      {(selectedWeightForReject || selectedCountingRecordForReject) && (
+                        <div className="bg-black-50 p-4 rounded-lg border border-blue-200">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="font-semibold text-blue-800">
+                              {selectedWeightForReject ? 'Selected Weight Entry' : 'Selected Counting Record'}
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => {
+                                setSelectedWeightForReject(null);
+                                setSelectedCountingRecordForReject(null);
+                              }}
+                            >
+                              <XCircle className="h-4 w-4" />
+                            </Button>
+                          </div>
+                          <div className="text-sm">
+                            <div><span className="font-medium">Supplier:</span> {
+                              selectedWeightForReject?.supplier || selectedCountingRecordForReject?.supplier_name || 'Unknown'
+                            }</div>
+                            <div><span className="font-medium">Pallet ID:</span> {
+                              selectedWeightForReject?.pallet_id || selectedCountingRecordForReject?.pallet_id || '-'
+                            }</div>
+                            <div><span className="font-medium">Intake Weight:</span> 
+                              {selectedWeightForReject 
+                                ? ((selectedWeightForReject.fuerte_weight + selectedWeightForReject.hass_weight).toFixed(1))
+                                : ((selectedCountingRecordForReject?.total_weight || 0).toFixed(1))
+                              } kg
+                            </div>
+                            <div><span className="font-medium">Counted Weight:</span> 
+                              {selectedCountingRecordForReject?.total_counted_weight 
+                                ? `${selectedCountingRecordForReject.total_counted_weight.toFixed(1)} kg` 
+                                : 'Not counted yet'}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Rejection Form */}
+                      <div className="space-y-4">
+                        {/* Counted Weight Input */}
+                        <div className="space-y-2">
+                          <Label htmlFor="counted_weight">Counted Weight (kg)</Label>
+                          <div className="flex items-center gap-2">
+                            <Input
+                              id="counted_weight"
+                              type="number"
+                              min="0"
+                              step="0.1"
+                              value={newRejection.counted_weight}
+                              onChange={(e) => handleRejectionInputChange('counted_weight', parseFloat(e.target.value) || 0)}
+                              placeholder="Enter counted weight"
+                              className="flex-1"
+                            />
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                if (selectedCountingRecordForReject) {
+                                  handleRejectionInputChange('counted_weight', selectedCountingRecordForReject.total_counted_weight || 0);
+                                }
+                              }}
+                              disabled={!selectedCountingRecordForReject}
+                              title="Use counted weight from selected record"
+                            >
+                              Auto-fill
+                            </Button>
+                          </div>
+                          <p className="text-xs text-gray-500">
+                            Weight after counting/quality check
+                          </p>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="fuerte_weight">Fuerte Rejected (kg)</Label>
+                            <Input
+                              id="fuerte_weight"
+                              type="number"
+                              min="0"
+                              step="0.1"
+                              value={newRejection.fuerte_weight}
+                              onChange={(e) => handleRejectionInputChange('fuerte_weight', parseFloat(e.target.value) || 0)}
+                              placeholder="0.0"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="fuerte_crates">Fuerte Crates Rejected</Label>
+                            <Input
+                              id="fuerte_crates"
+                              type="number"
+                              min="0"
+                              value={newRejection.fuerte_crates}
+                              onChange={(e) => handleRejectionInputChange('fuerte_crates', parseInt(e.target.value) || 0)}
+                              placeholder="0"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="hass_weight">Hass Rejected (kg)</Label>
+                            <Input
+                              id="hass_weight"
+                              type="number"
+                              min="0"
+                              step="0.1"
+                              value={newRejection.hass_weight}
+                              onChange={(e) => handleRejectionInputChange('hass_weight', parseFloat(e.target.value) || 0)}
+                              placeholder="0.0"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="hass_crates">Hass Crates Rejected</Label>
+                            <Input
+                              id="hass_crates"
+                              type="number"
+                              min="0"
+                              value={newRejection.hass_crates}
+                              onChange={(e) => handleRejectionInputChange('hass_crates', parseInt(e.target.value) || 0)}
+                              placeholder="0"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="reason">Reason for Rejection</Label>
+                          <Input
+                            id="reason"
+                            value={newRejection.reason || ''}
+                            onChange={(e) => handleRejectionInputChange('reason', e.target.value)}
+                            placeholder="Quality issues, damage, etc."
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="notes">Notes</Label>
+                          <Input
+                            id="notes"
+                            value={newRejection.notes || ''}
+                            onChange={(e) => handleRejectionInputChange('notes', e.target.value)}
+                            placeholder="Additional details..."
+                          />
+                        </div>
+
+                        {/* Summary */}
+                        <div className="bg-black-50 p-4 rounded-lg border">
+                          <div className="grid grid-cols-2 gap-4 mb-4">
+                            <div>
+                              <div className="text-sm text-gray-500">Total Rejected Weight</div>
+                              <div className="text-xl font-bold text-red-700">
+                                {(newRejection.total_rejected_weight || 0).toFixed(1)} kg
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-sm text-gray-500">Total Rejected Crates</div>
+                              <div className="text-xl font-bold">
+                                {newRejection.total_rejected_crates || 0}
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {(selectedWeightForReject || selectedCountingRecordForReject) && (
+                            <div className="mt-4 pt-4 border-t">
+                              <div className="text-sm text-gray-500 font-medium mb-2">Variance Calculation</div>
+                              <div className="space-y-2 text-sm">
+                                <div className="flex justify-between">
+                                  <span>Intake Weight:</span>
+                                  <span className="font-semibold">
+                                    {selectedWeightForReject 
+                                      ? ((selectedWeightForReject.fuerte_weight + selectedWeightForReject.hass_weight).toFixed(1))
+                                      : ((selectedCountingRecordForReject?.total_weight || 0).toFixed(1))
+                                    } kg
+                                  </span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span>Counted Weight:</span>
+                                  <span className="font-semibold text-blue-700">-{(newRejection.counted_weight || 0).toFixed(1)} kg</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span>Rejected Weight:</span>
+                                  <span className="font-semibold text-red-700">-{(newRejection.total_rejected_weight || 0).toFixed(1)} kg</span>
+                                </div>
+                              </div>
+                              <div className="mt-3 pt-3 border-t">
+                                <div className="flex justify-between font-bold text-lg">
+                                  <span>Variance:</span>
+                                  <span className={(newRejection.variance || 0) > 0 ? 'text-green-700' : 'text-red-700'}>
+                                    {(newRejection.variance || 0) > 0 ? '+' : ''}{(newRejection.variance || 0).toFixed(1)} kg
+                                  </span>
+                                </div>
+                                <div className="text-xs text-gray-500 mt-1">
+                                  Formula: Intake - (Counted + Rejected)
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        <Button
+                          onClick={handleSubmitRejection}
+                          disabled={isAddingRejection || (!selectedWeightForReject && !selectedCountingRecordForReject) || 
+                                   ((newRejection.total_rejected_weight || 0) <= 0 && (newRejection.counted_weight || 0) <= 0)}
+                          className="w-full bg-red-600 hover:bg-red-700"
+                        >
+                          {isAddingRejection ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Saving...
+                            </>
+                          ) : (
+                            <>
+                              <AlertTriangle className="mr-2 h-4 w-4" />
+                              Save Rejection Entry
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </TabsContent>
+
+            {/* Statistics Tab */}
+            <TabsContent value="statistics" className="space-y-6 mt-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <PieChart className="w-5 h-5" />
+                    Weight Statistics
+                  </CardTitle>
+                  <CardDescription>
+                    Detailed analysis of weight data across different time periods
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-6">
+                    {/* Period Selection */}
+                    <div className="flex gap-2">
+                      <Button
+                        variant={statsPeriod === 'today' ? 'default' : 'outline'}
+                        onClick={() => setStatsPeriod('today')}
+                      >
+                        Today
+                      </Button>
+                      <Button
+                        variant={statsPeriod === 'week' ? 'default' : 'outline'}
+                        onClick={() => setStatsPeriod('week')}
+                      >
+                        Last 7 Days
+                      </Button>
+                      <Button
+                        variant={statsPeriod === 'month' ? 'default' : 'outline'}
+                        onClick={() => setStatsPeriod('month')}
+                      >
+                        Last 30 Days
+                      </Button>
+                    </div>
+
+                    {/* Counting History Table */}
+                    <div className="border rounded-lg overflow-hidden">
+                      <div className="bg-black-50 px-4 py-3 border-b">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Calculator className="w-4 h-4" />
+                            <span className="font-medium">Counting History Records</span>
+                            <Badge variant="outline" className="ml-2">
+                              {countingHistory.length} records
+                            </Badge>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={fetchCountingHistory}
+                            className="gap-2"
+                          >
+                            <RefreshCw className="w-3 h-3" />
+                            Refresh
+                          </Button>
+                        </div>
+                      </div>
+                      
+                      {countingHistory.length > 0 ? (
+                        <div className="overflow-x-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Date</TableHead>
+                                <TableHead>Supplier</TableHead>
+                                <TableHead>Pallet ID</TableHead>
+                                <TableHead>Region</TableHead>
+                                <TableHead>Fuerte Boxes</TableHead>
+                                <TableHead>Hass Boxes</TableHead>
+                                <TableHead>Counted Weight</TableHead>
+                                <TableHead>Status</TableHead>
+                                <TableHead>Actions</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {countingHistory.slice(0, 10).map((record) => (
+                                <TableRow key={record.id}>
+                                  <TableCell>
+                                    {safeFormatDate(record.submitted_at, 'MM/dd/yyyy')}
+                                  </TableCell>
+                                  <TableCell className="font-medium">
+                                    {record.supplier_name || 'Unknown'}
+                                  </TableCell>
+                                  <TableCell>
+                                    <Badge variant="outline">{record.pallet_id || '-'}</Badge>
+                                  </TableCell>
+                                  <TableCell>{record.region || '-'}</TableCell>
+                                  <TableCell>
+                                    <div className="flex flex-col">
+                                      <span>4kg: {record.fuerte_4kg_total || 0}</span>
+                                      <span>10kg: {record.fuerte_10kg_total || 0}</span>
+                                    </div>
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="flex flex-col">
+                                      <span>4kg: {record.hass_4kg_total || 0}</span>
+                                      <span>10kg: {record.hass_10kg_total || 0}</span>
+                                    </div>
+                                  </TableCell>
+                                  <TableCell className="font-bold">
+                                    {(record.total_counted_weight || 0).toFixed(1)} kg
+                                  </TableCell>
+                                  <TableCell>
+                                    <Badge variant={
+                                      record.for_coldroom && record.status === 'pending_coldroom' 
+                                        ? "default" 
+                                        : record.status === 'completed'
+                                        ? "secondary"
+                                        : "outline"
+                                    }>
+                                      {record.for_coldroom && record.status === 'pending_coldroom' 
+                                        ? 'Cold Room Ready'
+                                        : record.status === 'completed'
+                                        ? 'Completed'
+                                        : 'Pending'}
+                                    </Badge>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => handleSelectCountingRecordForRejection(record)}
+                                      title="Add Rejection for this record"
+                                    >
+                                      <AlertTriangle className="h-4 w-4 text-amber-600" />
+                                    </Button>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      ) : (
+                        <div className="h-64 flex flex-col items-center justify-center p-6">
+                          <div className="text-center">
+                            <Calculator className="w-16 h-16 mx-auto text-gray-300 mb-4" />
+                            <h3 className="text-lg font-semibold text-gray-700 mb-2">
+                              No counting history found
+                            </h3>
+                            <p className="text-gray-500 max-w-md mx-auto">
+                              Counting records from the warehouse will appear here once they are processed.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Daily Summaries */}
+                    {dailySummaries.length > 0 && (
+                      <div className="border rounded-lg overflow-hidden">
+                        <div className="bg-black-50 px-4 py-3 border-b">
+                          <div className="flex items-center gap-2">
+                            <BarChart3 className="w-4 h-4" />
+                            <span className="font-medium">Daily Weight Summary ({statsPeriod === 'today' ? 'Today' : statsPeriod === 'week' ? 'Last 7 Days' : 'Last 30 Days'})</span>
+                          </div>
+                        </div>
+                        <div className="overflow-x-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Date</TableHead>
+                                <TableHead>Total Weight (kg)</TableHead>
+                                <TableHead>Total Crates</TableHead>
+                                <TableHead>Total Pallets</TableHead>
+                                <TableHead>Suppliers</TableHead>
+                                <TableHead>Varieties</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {dailySummaries.map((summary) => (
+                                <TableRow key={summary.date}>
+                                  <TableCell className="font-medium">
+                                    {safeFormatDate(summary.date, 'MM/dd/yyyy')}
+                                  </TableCell>
+                                  <TableCell className="font-bold">
+                                    {summary.total_weight.toFixed(1)} kg
+                                  </TableCell>
+                                  <TableCell>{summary.total_crates}</TableCell>
+                                  <TableCell>{summary.total_pallets}</TableCell>
+                                  <TableCell>{summary.total_suppliers}</TableCell>
+                                  <TableCell>
+                                    <div className="flex flex-wrap gap-1">
+                                      {summary.varieties.map((variety) => (
+                                        <Badge 
+                                          key={variety.variety}
+                                          variant="outline"
+                                          className={
+                                            variety.variety === 'Fuerte' 
+                                              ? 'bg-blue-50 text-blue-700 border-blue-200' 
+                                              : 'bg-green-50 text-green-700 border-green-200'
+                                          }
+                                        >
+                                          <Apple className="w-3 h-3 mr-1" />
+                                          {variety.variety}: {(variety.total_weight || 0).toFixed(0)}kg
+                                        </Badge>
+                                      ))}
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Variety Breakdown */}
+                    {dailySummaries.length > 0 && (
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-sm">Variety Breakdown</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            {dailySummaries.flatMap(s => s.varieties)
+                              .reduce((acc, variety) => {
+                                const existing = acc.find(v => v.variety === variety.variety);
+                                if (existing) {
+                                  existing.total_weight += (variety.total_weight || 0);
+                                  existing.total_crates += (variety.total_crates || 0);
+                                } else {
+                                  acc.push({...variety});
+                                }
+                                return acc;
+                              }, [] as VarietyStats[])
+                              .map((variety) => (
+                                <div key={variety.variety} className={`p-4 rounded-lg border ${
+                                  variety.variety === 'Fuerte' 
+                                    ? 'border-blue-200 bg-blue-50' 
+                                    : 'border-green-200 bg-green-50'
+                                }`}>
+                                  <div className="flex items-center justify-between mb-3">
+                                    <div className="flex items-center gap-2">
+                                      <Apple className={`w-5 h-5 ${
+                                        variety.variety === 'Fuerte' ? 'text-blue-600' : 'text-green-600'
+                                      }`} />
+                                      <h4 className="font-semibold">{variety.variety} Avocado</h4>
+                                    </div>
+                                    <Badge variant="outline">
+                                      {variety.total_crates || 0} crates
+                                    </Badge>
+                                  </div>
+                                  <div className="space-y-2">
+                                    <div className="flex justify-between">
+                                      <span className="text-sm text-gray-600">Total Weight</span>
+                                      <span className={`font-bold ${
+                                        variety.variety === 'Fuerte' ? 'text-blue-700' : 'text-green-700'
+                                      }`}>
+                                        {(variety.total_weight || 0).toFixed(1)} kg
+                                      </span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-sm text-gray-600">Average per Crate</span>
+                                      <span className="font-medium">
+                                        {((variety.total_crates || 0) > 0 ? (variety.total_weight || 0) / (variety.total_crates || 1) : 0).toFixed(1)} kg
+                                      </span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-sm text-gray-600">Percentage of Total</span>
+                                      <span className="font-medium">
+                                        {((variety.total_weight || 0) / dailySummaries.reduce((sum, s) => sum + (s.total_weight || 0), 0) * 100).toFixed(1)}%
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
                           </div>
                         </CardContent>
                       </Card>
