@@ -579,11 +579,18 @@ model cold_room_pallets {
   total_boxes      Int      @default(0)
   total_weight_kg  Float    @default(0)
   boxes_per_pallet Int      @default(288) // Standard boxes per pallet (4kg: 288, 10kg: 120)
+  
+  // NEW FIELD: Add this line
+  loading_sheet_id String?  @db.VarChar(255) // Link to loading sheet
+  
   created_at       DateTime @default(now())
   last_updated     DateTime @default(now()) @updatedAt
 
   // Relationship to boxes
   boxes cold_room_boxes[]
+  
+  // NEW RELATION: Add this line
+  loading_sheet loading_sheets? @relation(fields: [loading_sheet_id], references: [id], onDelete: SetNull)
 
   @@index([cold_room_id])
   @@index([pallet_name])
@@ -591,6 +598,7 @@ model cold_room_pallets {
   @@index([is_manual])
   @@index([total_boxes])
   @@index([total_weight_kg])
+  @@index([loading_sheet_id]) // Add this index for better performance
   @@map("cold_room_pallets")
 }
 
@@ -673,6 +681,9 @@ model loading_sheets {
   updated_at          DateTime              @updatedAt
   carrier_assignments carrier_assignments[]
   loading_pallets     loading_pallets[]
+  
+  // NEW RELATION: Add this line for the reverse relationship
+  cold_room_pallets  cold_room_pallets[]   // Reverse relation
 
   @@map("loading_sheets")
 }
