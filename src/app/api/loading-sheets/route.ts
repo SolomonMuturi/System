@@ -39,6 +39,8 @@ export async function GET(request: NextRequest) {
     const startDate = cleanString(searchParams.get('startDate'));
     const endDate = cleanString(searchParams.get('endDate'));
     const includePallets = searchParams.get('includePallets') !== 'false';
+    const assignedOnly = searchParams.get('assignedOnly') === 'true';
+    const unassignedOnly = searchParams.get('unassignedOnly') === 'true';
 
     // Build where clause
     const where: any = {};
@@ -60,6 +62,13 @@ export async function GET(request: NextRequest) {
         gte: parseDate(startDate),
         lte: parseDate(endDate)
       };
+    }
+
+    // Filter by assignment status
+    if (assignedOnly) {
+      where.assigned_carrier_id = { not: null };
+    } else if (unassignedOnly) {
+      where.assigned_carrier_id = null;
     }
 
     // Calculate pagination
@@ -110,6 +119,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
+// POST: Create a new loading sheet
 // POST: Create a new loading sheet
 export async function POST(request: NextRequest) {
   try {
@@ -176,6 +186,42 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Get all pallet IDs from the request
+    const palletIds = body.pallets
+      .map((pallet: any) => pallet.palletId || pallet.id)
+      .filter((id: string) => id);
+
+    // Check if any pallets are already assigned to other loading sheets
+    if (palletIds.length > 0) {
+      const existingPallets = await prisma.cold_room_pallets.findMany({
+        where: {
+          id: { in: palletIds },
+          loading_sheet_id: { not: null }
+        },
+        select: {
+          id: true,
+          pallet_name: true, // Changed from pallet_no to pallet_name
+          loading_sheet_id: true
+        }
+      });
+
+      if (existingPallets.length > 0) {
+        const alreadyAssigned = existingPallets.map(p => 
+          `${p.pallet_name || p.id} (assigned to sheet ${p.loading_sheet_id})`
+        ).join(', ');
+        
+        return NextResponse.json(
+          { 
+            success: false,
+            error: 'Some pallets are already assigned to other loading sheets',
+            details: `Pallets already assigned: ${alreadyAssigned}`,
+            alreadyAssigned: existingPallets
+          },
+          { status: 400 }
+        );
+      }
+    }
+
     // Create loading sheet with pallets in a transaction
     const result = await prisma.$transaction(async (tx) => {
       // Generate short ID
@@ -223,10 +269,6 @@ export async function POST(request: NextRequest) {
         const palletId = generateShortId('pl');
         
         // Store cold room data in available fields
-        // temp field stores variety
-        // trace_code field stores box_type
-        // size24 field stores quantity (since it's the most common size)
-        // total field also stores quantity
         return {
           id: palletId,
           loading_sheet_id: loadingSheet.id,
@@ -235,6 +277,18 @@ export async function POST(request: NextRequest) {
           trace_code: pallet.box_type || '', // Store box_type in trace_code
           size24: quantity, // Store quantity in size24
           total: quantity, // Also store in total
+          
+          // Store additional cold room info if available
+          cold_room_id: pallet.coldRoomId || '',
+          original_pallet_id: pallet.palletId || pallet.id || '',
+          variety: pallet.variety || '',
+          box_type: pallet.box_type || pallet.boxType || '',
+          size: pallet.size || '',
+          grade: pallet.grade || '',
+          quantity: quantity,
+          supplier_name: pallet.supplierName || '',
+          region: pallet.region || '',
+          counting_record_id: pallet.countingRecordId || '',
           
           // Set other size fields to 0
           size12: 0,
@@ -254,6 +308,21 @@ export async function POST(request: NextRequest) {
       });
 
       console.log(`✅ Created ${palletData.length} pallet records`);
+
+      // Update cold room pallets to mark them as assigned
+      if (palletIds.length > 0) {
+        const updateResult = await tx.cold_room_pallets.updateMany({
+          where: {
+            id: { in: palletIds }
+          },
+          data: {
+            loading_sheet_id: loadingSheet.id,
+            last_updated: new Date() // Use last_updated instead of updated_at
+          }
+        });
+        
+        console.log(`✅ Marked ${updateResult.count} cold room pallets as assigned to loading sheet ${loadingSheet.id}`);
+      }
 
       // Return the complete loading sheet with pallets
       const completeSheet = await tx.loading_sheets.findUnique({
@@ -319,6 +388,21 @@ export async function PUT(request: NextRequest) {
     const body = await request.json();
     console.log(`✏️ Loading Sheets API: Updating loading sheet ${id}...`);
 
+    // Get existing loading sheet to check current pallets
+    const existingSheet = await prisma.loading_sheets.findUnique({
+      where: { id },
+      include: {
+        loading_pallets: true
+      }
+    });
+
+    if (!existingSheet) {
+      return NextResponse.json(
+        { success: false, error: 'Loading sheet not found' },
+        { status: 404 }
+      );
+    }
+
     // Validate loading date if provided
     const loadingDate = body.loadingDate ? parseDate(body.loadingDate) : undefined;
 
@@ -351,9 +435,51 @@ export async function PUT(request: NextRequest) {
 
       // If pallets are provided, update them
       if (body.pallets && Array.isArray(body.pallets)) {
+        // Get existing pallet IDs
+        const existingPalletIds = existingSheet.loading_pallets.map(p => p.id);
+        
+        // Get new pallet IDs from request
+        const newPalletIds = body.pallets
+          .map((pallet: any) => pallet.palletId || pallet.id)
+          .filter((id: string) => id && !existingPalletIds.includes(id));
+
+        // Check if new pallets are already assigned to other loading sheets
+        if (newPalletIds.length > 0) {
+          const existingPallets = await tx.cold_room_pallets.findMany({
+            where: {
+              id: { in: newPalletIds },
+              loading_sheet_id: { not: null, not: id }
+            },
+            select: {
+              id: true,
+              pallet_no: true,
+              loading_sheet_id: true
+            }
+          });
+
+          if (existingPallets.length > 0) {
+            const alreadyAssigned = existingPallets.map(p => 
+              `${p.pallet_no || p.id} (assigned to sheet ${p.loading_sheet_id})`
+            ).join(', ');
+            
+            throw new Error(`Some pallets are already assigned to other loading sheets: ${alreadyAssigned}`);
+          }
+        }
+
         // Delete existing pallets
         await tx.loading_pallets.deleteMany({
           where: { loading_sheet_id: id }
+        });
+
+        // Clear loading_sheet_id from previously assigned pallets
+        await tx.cold_room_pallets.updateMany({
+          where: {
+            loading_sheet_id: id
+          },
+          data: {
+            loading_sheet_id: null,
+            updated_at: new Date()
+          }
         });
 
         // Create new pallets
@@ -396,6 +522,25 @@ export async function PUT(request: NextRequest) {
           });
 
           console.log(`✅ Updated ${palletData.length} pallet records`);
+
+          // Update cold room pallets to mark them as assigned
+          const newPalletIds = body.pallets
+            .map((pallet: any) => pallet.palletId || pallet.id)
+            .filter((id: string) => id);
+            
+          if (newPalletIds.length > 0) {
+            const updateResult = await tx.cold_room_pallets.updateMany({
+              where: {
+                id: { in: newPalletIds }
+              },
+              data: {
+                loading_sheet_id: id,
+                updated_at: new Date()
+              }
+            });
+            
+            console.log(`✅ Marked ${updateResult.count} cold room pallets as assigned to loading sheet ${id}`);
+          }
         }
       }
 
@@ -422,8 +567,14 @@ export async function PUT(request: NextRequest) {
     console.error('❌ Error updating loading sheet:', error);
     
     let errorMessage = error.message;
+    let statusCode = 500;
+    
     if (error.code === 'P2025') {
       errorMessage = 'Loading sheet not found';
+      statusCode = 404;
+    } else if (error.message.includes('already assigned to other loading sheets')) {
+      errorMessage = error.message;
+      statusCode = 400;
     }
     
     return NextResponse.json(
@@ -433,7 +584,7 @@ export async function PUT(request: NextRequest) {
         details: errorMessage,
         code: error.code
       },
-      { status: 500 }
+      { status: statusCode }
     );
   }
 }
@@ -453,13 +604,30 @@ export async function DELETE(request: NextRequest) {
 
     console.log(`🗑️ Loading Sheets API: Deleting loading sheet ${id}...`);
 
-    await prisma.loading_sheets.delete({
-      where: { id }
+    const deletedSheet = await prisma.$transaction(async (tx) => {
+      // Clear loading_sheet_id from assigned cold room pallets
+      await tx.cold_room_pallets.updateMany({
+        where: {
+          loading_sheet_id: id
+        },
+        data: {
+          loading_sheet_id: null,
+          updated_at: new Date()
+        }
+      });
+
+      // Delete the loading sheet (this will cascade to loading_pallets)
+      const sheet = await tx.loading_sheets.delete({
+        where: { id }
+      });
+
+      return sheet;
     });
 
     return NextResponse.json({
       success: true,
-      message: 'Loading sheet deleted successfully'
+      message: 'Loading sheet deleted successfully',
+      data: deletedSheet
     });
 
   } catch (error: any) {
@@ -474,6 +642,327 @@ export async function DELETE(request: NextRequest) {
       { 
         success: false,
         error: 'Failed to delete loading sheet', 
+        details: errorMessage,
+        code: error.code
+      },
+      { status: 500 }
+    );
+  }
+}
+
+// PATCH: Update carrier assignment for a loading sheet
+export async function PATCH(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+    
+    if (!id) {
+      return NextResponse.json(
+        { success: false, error: 'Missing loading sheet ID' },
+        { status: 400 }
+      );
+    }
+
+    const body = await request.json();
+    console.log(`🚚 Loading Sheets API: Updating carrier assignment for sheet ${id}...`);
+
+    // Check if loading sheet exists
+    const existingSheet = await prisma.loading_sheets.findUnique({
+      where: { id }
+    });
+
+    if (!existingSheet) {
+      return NextResponse.json(
+        { success: false, error: 'Loading sheet not found' },
+        { status: 404 }
+      );
+    }
+
+    // Validate carrier if provided
+    if (body.assignedCarrierId) {
+      const carrier = await prisma.carriers.findUnique({
+        where: { id: body.assignedCarrierId }
+      });
+
+      if (!carrier) {
+        return NextResponse.json(
+          { success: false, error: 'Carrier not found' },
+          { status: 404 }
+        );
+      }
+    }
+
+    // Update the loading sheet
+    const updatedSheet = await prisma.loading_sheets.update({
+      where: { id },
+      data: {
+        assigned_carrier_id: body.assignedCarrierId || null
+      },
+      include: {
+        loading_pallets: {
+          orderBy: { pallet_no: 'asc' }
+        }
+      }
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: 'Carrier assignment updated successfully',
+      data: updatedSheet
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error updating carrier assignment:', error);
+    
+    let errorMessage = error.message;
+    if (error.code === 'P2025') {
+      errorMessage = 'Loading sheet not found';
+    }
+    
+    return NextResponse.json(
+      { 
+        success: false,
+        error: 'Failed to update carrier assignment', 
+        details: errorMessage,
+        code: error.code
+      },
+      { status: 500 }
+    );
+  }
+}
+
+// GET: Download loading sheet as CSV
+export async function GET_DOWNLOAD(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+    
+    if (!id) {
+      return NextResponse.json(
+        { success: false, error: 'Missing loading sheet ID' },
+        { status: 400 }
+      );
+    }
+
+    console.log(`📥 Loading Sheets API: Downloading loading sheet ${id} as CSV...`);
+
+    // Fetch loading sheet with pallets
+    const loadingSheet = await prisma.loading_sheets.findUnique({
+      where: { id },
+      include: {
+        loading_pallets: {
+          orderBy: { pallet_no: 'asc' }
+        }
+      }
+    });
+
+    if (!loadingSheet) {
+      return NextResponse.json(
+        { success: false, error: 'Loading sheet not found' },
+        { status: 404 }
+      );
+    }
+
+    // Format date for CSV
+    const formatDateForCSV = (date: Date | null) => {
+      if (!date) return '';
+      return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      });
+    };
+
+    // Generate CSV content
+    const headers = ['LOADING SHEET\n\n'];
+    
+    // Header information
+    headers.push(`EXPORTER,${loadingSheet.exporter || ''},LOADING DATE,${formatDateForCSV(loadingSheet.loading_date)}`);
+    headers.push(`CLIENT,${loadingSheet.client || ''},VESSEL,${loadingSheet.vessel || ''}`);
+    headers.push(`SHIPPING LINE,${loadingSheet.shipping_line || ''},ETA MSA,${formatDateForCSV(loadingSheet.eta_msa)}`);
+    headers.push(`BILL NUMBER,${loadingSheet.bill_number || ''},ETD MSA,${formatDateForCSV(loadingSheet.etd_msa)}`);
+    headers.push(`CONTAINER,${loadingSheet.container || ''},PORT,${loadingSheet.port || ''}`);
+    headers.push(`SEAL 1,${loadingSheet.seal1 || ''},ETA PORT,${formatDateForCSV(loadingSheet.eta_port)}`);
+    headers.push(`SEAL 2,${loadingSheet.seal2 || ''},TEMP REC 1,${loadingSheet.temp_rec1 || ''}`);
+    headers.push(`TRUCK,${loadingSheet.truck || ''},TEMP REC 2,${loadingSheet.temp_rec2 || ''}\n`);
+    
+    // Pallet headers
+    const tableHeaders = ['PALLET NO', 'VARIETY', 'BOX TYPE', 'QUANTITY', 'WEIGHT (kg)'];
+    headers.push(tableHeaders.join(','));
+    
+    // Pallet rows
+    const rows = loadingSheet.loading_pallets.map((pallet) => {
+      const quantity = pallet.size24 || 0;
+      const boxType = pallet.trace_code || '';
+      const weight = quantity * (boxType === '10kg' ? 10 : 4);
+      
+      return [
+        pallet.pallet_no,
+        pallet.temp || 'N/A',
+        boxType,
+        quantity,
+        weight
+      ].join(',');
+    });
+    
+    headers.push(...rows);
+    
+    // Totals
+    const totals = loadingSheet.loading_pallets.reduce(
+      (acc, pallet) => {
+        const quantity = pallet.size24 || 0;
+        const boxType = pallet.trace_code || '';
+        const weight = quantity * (boxType === '10kg' ? 10 : 4);
+        
+        acc.totalBoxes += quantity;
+        acc.totalWeight += weight;
+        acc.totalPallets += 1;
+        return acc;
+      },
+      { totalBoxes: 0, totalWeight: 0, totalPallets: 0 }
+    );
+    
+    headers.push(`\nSUMMARY`);
+    headers.push(`Total Pallets,${totals.totalPallets}`);
+    headers.push(`Total Boxes,${totals.totalBoxes}`);
+    headers.push(`Total Weight,${totals.totalWeight} kg\n`);
+    
+    // Loading details
+    headers.push('LOADING DETAILS');
+    headers.push(`Loaded by,${loadingSheet.loaded_by || ''}`);
+    headers.push(`Checked by,${loadingSheet.checked_by || ''}`);
+    headers.push(`Remarks,${loadingSheet.remarks || ''}`);
+    
+    const csvContent = headers.join('\n');
+    
+    // Return as CSV download
+    return new Response(csvContent, {
+      headers: {
+        'Content-Type': 'text/csv',
+        'Content-Disposition': `attachment; filename="loading-sheet-${loadingSheet.bill_number || loadingSheet.id}.csv"`
+      }
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error downloading loading sheet:', error);
+    return NextResponse.json(
+      { 
+        success: false,
+        error: 'Failed to download loading sheet', 
+        details: error.message 
+      },
+      { status: 500 }
+    );
+  }
+}
+
+// POST: Mark pallets as assigned (separate endpoint for frontend)
+// POST: Mark pallets as assigned (separate endpoint for frontend)
+export async function POST_ASSIGN_PALLETS(request: NextRequest) {
+  try {
+    const body = await request.json();
+    
+    console.log('🔒 Loading Sheets API: Marking pallets as assigned...', {
+      palletCount: body.palletIds?.length || 0,
+      loadingSheetId: body.loadingSheetId
+    });
+
+    // Validate required fields
+    if (!body.palletIds || !Array.isArray(body.palletIds) || body.palletIds.length === 0) {
+      return NextResponse.json(
+        { 
+          success: false,
+          error: 'No pallet IDs provided' 
+        },
+        { status: 400 }
+      );
+    }
+
+    if (!body.loadingSheetId) {
+      return NextResponse.json(
+        { 
+          success: false,
+          error: 'Missing loading sheet ID' 
+        },
+        { status: 400 }
+      );
+    }
+
+    // Check if loading sheet exists
+    const loadingSheet = await prisma.loading_sheets.findUnique({
+      where: { id: body.loadingSheetId }
+    });
+
+    if (!loadingSheet) {
+      return NextResponse.json(
+        { success: false, error: 'Loading sheet not found' },
+        { status: 404 }
+      );
+    }
+
+    // Check if any pallets are already assigned to other loading sheets
+    const existingPallets = await prisma.cold_room_pallets.findMany({
+      where: {
+        id: { in: body.palletIds },
+        loading_sheet_id: { not: null, not: body.loadingSheetId }
+      },
+      select: {
+        id: true,
+        pallet_name: true, // Changed from pallet_no to pallet_name
+        loading_sheet_id: true
+      }
+    });
+
+    if (existingPallets.length > 0) {
+      const alreadyAssigned = existingPallets.map(p => 
+        `${p.pallet_name || p.id} (assigned to sheet ${p.loading_sheet_id})`
+      ).join(', ');
+      
+      return NextResponse.json(
+        { 
+          success: false,
+          error: 'Some pallets are already assigned to other loading sheets',
+          details: `Pallets already assigned: ${alreadyAssigned}`,
+          alreadyAssigned: existingPallets
+        },
+        { status: 400 }
+      );
+    }
+
+    // Update pallets to mark them as assigned
+    const updateResult = await prisma.cold_room_pallets.updateMany({
+      where: {
+        id: { in: body.palletIds }
+      },
+      data: {
+        loading_sheet_id: body.loadingSheetId,
+        last_updated: new Date() // Use last_updated instead of updated_at
+      }
+    });
+
+    console.log(`✅ Marked ${updateResult.count} pallets as assigned to loading sheet ${body.loadingSheetId}`);
+
+    return NextResponse.json({
+      success: true,
+      message: `${updateResult.count} pallets marked as assigned successfully`,
+      data: {
+        updatedCount: updateResult.count,
+        loadingSheetId: body.loadingSheetId
+      }
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error marking pallets as assigned:', error);
+    
+    let errorMessage = error.message;
+    if (error.code === 'P2003') {
+      errorMessage = 'Invalid pallet ID or loading sheet ID';
+    }
+    
+    return NextResponse.json(
+      { 
+        success: false,
+        error: 'Failed to mark pallets as assigned', 
         details: errorMessage,
         code: error.code
       },
