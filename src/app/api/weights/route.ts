@@ -1,4 +1,3 @@
-// app/api/weights/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 
@@ -15,26 +14,54 @@ function generateSequentialPalletId(counter: number, regionCode?: string): strin
   return `PAL-${palletNum}/${month}${day}`;
 }
 
-// Helper to generate a valid ID (max 20 chars)
+// Helper to generate a valid ID
 function generateValidId(): string {
-  const timestamp = Date.now().toString(36); // ~11 chars
-  const random = Math.random().toString(36).substr(2, 8); // 8 chars
-  return `w${timestamp}${random}`.substr(0, 20); // Ensure max 20 chars
+  const timestamp = Date.now().toString(36);
+  const random = Math.random().toString(36).substr(2, 8);
+  return `w${timestamp}${random}`.substr(0, 20);
 }
 
+// GET handler - Fetch weight entries
 export async function GET(request: NextRequest) {
   try {
     console.log('📥 GET /api/weights called');
     
     const { searchParams } = new URL(request.url);
-    const limit = parseInt(searchParams.get('limit') || '50');
+    const limit = parseInt(searchParams.get('limit') || '100');
     const order = searchParams.get('order') || 'desc';
+    const supplierId = searchParams.get('supplierId');
+    const date = searchParams.get('date');
+    const region = searchParams.get('region');
 
     console.log(`📊 Fetching ${limit} weights, order: ${order}`);
+
+    // Build filter conditions
+    const where: any = {};
+    
+    if (supplierId) {
+      where.supplier_id = supplierId;
+    }
+    
+    if (region) {
+      where.region = region;
+    }
+    
+    if (date) {
+      const startDate = new Date(date);
+      startDate.setHours(0, 0, 0, 0);
+      const endDate = new Date(date);
+      endDate.setHours(23, 59, 59, 999);
+      
+      where.timestamp = {
+        gte: startDate,
+        lte: endDate
+      };
+    }
 
     // Fetch weights with all necessary fields
     const weights = await prisma.weight_entries.findMany({
       take: limit,
+      where,
       orderBy: { 
         timestamp: order as 'asc' | 'desc' 
       },
@@ -68,7 +95,7 @@ export async function GET(request: NextRequest) {
         declared_weight: true,
         rejected_weight: true,
         
-        // Fruit variety info - THESE ARE CRITICAL
+        // Fruit variety info
         fuerte_weight: true,
         fuerte_crates: true,
         hass_weight: true,
@@ -84,6 +111,15 @@ export async function GET(request: NextRequest) {
         bank_name: true,
         bank_account: true,
         kra_pin: true,
+        
+        // Relations
+        counting_records: {
+          select: {
+            id: true,
+            submitted_at: true,
+            status: true
+          }
+        }
       }
     });
 
@@ -128,7 +164,7 @@ export async function GET(request: NextRequest) {
       rejectedWeight: Number(weight.rejected_weight) || 0,
       rejected_weight: Number(weight.rejected_weight) || 0,
       
-      // FRUIT VARIETY WEIGHTS - THIS IS WHAT YOU NEED
+      // Fruit variety weights
       fuerte_weight: Number(weight.fuerte_weight) || 0,
       fuerte_crates: Number(weight.fuerte_crates) || 0,
       hass_weight: Number(weight.hass_weight) || 0,
@@ -150,6 +186,9 @@ export async function GET(request: NextRequest) {
       bank_name: weight.bank_name || '',
       bank_account: weight.bank_account || '',
       kra_pin: weight.kra_pin || '',
+      
+      // Counting records
+      counting_records: weight.counting_records || []
     }));
 
     return NextResponse.json(transformedWeights);
@@ -167,6 +206,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
+// POST handler - Create new weight entry
 export async function POST(request: NextRequest) {
   try {
     console.log('📤 POST /api/weights called');
@@ -181,8 +221,7 @@ export async function POST(request: NextRequest) {
       region: body.region,
     });
     
-    // =========== PARSE AND VALIDATE DATA ===========
-    // Parse fruit weights - handle strings or numbers
+    // Parse fruit weights
     const fuerteWeight = body.fuerte_weight ? parseFloat(String(body.fuerte_weight)) : 0;
     const fuerteCrates = body.fuerte_crates ? parseInt(String(body.fuerte_crates)) : 0;
     const hassWeight = body.hass_weight ? parseFloat(String(body.hass_weight)) : 0;
@@ -226,7 +265,7 @@ export async function POST(request: NextRequest) {
       totalCrates
     });
     
-    // =========== GENERATE PALLET ID ===========
+    // Generate pallet ID
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
@@ -249,7 +288,7 @@ export async function POST(request: NextRequest) {
     const regionCode = body.region ? body.region.substring(0, 3).toUpperCase() : undefined;
     const palletId = body.pallet_id || body.palletId || generateSequentialPalletId(todayPallets + 1, regionCode);
     
-    // Generate ID (your schema expects cuid() but we'll provide one to avoid conflicts)
+    // Generate ID
     const weightId = generateValidId();
     
     // Create product description
@@ -257,24 +296,22 @@ export async function POST(request: NextRequest) {
     if (fuerteWeight > 0) productDescription.push(`Fuerte: ${fuerteWeight.toFixed(2)}kg`);
     if (hassWeight > 0) productDescription.push(`Hass: ${hassWeight.toFixed(2)}kg`);
     
-    // =========== PREPARE DATA FOR DATABASE ===========
+    // Prepare data for database
     const weightData = {
-      // ID - Prisma will use cuid() automatically, but we provide one for consistency
-      id: weightId,
-      
       // Basic info
+      id: weightId,
       pallet_id: palletId,
       product: productDescription.join(', ') || '',
       unit: (body.unit || 'kg') as 'kg' | 'lb',
       timestamp: body.timestamp ? new Date(body.timestamp) : new Date(),
       
-      // =========== FRUIT WEIGHTS - SAVING TO CORRECT COLUMNS ===========
+      // Fruit weights
       fuerte_weight: fuerteWeight > 0 ? fuerteWeight : null,
       fuerte_crates: fuerteCrates > 0 ? fuerteCrates : null,
       hass_weight: hassWeight > 0 ? hassWeight : null,
       hass_crates: hassCrates > 0 ? hassCrates : null,
       
-      // Total weight fields - these should match fuerte + hass
+      // Total weight fields
       weight: totalWeight,
       net_weight: totalWeight,
       gross_weight: totalWeight,
@@ -285,7 +322,7 @@ export async function POST(request: NextRequest) {
       // Supplier info
       supplier: body.supplier || body.supplier_name || '',
       supplier_id: body.supplier_id || null,
-      supplier_phone: body.supplier_phone || null,
+      supplier_phone: body.supplier_phone || '',
       
       // Fruit variety info
       fruit_variety: JSON.stringify([
@@ -293,19 +330,19 @@ export async function POST(request: NextRequest) {
         ...(hassWeight > 0 ? ['Hass'] : [])
       ]),
       number_of_crates: totalCrates,
-      region: body.region || null,
+      region: body.region || '',
       
       // Driver info
-      driver_name: body.driver_name || null,
-      driver_phone: body.driver_phone || null,
-      driver_id_number: body.driver_id_number || null,
-      vehicle_plate: body.vehicle_plate || null,
-      truck_id: body.truck_id || body.vehicle_plate || null,
-      driver_id: body.driver_id || null,
+      driver_name: body.driver_name || '',
+      driver_phone: body.driver_phone || '',
+      driver_id_number: body.driver_id_number || '',
+      vehicle_plate: body.vehicle_plate || '',
+      truck_id: body.truck_id || body.vehicle_plate || '',
+      driver_id: body.driver_id || body.driver_id_number || '',
       
       // Optional fields
       image_url: body.image_url || null,
-      notes: body.notes || null,
+      notes: body.notes || '',
       
       // Per variety weights (JSON for reference)
       perVarietyWeights: JSON.stringify([
@@ -321,20 +358,19 @@ export async function POST(request: NextRequest) {
         }] : [])
       ]),
       
-      // Payment info (optional)
-      bank_name: body.bank_name || null,
-      bank_account: body.bank_account || null,
-      kra_pin: body.kra_pin || null,
+      // Payment info
+      bank_name: body.bank_name || '',
+      bank_account: body.bank_account || '',
+      kra_pin: body.kra_pin || '',
     };
     
     console.log('💾 Saving to database:', {
-      fuerte_weight: weightData.fuerte_weight,
-      hass_weight: weightData.hass_weight,
-      weight: weightData.weight,
-      net_weight: weightData.net_weight
+      pallet_id: weightData.pallet_id,
+      supplier: weightData.supplier,
+      total_weight: totalWeight
     });
     
-    // =========== SAVE TO DATABASE ===========
+    // Save to database
     const newWeight = await prisma.weight_entries.create({
       data: weightData,
     });
@@ -342,12 +378,34 @@ export async function POST(request: NextRequest) {
     console.log('✅ Saved successfully:', {
       id: newWeight.id,
       pallet_id: newWeight.pallet_id,
-      fuerte_weight: newWeight.fuerte_weight,
-      hass_weight: newWeight.hass_weight,
-      weight: newWeight.weight
+      supplier: newWeight.supplier
     });
     
-    // =========== RETURN RESPONSE ===========
+    // Update supplier check-in status if supplier_id is provided
+    if (body.supplier_id) {
+      try {
+        await prisma.supplier_checkins.updateMany({
+          where: {
+            OR: [
+              { supplier_id: body.supplier_id },
+              { driver_name: body.driver_name || '' },
+              { vehicle_plate: body.vehicle_plate || '' }
+            ],
+            status: 'checked_in'
+          },
+          data: {
+            status: 'weighed',
+            updated_at: new Date()
+          }
+        });
+        
+        console.log('✅ Updated supplier check-in status to weighed');
+      } catch (checkinError) {
+        console.error('⚠️ Error updating supplier check-in:', checkinError);
+        // Continue even if check-in update fails
+      }
+    }
+    
     // Transform response for frontend
     const response = {
       id: newWeight.id,
@@ -420,6 +478,105 @@ export async function POST(request: NextRequest) {
         error: 'Failed to create weight entry',
         details: error.message,
         code: error.code || 'UNKNOWN_ERROR'
+      },
+      { status: 500 }
+    );
+  }
+}
+
+// PATCH handler - Update weight entry
+export async function PATCH(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { id, ...updateData } = body;
+
+    if (!id) {
+      return NextResponse.json(
+        { error: 'Weight entry ID is required' },
+        { status: 400 }
+      );
+    }
+
+    // Update weight entry
+    const updatedWeight = await prisma.weight_entries.update({
+      where: { id },
+      data: updateData,
+    });
+
+    return NextResponse.json({
+      success: true,
+      data: updatedWeight
+    });
+
+  } catch (error: any) {
+    console.error('Error updating weight entry:', error);
+    
+    if (error.code === 'P2025') {
+      return NextResponse.json(
+        { error: 'Weight entry not found' },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json(
+      { 
+        error: 'Failed to update weight entry',
+        details: error.message
+      },
+      { status: 500 }
+    );
+  }
+}
+
+// DELETE handler - Remove weight entry
+export async function DELETE(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+
+    if (!id) {
+      return NextResponse.json(
+        { error: 'Weight entry ID is required' },
+        { status: 400 }
+      );
+    }
+
+    // Check if weight entry exists
+    const weightEntry = await prisma.weight_entries.findUnique({
+      where: { id },
+    });
+
+    if (!weightEntry) {
+      return NextResponse.json(
+        { error: 'Weight entry not found' },
+        { status: 404 }
+      );
+    }
+
+    // Delete weight entry
+    await prisma.weight_entries.delete({
+      where: { id },
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: 'Weight entry deleted successfully'
+    });
+
+  } catch (error: any) {
+    console.error('Error deleting weight entry:', error);
+    
+    if (error.code === 'P2025') {
+      return NextResponse.json(
+        { error: 'Weight entry not found' },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json(
+      { 
+        error: 'Failed to delete weight entry',
+        details: error.message
       },
       { status: 500 }
     );
