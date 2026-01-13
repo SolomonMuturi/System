@@ -104,6 +104,7 @@ interface ColdRoomPallet {
   pallet_id?: string;
   region?: string;
   counting_record_id?: string;
+  loading_sheet_id?: string | null; // Track which loading sheet the pallet is assigned to
 }
 
 interface PalletWithBoxes extends ColdRoomPallet {
@@ -246,29 +247,6 @@ function calculateDaysBetween(startDate: string, endDate: string): number {
   return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 }
 
-// Add the missing extractFruitVarieties function
-function extractFruitVarieties(data: any[]): string[] {
-  if (!Array.isArray(data)) return [];
-  
-  const varieties = new Set<string>();
-  
-  data.forEach(item => {
-    // Check different possible property names for variety
-    if (item.variety) {
-      varieties.add(item.variety);
-    } else if (item.fruit_variety) {
-      varieties.add(item.fruit_variety);
-    } else if (item.product_variety) {
-      varieties.add(item.product_variety);
-    } else if (item.fruitVariety) {
-      varieties.add(item.fruitVariety);
-    }
-    // You might need to add more checks based on your actual data structure
-  });
-  
-  return Array.from(varieties);
-}
-
 // Loading Sheet Component
 function LoadingSheet() {
   const defaultData: LoadingSheetData = {
@@ -313,6 +291,11 @@ function LoadingSheet() {
     boxTypeCount: {}
   });
 
+  // Form state for signature fields
+  const [loadedBy, setLoadedBy] = useState('');
+  const [checkedBy, setCheckedBy] = useState('');
+  const [remarks, setRemarks] = useState('');
+
   // Helper function to safely get quantity
   const getSafeQuantity = (pallet: ColdRoomPallet | PalletWithBoxes): number => {
     return Number(pallet?.quantity) || 0;
@@ -330,11 +313,11 @@ function LoadingSheet() {
     return quantity * (boxType === '10kg' ? 10 : 4);
   };
 
-  // Fetch cold room pallets - UPDATED TO MATCH COLDROOM STRUCTURE
+  // Fetch cold room pallets - UPDATED to only show pallets not assigned to any loading sheet
   const fetchColdRoomPallets = useCallback(async () => {
     try {
       setLoadingColdRoomPallets(true);
-      console.log(`📦 Fetching pallets from ${selectedColdRoom}...`);
+      console.log(`📦 Fetching available pallets from ${selectedColdRoom}...`);
       
       // First, get the pallets from the cold room
       const response = await fetch(`/api/cold-room?action=pallets&coldRoomId=${selectedColdRoom}`);
@@ -347,16 +330,22 @@ function LoadingSheet() {
       console.log('📊 Cold room pallets response:', result);
       
       if (result.success && Array.isArray(result.data)) {
-        // Process pallets data
+        // Process pallets data - only include pallets with NO loading_sheet_id
         const processedPallets: ColdRoomPallet[] = [];
-        const palletMap = new Map<string, ColdRoomPallet>();
         
         // Process each pallet from the API
         result.data.forEach((pallet: any, index: number) => {
           console.log(`📦 Processing pallet ${index + 1}:`, pallet);
           
+          // Skip pallets that already have a loading_sheet_id (already assigned)
+          if (pallet.loading_sheet_id) {
+            console.log(`⚠️ Skipping pallet ${pallet.id || pallet.pallet_id} - already assigned to loading sheet ${pallet.loading_sheet_id}`);
+            return;
+          }
+          
           // Generate a unique ID for the pallet
           const palletId = pallet.id || `pallet-${Date.now()}-${index}`;
+          
           const palletNo = pallet.pallet_name || `PAL-${palletId.substring(0, 8).toUpperCase()}`;
           
           // Get pallet details
@@ -391,14 +380,14 @@ function LoadingSheet() {
             supplier_name: pallet.supplier_name || 'Unknown Supplier',
             pallet_id: pallet.pallet_id,
             region: pallet.region || '',
-            counting_record_id: pallet.counting_record_id
+            counting_record_id: pallet.counting_record_id,
+            loading_sheet_id: pallet.loading_sheet_id || null // Should be null for available pallets
           };
           
           processedPallets.push(processedPallet);
-          palletMap.set(palletId, processedPallet);
         });
         
-        console.log(`✅ Processed ${processedPallets.length} pallets from cold room`);
+        console.log(`✅ Found ${processedPallets.length} available pallets (not assigned to any loading sheet)`);
         setColdRoomPallets(processedPallets);
         
         // Calculate summary statistics
@@ -419,7 +408,7 @@ function LoadingSheet() {
         };
         
         setPalletsSummary(summary);
-        console.log('📊 Pallet summary:', summary);
+        console.log('📊 Available pallet summary:', summary);
         
       } else {
         console.warn('⚠️ No pallets found or API error:', result.message);
@@ -433,7 +422,7 @@ function LoadingSheet() {
         });
         
         // Show a toast notification
-        toast.warning('No pallets found in the selected cold room. Please load boxes to cold room first.');
+        toast.warning('No available pallets found in the selected cold room. All pallets may already be assigned to loading sheets.');
       }
       
     } catch (error) {
@@ -496,9 +485,15 @@ function LoadingSheet() {
     setExpandedPallet(expandedPallet === palletId ? null : palletId);
   };
 
-  // Add pallet to loading sheet
+  // Add pallet to loading sheet - UPDATED with additional checks
   const addPalletToSheet = (pallet: ColdRoomPallet) => {
-    // Check if pallet is already added
+    // Check if pallet is already assigned to ANY loading sheet (not just current one)
+    if (pallet.loading_sheet_id && pallet.loading_sheet_id !== sheetData.id) {
+      toast.error(`Pallet ${pallet.pallet_no} is already assigned to another loading sheet`);
+      return;
+    }
+
+    // Check if pallet is already added to current sheet
     if (sheetData.pallets.some(p => p.id === pallet.id)) {
       toast.warning(`Pallet ${pallet.pallet_no} is already in the loading sheet`);
       return;
@@ -525,7 +520,12 @@ function LoadingSheet() {
 
   // Add all pallets to loading sheet
   const addAllPalletsToSheet = () => {
-    const newPallets = coldRoomPallets
+    // Filter out pallets that are already assigned to other loading sheets
+    const availablePallets = coldRoomPallets.filter(pallet => 
+      !pallet.loading_sheet_id || pallet.loading_sheet_id === sheetData.id
+    );
+    
+    const newPallets = availablePallets
       .filter(pallet => !sheetData.pallets.some(p => p.id === pallet.id))
       .map(pallet => {
         const palletWithBoxes: PalletWithBoxes = {
@@ -541,7 +541,15 @@ function LoadingSheet() {
       });
 
     if (newPallets.length === 0) {
-      toast.info('All pallets are already in the loading sheet');
+      const alreadyAssignedCount = coldRoomPallets.filter(p => 
+        p.loading_sheet_id && p.loading_sheet_id !== sheetData.id
+      ).length;
+      
+      if (alreadyAssignedCount > 0) {
+        toast.info(`${alreadyAssignedCount} pallets are already assigned to other loading sheets`);
+      } else {
+        toast.info('All pallets are already in the loading sheet');
+      }
       return;
     }
 
@@ -581,106 +589,150 @@ function LoadingSheet() {
     document.body.removeChild(element);
   };
 
-  const handleSave = async () => {
-    try {
-      setSaving(true);
-      
-      // Get form values
-      const loadedByInput = document.querySelector('input[placeholder="Loader\'s name & signature"]') as HTMLInputElement;
-      const checkedByInput = document.querySelector('input[placeholder="Supervisor\'s name & signature"]') as HTMLInputElement;
-      const remarksInput = document.querySelector('textarea[placeholder="Special instructions or notes"]') as HTMLTextAreaElement;
-
-      // Validate required fields
-      if (!sheetData.billNumber.trim()) {
-        toast.error('Please enter a Bill Number');
-        setSaving(false);
-        return;
-      }
-
-      if (!sheetData.container.trim()) {
-        toast.error('Please enter a Container Number');
-        setSaving(false);
-        return;
-      }
-
-      if (sheetData.pallets.length === 0) {
-        toast.error('Please add at least one pallet to the loading sheet');
-        setSaving(false);
-        return;
-      }
-
-      // Prepare the data for saving with safe defaults
-      const saveData = {
-        exporter: sheetData.exporter || defaultData.exporter,
-        client: sheetData.client || '',
-        shippingLine: sheetData.shippingLine || '',
-        billNumber: sheetData.billNumber || '',
-        container: sheetData.container || '',
-        seal1: sheetData.seal1 || '',
-        seal2: sheetData.seal2 || '',
-        truck: sheetData.truck || '',
-        vessel: sheetData.vessel || '',
-        etaMSA: sheetData.etaMSA || null,
-        etdMSA: sheetData.etdMSA || null,
-        port: sheetData.port || '',
-        etaPort: sheetData.etaPort || null,
-        tempRec1: sheetData.tempRec1 || '',
-        tempRec2: sheetData.tempRec2 || '',
-        loadingDate: sheetData.loadingDate || defaultData.loadingDate,
-        loadedBy: loadedByInput?.value || '',
-        checkedBy: checkedByInput?.value || '',
-        remarks: remarksInput?.value || '',
-        pallets: sheetData.pallets.map((pallet, index) => ({
-          palletNo: index + 1,
-          palletId: pallet.pallet_id || pallet.id,
-          coldRoomId: pallet.cold_room_id || selectedColdRoom,
-          variety: pallet.variety || 'fuerte',
-          boxType: getSafeBoxType(pallet),
-          size: pallet.size || 'size24',
-          grade: pallet.grade || 'class1',
-          quantity: getSafeQuantity(pallet),
-          supplierName: pallet.supplier_name || '',
-          region: pallet.region || '',
-          boxes: pallet.boxes || [{ size: pallet.size || 'size24', quantity: getSafeQuantity(pallet) }],
-          totalBoxes: pallet.totalBoxes || getSafeQuantity(pallet),
-          totalWeight: pallet.totalWeight || getSafeWeight(pallet)
-        }))
-      };
-
-      console.log('📤 Saving loading sheet to database...', saveData);
-
-      const response = await fetch('/api/loading-sheets', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(saveData)
-      });
-
-      const result = await response.json();
-
-      if (result.success) {
-        toast.success(`✅ Loading sheet saved successfully!\nBill Number: ${sheetData.billNumber}`);
-        // Refresh the list of existing sheets
-        await fetchLoadingSheets();
-        // Clear form for new entry
-        handleNewSheet();
-      } else {
-        throw new Error(result.error || 'Failed to save loading sheet');
-      }
-
-    } catch (error: any) {
-      console.error('❌ Error saving loading sheet:', error);
-      toast.error(`❌ Failed to save loading sheet: ${error.message}`);
-    } finally {
-      setSaving(false);
+const markPalletsAsAssigned = async (pallets: PalletWithBoxes[], loadingSheetId: string) => {
+  try {
+    console.log('🔒 Marking pallets as assigned (backup)...', pallets.length);
+    
+    // Get the pallet IDs from the pallets
+    const palletIds = pallets.map(p => p.pallet_id || p.id).filter(id => id);
+    
+    if (palletIds.length === 0) {
+      console.warn('⚠️ No valid pallet IDs found to mark as assigned');
+      return true;
     }
-  };
+    
+    // Call API to update pallet status with the actual loading sheet ID
+    const response = await fetch('/api/loading-sheets/assign-pallets', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        palletIds: palletIds,
+        loadingSheetId: loadingSheetId
+      })
+    });
 
-  const handleLoadSheet = (sheetId: string) => {
+    const result = await response.json();
+    
+    if (result.success) {
+      console.log('✅ Backup: Pallets marked as assigned successfully');
+      return true;
+    } else {
+      console.warn('⚠️ Backup pallet assignment failed:', result.error);
+      return false;
+    }
+  } catch (error) {
+    console.error('Error in backup pallet assignment:', error);
+    return false;
+  }
+};
+
+const handleSave = async () => {
+  try {
+    setSaving(true);
+    
+    // Validate required fields
+    if (!sheetData.billNumber.trim()) {
+      toast.error('Please enter a Bill Number');
+      setSaving(false);
+      return;
+    }
+
+    if (!sheetData.container.trim()) {
+      toast.error('Please enter a Container Number');
+      setSaving(false);
+      return;
+    }
+
+    if (sheetData.pallets.length === 0) {
+      toast.error('Please add at least one pallet to the loading sheet');
+      setSaving(false);
+      return;
+    }
+
+    // Prepare the data for saving
+    const saveData = {
+      exporter: sheetData.exporter || defaultData.exporter,
+      client: sheetData.client || '',
+      shippingLine: sheetData.shippingLine || '',
+      billNumber: sheetData.billNumber || '',
+      container: sheetData.container || '',
+      seal1: sheetData.seal1 || '',
+      seal2: sheetData.seal2 || '',
+      truck: sheetData.truck || '',
+      vessel: sheetData.vessel || '',
+      etaMSA: sheetData.etaMSA || null,
+      etdMSA: sheetData.etdMSA || null,
+      port: sheetData.port || '',
+      etaPort: sheetData.etaPort || null,
+      tempRec1: sheetData.tempRec1 || '',
+      tempRec2: sheetData.tempRec2 || '',
+      loadingDate: sheetData.loadingDate || defaultData.loadingDate,
+      loadedBy: loadedBy || '',
+      checkedBy: checkedBy || '',
+      remarks: remarks || '',
+      pallets: sheetData.pallets.map((pallet, index) => ({
+        palletNo: index + 1,
+        palletId: pallet.pallet_id || pallet.id, // Make sure to include palletId
+        coldRoomId: pallet.cold_room_id || selectedColdRoom,
+        variety: pallet.variety || 'fuerte',
+        boxType: getSafeBoxType(pallet),
+        size: pallet.size || 'size24',
+        grade: pallet.grade || 'class1',
+        quantity: getSafeQuantity(pallet),
+        supplierName: pallet.supplier_name || '',
+        region: pallet.region || '',
+        boxes: pallet.boxes || [{ size: pallet.size || 'size24', quantity: getSafeQuantity(pallet) }],
+        totalBoxes: pallet.totalBoxes || getSafeQuantity(pallet),
+        totalWeight: pallet.totalWeight || getSafeWeight(pallet)
+      }))
+    };
+
+    console.log('📤 Saving loading sheet to database...', saveData);
+
+    const response = await fetch('/api/loading-sheets', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(saveData)
+    });
+
+    const result = await response.json();
+
+    if (result.success) {
+      toast.success(`✅ Loading sheet saved successfully!\nBill Number: ${sheetData.billNumber}`);
+      
+      // Refresh the list of existing sheets
+      await fetchLoadingSheets();
+      
+      // Refresh available pallets (will now exclude the saved ones)
+      await fetchColdRoomPallets();
+      
+      // Clear form for new entry
+      handleNewSheet();
+    } else {
+      // Handle specific API errors
+      if (result.error?.includes('already assigned')) {
+        toast.error(`❌ Some pallets are already assigned to other loading sheets. Please remove them and try again.`);
+      } else {
+        throw new Error(result.error || result.details || 'Failed to save loading sheet');
+      }
+    }
+
+  } catch (error: any) {
+    console.error('❌ Error saving loading sheet:', error);
+    toast.error(`❌ Failed to save loading sheet: ${error.message}`);
+  } finally {
+    setSaving(false);
+  }
+};
+
+const handleLoadSheet = (sheetId: string) => {
     const selectedSheet = existingSheets.find(sheet => sheet.id === sheetId);
     if (selectedSheet) {
-      // Convert database format to component format with safe defaults
+      // Convert database format to component format
       const convertedSheet: LoadingSheetData = {
         id: selectedSheet.id,
         exporter: selectedSheet.exporter || defaultData.exporter,
@@ -719,6 +771,7 @@ function LoadingSheet() {
           pallet_id: pallet.palletId,
           region: pallet.region || '',
           counting_record_id: pallet.countingRecordId,
+          loading_sheet_id: pallet.loading_sheet_id || selectedSheet.id,
           boxes: pallet.boxes || [{ size: pallet.size || 'size24', quantity: Number(pallet.quantity) || 0 }],
           totalBoxes: pallet.totalBoxes || Number(pallet.quantity) || 0,
           totalWeight: pallet.totalWeight || (Number(pallet.quantity) || 0) * (pallet.boxType === '10kg' ? 10 : 4)
@@ -727,16 +780,10 @@ function LoadingSheet() {
       
       setSheetData(convertedSheet);
       
-      // Fill in the signature fields
-      setTimeout(() => {
-        const loadedByInput = document.querySelector('input[placeholder="Loader\'s name & signature"]') as HTMLInputElement;
-        const checkedByInput = document.querySelector('input[placeholder="Supervisor\'s name & signature"]') as HTMLInputElement;
-        const remarksInput = document.querySelector('textarea[placeholder="Special instructions or notes"]') as HTMLTextAreaElement;
-        
-        if (loadedByInput) loadedByInput.value = selectedSheet.loaded_by || '';
-        if (checkedByInput) checkedByInput.value = selectedSheet.checked_by || '';
-        if (remarksInput) remarksInput.value = selectedSheet.remarks || '';
-      }, 100);
+      // Update signature fields
+      setLoadedBy(selectedSheet.loaded_by || '');
+      setCheckedBy(selectedSheet.checked_by || '');
+      setRemarks(selectedSheet.remarks || '');
     }
   };
 
@@ -749,15 +796,9 @@ function LoadingSheet() {
       });
       
       // Clear signature fields
-      setTimeout(() => {
-        const loadedByInput = document.querySelector('input[placeholder="Loader\'s name & signature"]') as HTMLInputElement;
-        const checkedByInput = document.querySelector('input[placeholder="Supervisor\'s name & signature"]') as HTMLInputElement;
-        const remarksInput = document.querySelector('textarea[placeholder="Special instructions or notes"]') as HTMLTextAreaElement;
-        
-        if (loadedByInput) loadedByInput.value = '';
-        if (checkedByInput) checkedByInput.value = '';
-        if (remarksInput) remarksInput.value = '';
-      }, 100);
+      setLoadedBy('');
+      setCheckedBy('');
+      setRemarks('');
     }
   };
 
@@ -780,7 +821,6 @@ function LoadingSheet() {
     const rows = sheetData.pallets.map((pallet, index) => {
       const quantity = getSafeQuantity(pallet);
       const boxType = getSafeBoxType(pallet);
-      const boxWeight = boxType === '4kg' ? 4 : 10;
       const totalWeight = getSafeWeight(pallet);
       const totalBoxes = pallet.totalBoxes || quantity;
       const sizeDisplay = (pallet.size || '').replace('size', 'Size ');
@@ -823,13 +863,9 @@ function LoadingSheet() {
     
     // Loading details
     headers.push('LOADING DETAILS');
-    const loadedByInput = document.querySelector('input[placeholder="Loader\'s name & signature"]') as HTMLInputElement;
-    const checkedByInput = document.querySelector('input[placeholder="Supervisor\'s name & signature"]') as HTMLInputElement;
-    const remarksInput = document.querySelector('textarea[placeholder="Special instructions or notes"]') as HTMLTextAreaElement;
-    
-    headers.push(`Loaded by,${loadedByInput?.value || ''}`);
-    headers.push(`Checked by,${checkedByInput?.value || ''}`);
-    headers.push(`Remarks,${remarksInput?.value || ''}`);
+    headers.push(`Loaded by,${loadedBy || ''}`);
+    headers.push(`Checked by,${checkedBy || ''}`);
+    headers.push(`Remarks,${remarks || ''}`);
     
     return headers.join('\n');
   };
@@ -1193,7 +1229,7 @@ function LoadingSheet() {
             </div>
           </div>
           
-          {/* Cold Room Pallets Section - UPDATED */}
+          {/* Cold Room Pallets Section */}
           <div className="mb-6 print:mb-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4">
               <div>
@@ -1201,11 +1237,11 @@ function LoadingSheet() {
                   <Warehouse className="h-5 w-5" />
                   Available Pallets in Cold Room
                   <Badge variant="outline" className="ml-2">
-                    {coldRoomPallets.length} pallets
+                    {coldRoomPallets.length} pallets available
                   </Badge>
                 </h3>
                 <p className="text-sm text-muted-foreground">
-                  Select pallets from cold room to add to loading sheet
+                  Only shows pallets that are NOT assigned to any loading sheet
                 </p>
                 
                 {/* Pallet Summary Stats */}
@@ -1257,20 +1293,20 @@ function LoadingSheet() {
               </div>
             </div>
             
-            {/* Available Pallets Table */}
+            {/* Available Pallets Table - FIXED KEY PROP ISSUE */}
             <Card>
               <CardContent className="p-0">
                 {loadingColdRoomPallets ? (
                   <div className="flex items-center justify-center h-32">
                     <Loader2 className="h-8 w-8 animate-spin mr-2" />
-                    <span>Loading pallets from cold room...</span>
+                    <span>Loading available pallets from cold room...</span>
                   </div>
                 ) : coldRoomPallets.length === 0 ? (
                   <div className="text-center py-8">
                     <Snowflake className="h-12 w-12 mx-auto text-gray-300 mb-3" />
-                    <p className="text-gray-500 font-medium">No pallets found in cold room</p>
+                    <p className="text-gray-500 font-medium">No available pallets found</p>
                     <p className="text-sm text-gray-400 mt-1">
-                      Load boxes to cold room first to see available pallets
+                      All pallets may already be assigned to loading sheets. Check existing loading sheets or add more pallets to cold room.
                     </p>
                   </div>
                 ) : (
@@ -1298,98 +1334,88 @@ function LoadingSheet() {
                           const varietyDisplay = pallet.variety === 'fuerte' ? 'Fuerte' : 'Hass';
                           const gradeDisplay = pallet.grade === 'class1' ? 'Class 1' : 'Class 2';
                           
+                          // Check if pallet is assigned to another loading sheet
+                          const isAssignedToOtherSheet = pallet.loading_sheet_id && pallet.loading_sheet_id !== sheetData.id;
+                          
                           return (
-                            <>
-                              <TableRow key={pallet.id} className={isAdded ? "bg-green-50" : "hover:bg-black-50"}>
-                                <TableCell>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => togglePalletExpansion(pallet.id)}
-                                    className="h-6 w-6 p-0"
-                                  >
-                                    {expandedPallet === pallet.id ? (
-                                      <ChevronUp className="h-4 w-4" />
-                                    ) : (
-                                      <ChevronDown className="h-4 w-4" />
-                                    )}
-                                  </Button>
-                                </TableCell>
-                                <TableCell className="font-medium">
-                                  {pallet.pallet_no}
-                                  {isAdded && (
-                                    <Badge variant="outline" className="ml-2 bg-green-100 text-green-800 text-xs">
-                                      Added
-                                    </Badge>
+                            <TableRow key={pallet.id} className={
+                              isAdded ? "bg-green-50" : 
+                              isAssignedToOtherSheet ? "bg-amber-50" : 
+                              "hover:bg-black-50"
+                            }>
+                              <TableCell>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => togglePalletExpansion(pallet.id)}
+                                  className="h-6 w-6 p-0"
+                                >
+                                  {expandedPallet === pallet.id ? (
+                                    <ChevronUp className="h-4 w-4" />
+                                  ) : (
+                                    <ChevronDown className="h-4 w-4" />
                                   )}
-                                </TableCell>
-                                <TableCell>{pallet.supplier_name || 'N/A'}</TableCell>
-                                <TableCell>
-                                  <Badge className={varietyDisplay === 'Fuerte' ? "bg-green-100 text-green-800" : "bg-purple-100 text-purple-800"}>
-                                    {varietyDisplay}
+                                </Button>
+                              </TableCell>
+                              <TableCell className="font-medium">
+                                {pallet.pallet_no}
+                                {isAdded && (
+                                  <Badge variant="outline" className="ml-2 bg-green-100 text-green-800 text-xs">
+                                    In Current Sheet
                                   </Badge>
-                                </TableCell>
-                                <TableCell>
-                                  <Badge variant="outline">{pallet.box_type}</Badge>
-                                </TableCell>
-                                <TableCell>{formatSizeForDisplay(pallet.size)}</TableCell>
-                                <TableCell>
-                                  <Badge variant={pallet.grade === 'class1' ? 'default' : 'secondary'}>
-                                    {gradeDisplay}
+                                )}
+                                {isAssignedToOtherSheet && !isAdded && (
+                                  <Badge variant="outline" className="ml-2 bg-amber-100 text-amber-800 text-xs">
+                                    Already Assigned
                                   </Badge>
-                                </TableCell>
-                                <TableCell className="text-right font-bold">{quantity.toLocaleString()}</TableCell>
-                                <TableCell className="text-right font-bold text-blue-600">
-                                  {weight.toLocaleString()} kg
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  <Button
-                                    size="sm"
-                                    onClick={() => addPalletToSheet(pallet)}
-                                    disabled={isAdded}
-                                    variant={isAdded ? "outline" : "default"}
-                                  >
-                                    {isAdded ? (
-                                      <>
-                                        <CheckCircle className="h-4 w-4 mr-1" />
-                                        Added
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Plus className="h-4 w-4 mr-1" />
-                                        Add
-                                      </>
-                                    )}
-                                  </Button>
-                                </TableCell>
-                              </TableRow>
-                              {expandedPallet === pallet.id && (
-                                <TableRow className="bg-black-50">
-                                  <TableCell colSpan={10} className="p-0">
-                                    <div className="p-4 border-t">
-                                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                                        <div>
-                                          <span className="font-medium">Cold Room:</span>
-                                          <span className="ml-2">{pallet.cold_room_id === 'coldroom1' ? 'Cold Room 1' : 'Cold Room 2'}</span>
-                                        </div>
-                                        <div>
-                                          <span className="font-medium">Region:</span>
-                                          <span className="ml-2">{pallet.region || 'N/A'}</span>
-                                        </div>
-                                        <div>
-                                          <span className="font-medium">Counting Record:</span>
-                                          <span className="ml-2">{pallet.counting_record_id ? pallet.counting_record_id.substring(0, 8) + '...' : 'N/A'}</span>
-                                        </div>
-                                        <div>
-                                          <span className="font-medium">Created:</span>
-                                          <span className="ml-2">{formatDate(pallet.created_at)}</span>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </TableCell>
-                                </TableRow>
-                              )}
-                            </>
+                                )}
+                              </TableCell>
+                              <TableCell>{pallet.supplier_name || 'N/A'}</TableCell>
+                              <TableCell>
+                                <Badge className={varietyDisplay === 'Fuerte' ? "bg-green-100 text-green-800" : "bg-purple-100 text-purple-800"}>
+                                  {varietyDisplay}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant="outline">{pallet.box_type}</Badge>
+                              </TableCell>
+                              <TableCell>{formatSizeForDisplay(pallet.size)}</TableCell>
+                              <TableCell>
+                                <Badge variant={pallet.grade === 'class1' ? 'default' : 'secondary'}>
+                                  {gradeDisplay}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-right font-bold">{quantity.toLocaleString()}</TableCell>
+                              <TableCell className="text-right font-bold text-blue-600">
+                                {weight.toLocaleString()} kg
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <Button
+                                  size="sm"
+                                  onClick={() => addPalletToSheet(pallet)}
+                                  disabled={isAdded || isAssignedToOtherSheet}
+                                  variant={isAdded ? "outline" : "default"}
+                                  title={isAssignedToOtherSheet ? "Pallet already assigned to another loading sheet" : ""}
+                                >
+                                  {isAdded ? (
+                                    <>
+                                      <CheckCircle className="h-4 w-4 mr-1" />
+                                      Added
+                                    </>
+                                  ) : isAssignedToOtherSheet ? (
+                                    <>
+                                      <XCircle className="h-4 w-4 mr-1" />
+                                      Assigned
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Plus className="h-4 w-4 mr-1" />
+                                      Add
+                                    </>
+                                  )}
+                                </Button>
+                              </TableCell>
+                            </TableRow>
                           );
                         })}
                       </TableBody>
@@ -1444,7 +1470,7 @@ function LoadingSheet() {
                       const gradeDisplay = pallet.grade === 'class1' ? 'Class 1' : 'Class 2';
                       
                       return (
-                        <tr key={pallet.id} className="hover:bg-black-50">
+                        <tr key={`${pallet.id}-${index}`} className="hover:bg-black-50">
                           <td className="border border-gray-300 p-2 text-center font-medium">{index + 1}</td>
                           <td className="border border-gray-300 p-2">
                             {pallet.cold_room_id === 'coldroom1' ? 'Cold Room 1' : 'Cold Room 2'}
@@ -1546,7 +1572,8 @@ function LoadingSheet() {
                 <div>
                   <div className="font-medium mb-1">Loaded by:</div>
                   <Input 
-                    defaultValue={sheetData.loadedBy || ''}
+                    value={loadedBy}
+                    onChange={(e) => setLoadedBy(e.target.value)}
                     className="border-0 p-2 focus-visible:ring-0 focus-visible:ring-offset-0 border-b print:border-0" 
                     placeholder="Loader's name & signature" 
                   />
@@ -1554,7 +1581,8 @@ function LoadingSheet() {
                 <div>
                   <div className="font-medium mb-1">Checked by:</div>
                   <Input 
-                    defaultValue={sheetData.checkedBy || ''}
+                    value={checkedBy}
+                    onChange={(e) => setCheckedBy(e.target.value)}
                     className="border-0 p-2 focus-visible:ring-0 focus-visible:ring-offset-0 border-b print:border-0" 
                     placeholder="Supervisor's name & signature" 
                   />
@@ -1562,7 +1590,8 @@ function LoadingSheet() {
                 <div>
                   <div className="font-medium mb-1">Remarks:</div>
                   <Textarea 
-                    defaultValue={sheetData.remarks || ''}
+                    value={remarks}
+                    onChange={(e) => setRemarks(e.target.value)}
                     className="w-full border border-gray-300 p-2 focus-visible:ring-0 focus-visible:ring-offset-0 text-sm resize-none" 
                     rows={2}
                     placeholder="Special instructions or notes"
