@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import {
@@ -518,7 +518,7 @@ export default function FreshProduceShipmentsPage() {
   }
 
   return (
-    <>
+    <Suspense fallback={<div className="flex items-center justify-center h-screen">Loading shipments...</div>}>
       <SidebarProvider>
         <Sidebar>
           <SidebarHeader>
@@ -910,6 +910,6 @@ export default function FreshProduceShipmentsPage() {
           />
         )}
       </SidebarProvider>
-    </>
+    </Suspense>
   );
 }
