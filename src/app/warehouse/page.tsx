@@ -1,7 +1,7 @@
 // app/warehouse/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   SidebarProvider,
   Sidebar,
@@ -105,6 +105,7 @@ interface CountingStats {
   weight_summary?: {
     total_intake_weight: number;
     total_counted_weight: number;
+    total_rejected_weight: number;
     fuerte_total_weight: number;
     hass_total_weight: number;
   };
@@ -118,6 +119,9 @@ interface CountingRecord {
   region: string;
   total_weight: number;
   total_counted_weight: number;
+  rejected_weight?: number;
+  rejection_reason?: string;
+  rejection_notes?: string;
   fuerte_4kg_total: number;
   fuerte_10kg_total: number;
   hass_4kg_total: number;
@@ -154,6 +158,8 @@ interface CSVRow {
   vehicle_plate: string;
   intake_weight_kg: number;
   counted_weight_kg: number;
+  rejected_weight_kg: number;
+  weight_variance_kg: number;
   fuerte_4kg_boxes: number;
   fuerte_10kg_crates: number;
   hass_4kg_boxes: number;
@@ -161,6 +167,7 @@ interface CSVRow {
   total_boxes: number;
   processed_by: string;
   notes: string;
+  rejection_reason?: string;
 }
 
 interface SupplierDetails {
@@ -223,6 +230,62 @@ interface VarietySizeStats {
   size32_class1?: number;
   size32_class2?: number;
 }
+
+interface RejectionEntry {
+  id?: string;
+  weight_entry_id: string;
+  pallet_id: string;
+  supplier_id: string;
+  supplier_name: string;
+  driver_name: string;
+  vehicle_plate: string;
+  region: string;
+  fuerte_weight: number;
+  fuerte_crates: number;
+  hass_weight: number;
+  hass_crates: number;
+  total_rejected_weight: number;
+  total_rejected_crates: number;
+  counted_weight: number;
+  variance: number;
+  reason?: string;
+  notes?: string;
+  rejected_at: string;
+  created_by: string;
+}
+
+// Safe clipboard copy function with fallback
+const safeCopyToClipboard = async (text: string): Promise<boolean> => {
+  try {
+    // Check if clipboard API is available
+    if (!navigator.clipboard) {
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      textArea.style.position = 'fixed';
+      textArea.style.opacity = '0';
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      
+      try {
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        return successful;
+      } catch (err) {
+        document.body.removeChild(textArea);
+        return false;
+      }
+    }
+    
+    // Modern clipboard API
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (error) {
+    console.warn('Clipboard copy failed:', error);
+    return false;
+  }
+};
 
 const extractFruitVarieties = (entry: any): Array<{name: string, weight: number, crates: number}> => {
   const varieties: Array<{name: string, weight: number, crates: number}> = [];
@@ -502,8 +565,9 @@ const generateWarehouseGRN = async (record: CountingRecord) => {
     
     yPos += 24;
     
+    // Weight Summary with Rejected Weight
     doc.setFillColor(220, 252, 231);
-    doc.rect(10, yPos, 190, 15, 'F');
+    doc.rect(10, yPos, 190, 20, 'F');
     
     doc.setFontSize(9);
     doc.setFont('helvetica', 'bold');
@@ -515,14 +579,48 @@ const generateWarehouseGRN = async (record: CountingRecord) => {
     const hass10kgWeight = (record.hass_10kg_total || 0) * 10;
     const totalFuerteWeight = fuerte4kgWeight + fuerte10kgWeight;
     const totalHassWeight = hass4kgWeight + hass10kgWeight;
+    const rejectedWeight = record.rejected_weight || 0;
+    const totalCountedWeight = totalFuerteWeight + totalHassWeight;
+    const intakeWeight = record.total_weight;
+    const weightVariance = intakeWeight - totalCountedWeight - rejectedWeight;
     
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
     
-    doc.text(`Intake: ${safeToFixed(record.total_weight, 2)} kg`, 15, yPos + 12);
-    doc.text(`Counted: ${safeToFixed(record.total_counted_weight || 0, 2)} kg`, 80, yPos + 12);
+    doc.text(`Intake: ${safeToFixed(intakeWeight, 2)} kg`, 15, yPos + 10);
+    doc.text(`Counted: ${safeToFixed(totalCountedWeight, 2)} kg`, 80, yPos + 10);
+   // doc.text(`Rejected: ${safeToFixed(rejectedWeight, 2)} kg`, 140, yPos + 10);
+    doc.text(`Variance: ${safeToFixed(weightVariance, 2)} kg`, 140, yPos + 10);
     
-    yPos += 19;
+    yPos += 24;
+    
+    if (rejectedWeight > 0) {
+      doc.setFillColor(255, 243, 243);
+      doc.rect(10, yPos, 190, 25, 'F'); // Increased height for more details
+      
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(220, 38, 38);
+      doc.text('REJECTED WEIGHT', 15, yPos + 6);
+      
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(0, 0, 0);
+      doc.setFontSize(7);
+      
+      const rejectionPercentage = ((rejectedWeight / intakeWeight) * 100).toFixed(1);
+      doc.text(`Total Rejected: ${safeToFixed(rejectedWeight, 2)} kg (${rejectionPercentage}% of intake)`, 15, yPos + 12);
+      
+      // Add rejection breakdown if available
+      if (record.rejection_reason) {
+        doc.text(`Reason: ${record.rejection_reason}`, 15, yPos + 17);
+      }
+      
+      if (record.rejection_notes) {
+        doc.text(`Notes: ${record.rejection_notes}`, 15, yPos + 22);
+      }
+      
+      yPos += 30;
+    }
     
     doc.setFillColor(52, 58, 64);
     doc.rect(10, yPos, 190, 8, 'F');
@@ -564,17 +662,25 @@ const generateWarehouseGRN = async (record: CountingRecord) => {
     const hass4kgSizes = getSizeCounts('hass', '4kg');
     const hass10kgSizes = getSizeCounts('hass', '10kg');
     
+    // Arrange tables side by side - Fuerte left, Hass right
+    const tableWidth = 90;
+    const leftMargin = 10;
+    const rightMargin = leftMargin + tableWidth + 5;
+    
+    // Fuerte Tables (Left Side)
+    let leftY = yPos;
+    
     if (fuerte4kgSizes.length > 0) {
       doc.setFontSize(8);
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(22, 101, 52);
-      doc.text('Fuerte 4kg Boxes - Size Breakdown:', 15, yPos);
+      doc.text('Fuerte 4kg Boxes - Size Breakdown:', leftMargin, leftY);
       
-      yPos += 3;
+      leftY += 3;
       
       autoTable(doc, {
-        startY: yPos,
-        margin: { left: 15, right: 15 },
+        startY: leftY,
+        margin: { left: leftMargin, right: leftMargin + tableWidth },
         head: [['Size', 'Class 1', 'Class 2']],
         body: fuerte4kgSizes.map(s => [
           `Size ${s.size}`,
@@ -597,28 +703,29 @@ const generateWarehouseGRN = async (record: CountingRecord) => {
           0: { cellWidth: 25 },
           1: { cellWidth: 20, halign: 'center' },
           2: { cellWidth: 20, halign: 'center' }
-        }
+        },
+        tableWidth: tableWidth
       });
       
-      yPos = (doc as any).lastAutoTable.finalY + 5;
+      leftY = (doc as any).lastAutoTable.finalY + 5;
       
       doc.setFontSize(8);
       doc.setFont('helvetica', 'bold');
-      doc.text(`Total Fuerte 4kg: ${record.fuerte_4kg_total || 0} boxes`, 15, yPos);
-      yPos += 8;
+      doc.text(`Total Fuerte 4kg: ${record.fuerte_4kg_total || 0} boxes`, leftMargin, leftY);
+      leftY += 8;
     }
 
     if (fuerte10kgSizes.length > 0) {
       doc.setFontSize(8);
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(22, 101, 52);
-      doc.text('Fuerte 10kg Crates - Size Breakdown:', 15, yPos);
+      doc.text('Fuerte 10kg Crates - Size Breakdown:', leftMargin, leftY);
       
-      yPos += 3;
+      leftY += 3;
       
       autoTable(doc, {
-        startY: yPos,
-        margin: { left: 15, right: 15 },
+        startY: leftY,
+        margin: { left: leftMargin, right: leftMargin + tableWidth },
         head: [['Size', 'Class 1', 'Class 2']],
         body: fuerte10kgSizes.map(s => [
           `Size ${s.size}`,
@@ -641,28 +748,32 @@ const generateWarehouseGRN = async (record: CountingRecord) => {
           0: { cellWidth: 25 },
           1: { cellWidth: 20, halign: 'center' },
           2: { cellWidth: 20, halign: 'center' }
-        }
+        },
+        tableWidth: tableWidth
       });
       
-      yPos = (doc as any).lastAutoTable.finalY + 5;
+      leftY = (doc as any).lastAutoTable.finalY + 5;
       
       doc.setFontSize(8);
       doc.setFont('helvetica', 'bold');
-      doc.text(`Total Fuerte 10kg: ${record.fuerte_10kg_total || 0} crates`, 15, yPos);
-      yPos += 8;
+      doc.text(`Total Fuerte 10kg: ${record.fuerte_10kg_total || 0} crates`, leftMargin, leftY);
+      leftY += 8;
     }
 
+    // Hass Tables (Right Side)
+    let rightY = yPos;
+    
     if (hass4kgSizes.length > 0) {
       doc.setFontSize(8);
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(124, 58, 237);
-      doc.text('Hass 4kg Boxes - Size Breakdown:', 15, yPos);
+      doc.text('Hass 4kg Boxes - Size Breakdown:', rightMargin, rightY);
       
-      yPos += 3;
+      rightY += 3;
       
       autoTable(doc, {
-        startY: yPos,
-        margin: { left: 15, right: 15 },
+        startY: rightY,
+        margin: { left: rightMargin, right: 200 },
         head: [['Size', 'Class 1', 'Class 2']],
         body: hass4kgSizes.map(s => [
           `Size ${s.size}`,
@@ -685,28 +796,29 @@ const generateWarehouseGRN = async (record: CountingRecord) => {
           0: { cellWidth: 25 },
           1: { cellWidth: 20, halign: 'center' },
           2: { cellWidth: 20, halign: 'center' }
-        }
+        },
+        tableWidth: tableWidth
       });
       
-      yPos = (doc as any).lastAutoTable.finalY + 5;
+      rightY = (doc as any).lastAutoTable.finalY + 5;
       
       doc.setFontSize(8);
       doc.setFont('helvetica', 'bold');
-      doc.text(`Total Hass 4kg: ${record.hass_4kg_total || 0} boxes`, 15, yPos);
-      yPos += 8;
+      doc.text(`Total Hass 4kg: ${record.hass_4kg_total || 0} boxes`, rightMargin, rightY);
+      rightY += 8;
     }
 
     if (hass10kgSizes.length > 0) {
       doc.setFontSize(8);
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(124, 58, 237);
-      doc.text('Hass 10kg Crates - Size Breakdown:', 15, yPos);
+      doc.text('Hass 10kg Crates - Size Breakdown:', rightMargin, rightY);
       
-      yPos += 3;
+      rightY += 3;
       
       autoTable(doc, {
-        startY: yPos,
-        margin: { left: 15, right: 15 },
+        startY: rightY,
+        margin: { left: rightMargin, right: 200 },
         head: [['Size', 'Class 1', 'Class 2']],
         body: hass10kgSizes.map(s => [
           `Size ${s.size}`,
@@ -729,24 +841,28 @@ const generateWarehouseGRN = async (record: CountingRecord) => {
           0: { cellWidth: 25 },
           1: { cellWidth: 20, halign: 'center' },
           2: { cellWidth: 20, halign: 'center' }
-        }
+        },
+        tableWidth: tableWidth
       });
       
-      yPos = (doc as any).lastAutoTable.finalY + 5;
+      rightY = (doc as any).lastAutoTable.finalY + 5;
       
       doc.setFontSize(8);
       doc.setFont('helvetica', 'bold');
-      doc.text(`Total Hass 10kg: ${record.hass_10kg_total || 0} crates`, 15, yPos);
-      yPos += 8;
+      doc.text(`Total Hass 10kg: ${record.hass_10kg_total || 0} crates`, rightMargin, rightY);
+      rightY += 8;
     }
     
+    // Use the maximum Y position from both columns
+    yPos = Math.max(leftY, rightY);
+    
     doc.setFillColor(240, 253, 244);
-    doc.rect(10, yPos, 190, 25, 'F');
+    doc.rect(10, yPos, 190, 30, 'F');
     
     doc.setFontSize(9);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(0, 0, 0);
-    doc.text('Summary', 15, yPos + 6);
+    doc.text('Final Summary', 15, yPos + 6);
     
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
@@ -755,12 +871,16 @@ const generateWarehouseGRN = async (record: CountingRecord) => {
                       (record.hass_4kg_total || 0) + (record.hass_10kg_total || 0);
     const totalWeight = totalFuerteWeight + totalHassWeight;
     
-    doc.setFont('helvetica', 'bold');
-    doc.text('Grand Total:', 15, yPos + 24);
-    doc.text(`${totalBoxes} boxes/crates`, 60, yPos + 24);
-    doc.text(`${safeToFixed(totalWeight, 2)} kg`, 160, yPos + 24, { align: 'right' });
+    doc.text('Weight Summary:', 15, yPos + 14);
+    doc.text(`Counted Weight: ${safeToFixed(totalWeight, 2)} kg`, 60, yPos + 14);
+    doc.text(`Rejected Weight: ${safeToFixed(rejectedWeight, 2)} kg`, 120, yPos + 14);
     
-    yPos += 30;
+    doc.setFont('helvetica', 'bold');
+    doc.text('Grand Total:', 15, yPos + 25);
+    doc.text(`${totalBoxes} boxes/crates`, 60, yPos + 25);
+    doc.text(`${safeToFixed(intakeWeight, 2)} kg intake`, 120, yPos + 25);
+    
+    yPos += 34;
     
     if (record.bank_name || record.bank_account || record.kra_pin) {
       doc.setFillColor(249, 250, 251);
@@ -841,6 +961,7 @@ export default function WarehousePage() {
   const [supplierIntakeRecords, setSupplierIntakeRecords] = useState<SupplierIntakeRecord[]>([]);
   const [qualityChecks, setQualityChecks] = useState<QualityCheck[]>([]);
   const [countingRecords, setCountingRecords] = useState<CountingRecord[]>([]);
+  const [rejects, setRejects] = useState<RejectionEntry[]>([]);
   const [stats, setStats] = useState<CountingStats>({
     total_processed: 0,
     pending_coldroom: 0,
@@ -859,7 +980,8 @@ export default function WarehousePage() {
     quality: true, 
     counting: false,
     stats: false,
-    supplierDetails: false
+    supplierDetails: false,
+    rejects: false
   });
   const [error, setError] = useState<string | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
@@ -1077,7 +1199,7 @@ export default function WarehousePage() {
     }
   });
 
-  const calculateStatsFromRecords = (records: CountingRecord[]): CountingStats => {
+  const calculateStatsFromRecords = useCallback((records: CountingRecord[], rejections: RejectionEntry[]): CountingStats => {
     const today = new Date();
     const last7Days = new Date();
     last7Days.setDate(today.getDate() - 7);
@@ -1087,6 +1209,14 @@ export default function WarehousePage() {
     const filteredRecords = records.filter(record => 
       record.status === 'pending_coldroom' || record.status === 'completed'
     );
+
+    // Get rejected weights from rejections
+    const rejectionMap = new Map<string, number>();
+    rejections.forEach(reject => {
+      if (reject.weight_entry_id) {
+        rejectionMap.set(reject.weight_entry_id, reject.total_rejected_weight || 0);
+      }
+    });
 
     const recentRecords = filteredRecords.filter(record => {
       const recordDate = new Date(record.submitted_at);
@@ -1104,9 +1234,21 @@ export default function WarehousePage() {
     const totalHass4kg = filteredRecords.reduce((sum, record) => sum + (record.hass_4kg_total || 0), 0);
     const totalHass10kg = filteredRecords.reduce((sum, record) => sum + (record.hass_10kg_total || 0), 0);
 
-    // Calculate weight summary
+    // Calculate weight summary including rejected weight
     const totalIntakeWeight = filteredRecords.reduce((sum, record) => sum + (record.total_weight || 0), 0);
     const totalCountedWeight = filteredRecords.reduce((sum, record) => sum + (record.total_counted_weight || 0), 0);
+    
+    // Get rejected weight from both counting records and rejections API
+    let totalRejectedWeight = filteredRecords.reduce((sum, record) => sum + (record.rejected_weight || 0), 0);
+    
+    // Add rejected weight from rejects API for records that don't have it
+    filteredRecords.forEach(record => {
+      const rejection = rejectionMap.get(record.id);
+      if (rejection && (!record.rejected_weight || record.rejected_weight === 0)) {
+        totalRejectedWeight += rejection;
+      }
+    });
+    
     const fuerteTotalWeight = totalFuerte4kg * 4 + totalFuerte10kg * 10;
     const hassTotalWeight = totalHass4kg * 4 + totalHass10kg * 10;
 
@@ -1133,10 +1275,32 @@ export default function WarehousePage() {
       weight_summary: {
         total_intake_weight: totalIntakeWeight,
         total_counted_weight: totalCountedWeight,
+        total_rejected_weight: totalRejectedWeight,
         fuerte_total_weight: fuerteTotalWeight,
         hass_total_weight: hassTotalWeight,
       }
     };
+  }, []);
+
+  const fetchRejects = async () => {
+    try {
+      setIsLoading(prev => ({ ...prev, rejects: true }));
+      const response = await fetch('/api/rejects');
+      
+      if (response.ok) {
+        const data: RejectionEntry[] = await response.json();
+        setRejects(data);
+        return data;
+      } else {
+        console.log('No rejects API or empty response');
+        return [];
+      }
+    } catch (err: any) {
+      console.error('Error fetching rejects:', err);
+      return [];
+    } finally {
+      setIsLoading(prev => ({ ...prev, rejects: false }));
+    }
   };
 
   const fetchIntakeRecords = async () => {
@@ -1247,20 +1411,43 @@ export default function WarehousePage() {
               totals,
               bank_name: record.bank_name || '',
               bank_account: record.bank_account || '',
-              kra_pin: record.kra_pin || ''
+              kra_pin: record.kra_pin || '',
+              rejected_weight: record.rejected_weight || 0
             };
           });
           
-          setCountingRecords(processedRecords);
+          // Fetch rejects to get accurate rejected weights
+          const rejections = await fetchRejects();
           
-          // Calculate statistics from records
-          const calculatedStats = calculateStatsFromRecords(processedRecords);
+          // Merge rejection data into counting records
+          const recordsWithRejects = processedRecords.map(record => {
+            const rejection = rejections.find(reject => 
+              reject.weight_entry_id === record.id || 
+              reject.pallet_id === record.pallet_id ||
+              reject.supplier_id === record.supplier_id
+            );
+            
+            if (rejection && (!record.rejected_weight || record.rejected_weight === 0)) {
+              return {
+                ...record,
+                rejected_weight: rejection.total_rejected_weight || 0,
+                rejection_reason: rejection.reason,
+                rejection_notes: rejection.notes
+              };
+            }
+            return record;
+          });
+          
+          setCountingRecords(recordsWithRejects);
+          
+          // Calculate statistics from records with updated rejection data
+          const calculatedStats = calculateStatsFromRecords(recordsWithRejects, rejections);
           setStats(calculatedStats);
           
           // Calculate size statistics
-          calculateSizeStatistics(processedRecords);
+          calculateSizeStatistics(recordsWithRejects);
           
-          return processedRecords;
+          return recordsWithRejects;
         }
       }
       return [];
@@ -1292,7 +1479,7 @@ export default function WarehousePage() {
     }
   };
 
-  const calculateSizeStatistics = (records: CountingRecord[]) => {
+  const calculateSizeStatistics = useCallback((records: CountingRecord[]) => {
     console.log('📊 Calculating size statistics from', records.length, 'records');
     
     const newStats = {
@@ -1445,8 +1632,11 @@ export default function WarehousePage() {
         const class1 = getValue(class1Key);
         const class2 = getValue(class2Key);
         
-        newStats.fuerte['4kg'][`size${size}_class1` as keyof VarietySizeStats] += class1;
-        newStats.fuerte['4kg'][`size${size}_class2` as keyof VarietySizeStats] += class2;
+        const class1Field = `size${size}_class1` as keyof VarietySizeStats;
+        const class2Field = `size${size}_class2` as keyof VarietySizeStats;
+        
+        (newStats.fuerte['4kg'][class1Field] as number) += class1;
+        (newStats.fuerte['4kg'][class2Field] as number) += class2;
       }
 
       // Fuerte 10kg sizes
@@ -1457,8 +1647,11 @@ export default function WarehousePage() {
         const class1 = getValue(class1Key);
         const class2 = getValue(class2Key);
         
-        newStats.fuerte['10kg'][`size${size}_class1` as keyof VarietySizeStats] += class1;
-        newStats.fuerte['10kg'][`size${size}_class2` as keyof VarietySizeStats] += class2;
+        const class1Field = `size${size}_class1` as keyof VarietySizeStats;
+        const class2Field = `size${size}_class2` as keyof VarietySizeStats;
+        
+        (newStats.fuerte['10kg'][class1Field] as number) += class1;
+        (newStats.fuerte['10kg'][class2Field] as number) += class2;
       }
 
       // Hass 4kg sizes
@@ -1469,8 +1662,11 @@ export default function WarehousePage() {
         const class1 = getValue(class1Key);
         const class2 = getValue(class2Key);
         
-        newStats.hass['4kg'][`size${size}_class1` as keyof VarietySizeStats] += class1;
-        newStats.hass['4kg'][`size${size}_class2` as keyof VarietySizeStats] += class2;
+        const class1Field = `size${size}_class1` as keyof VarietySizeStats;
+        const class2Field = `size${size}_class2` as keyof VarietySizeStats;
+        
+        (newStats.hass['4kg'][class1Field] as number) += class1;
+        (newStats.hass['4kg'][class2Field] as number) += class2;
       }
 
       // Hass 10kg sizes
@@ -1481,8 +1677,11 @@ export default function WarehousePage() {
         const class1 = getValue(class1Key);
         const class2 = getValue(class2Key);
         
-        newStats.hass['10kg'][`size${size}_class1` as keyof VarietySizeStats] += class1;
-        newStats.hass['10kg'][`size${size}_class2` as keyof VarietySizeStats] += class2;
+        const class1Field = `size${size}_class1` as keyof VarietySizeStats;
+        const class2Field = `size${size}_class2` as keyof VarietySizeStats;
+        
+        (newStats.hass['10kg'][class1Field] as number) += class1;
+        (newStats.hass['10kg'][class2Field] as number) += class2;
       }
     });
 
@@ -1496,7 +1695,7 @@ export default function WarehousePage() {
 
     setSizeStatistics(newStats);
     return newStats;
-  };
+  }, []);
 
   const fetchSizeStatistics = async () => {
     try {
@@ -1560,7 +1759,8 @@ export default function WarehousePage() {
       fetchIntakeRecords(),
       fetchQualityChecks(),
       fetchCountingRecords(),
-      fetchSizeStatistics()
+      fetchSizeStatistics(),
+      fetchRejects()
     ]);
     setLastRefreshed(new Date());
   };
@@ -1657,11 +1857,11 @@ export default function WarehousePage() {
 
   const calculateSubtotal = (prefix: string, classType: 'class1' | 'class2', boxType: '4kg' | '10kg'): number => {
     const sizes = boxType === '4kg' 
-      ? ['size12', 'size14', 'size16', 'size18', 'size20', 'size22', 'size24', 'size26']
-      : ['size12', 'size14', 'size16', 'size18', 'size20', 'size22', 'size24', 'size26', 'size28', 'size30', 'size32'];
+      ? ['12', '14', '16', '18', '20', '22', '24', '26']
+      : ['12', '14', '16', '18', '20', '22', '24', '26', '28', '30', '32'];
     
     return sizes.reduce((total, size) => {
-      const fieldName = `${prefix}_${boxType}_${classType}_${size}` as keyof CountingFormData;
+      const fieldName = `${prefix}_${boxType}_${classType}_size${size}` as keyof CountingFormData;
       return total + (Number(countingForm[fieldName]) || 0);
     }, 0);
   };
@@ -1711,18 +1911,24 @@ export default function WarehousePage() {
         return fuerte4kgWeight + fuerte10kgWeight + hass4kgWeight + hass10kgWeight;
       };
 
+      const totalCountedWeight = calculateTotalWeight();
+      const intakeWeight = selectedSupplier.total_weight;
+      const rejectedWeight = intakeWeight - totalCountedWeight;
+
       const countingData = {
         supplier_id: selectedSupplier.id,
         supplier_name: selectedSupplier.supplier_name,
         supplier_phone: countingForm.supplier_phone,
         region: selectedSupplier.region,
         pallet_id: selectedSupplier.pallet_id,
-        total_weight: selectedSupplier.total_weight,
+        total_weight: intakeWeight,
         counting_data: { ...countingForm },
         submitted_at: new Date().toISOString(),
         processed_by: "Warehouse Staff",
         totals,
-        total_counted_weight: calculateTotalWeight(),
+        total_counted_weight: totalCountedWeight,
+        // Add rejected weight
+        rejected_weight: rejectedWeight > 0 ? rejectedWeight : 0,
         status: 'pending_coldroom',
         for_coldroom: true,
         bank_name: countingForm.bank_name,
@@ -1873,6 +2079,11 @@ export default function WarehousePage() {
             <div className="text-sm text-gray-500">
               Supplier has been removed from Quality Control tab
             </div>
+            {rejectedWeight > 0 && (
+              <div className="text-sm text-orange-600">
+                Note: {rejectedWeight.toFixed(2)} kg marked as rejected weight
+              </div>
+            )}
           </div>
         ),
         duration: 10000,
@@ -1944,13 +2155,16 @@ export default function WarehousePage() {
         vehicle_plate: supplierInfo.vehicle_plate,
         intake_weight_kg: record.total_weight,
         counted_weight_kg: record.total_counted_weight || 0,
+        rejected_weight_kg: record.rejected_weight || 0,
+        weight_variance_kg: (record.total_weight - (record.total_counted_weight || 0) - (record.rejected_weight || 0)),
         fuerte_4kg_boxes: boxesSummary.fuerte_4kg,
         fuerte_10kg_crates: boxesSummary.fuerte_10kg,
         hass_4kg_boxes: boxesSummary.hass_4kg,
         hass_10kg_crates: boxesSummary.hass_10kg,
         total_boxes: boxesSummary.total,
         processed_by: record.processed_by,
-        notes: record.notes || ''
+        notes: record.notes || '',
+        rejection_reason: record.rejection_reason || ''
       };
     });
   };
@@ -1976,13 +2190,16 @@ export default function WarehousePage() {
       'Vehicle Plate',
       'Intake Weight (kg)',
       'Counted Weight (kg)',
+      'Rejected Weight (kg)',
+      'Weight Variance (kg)',
       'Fuerte 4kg Boxes',
       'Fuerte 10kg Crates',
       'Hass 4kg Boxes',
       'Hass 10kg Crates',
       'Total Boxes',
       'Processed By',
-      'Notes'
+      'Notes',
+      'Rejection Reason'
     ];
     
     const rows = csvData.map(row => [
@@ -1994,13 +2211,16 @@ export default function WarehousePage() {
       `"${row.vehicle_plate}"`,
       row.intake_weight_kg.toFixed(2),
       row.counted_weight_kg.toFixed(2),
+      row.rejected_weight_kg.toFixed(2),
+      row.weight_variance_kg.toFixed(2),
       row.fuerte_4kg_boxes,
       row.fuerte_10kg_crates,
       row.hass_4kg_boxes,
       row.hass_10kg_crates,
       row.total_boxes,
       `"${row.processed_by}"`,
-      `"${row.notes.replace(/"/g, '""')}"`
+      `"${row.notes.replace(/"/g, '""')}"`,
+      `"${row.rejection_reason ? row.rejection_reason.replace(/"/g, '""') : ''}"`
     ]);
     
     const csvContent = [
@@ -2334,7 +2554,7 @@ export default function WarehousePage() {
             </div>
           </div>
 
-          {/* UPDATED Statistics Section - Now shows real data from counting records */}
+          {/* Statistics Section */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -2347,7 +2567,7 @@ export default function WarehousePage() {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <div className="bg-black-50 p-4 rounded-lg border">
+                <div className="bg-gray-50 p-4 rounded-lg border">
                   <div className="flex items-center justify-between mb-2">
                     <div className="text-sm text-gray-500">Total Processed</div>
                     <History className="w-4 h-4 text-blue-500" />
@@ -2360,7 +2580,7 @@ export default function WarehousePage() {
                   </div>
                 </div>
 
-                <div className="bg-black-50 p-4 rounded-lg border">
+                <div className="bg-gray-50 p-4 rounded-lg border">
                   <div className="flex items-center justify-between mb-2">
                     <div className="text-sm text-gray-500">Pending Cold Room</div>
                     <Package className="w-4 h-4 text-orange-500" />
@@ -2373,7 +2593,7 @@ export default function WarehousePage() {
                   </div>
                 </div>
 
-                <div className="bg-black-50 p-4 rounded-lg border">
+                <div className="bg-gray-50 p-4 rounded-lg border">
                   <div className="flex items-center justify-between mb-2">
                     <div className="text-sm text-gray-500">Unique Suppliers</div>
                     <Users className="w-4 h-4 text-green-500" />
@@ -2386,7 +2606,7 @@ export default function WarehousePage() {
                   </div>
                 </div>
 
-                <div className="bg-black-50 p-4 rounded-lg border">
+                <div className="bg-gray-50 p-4 rounded-lg border">
                   <div className="flex items-center justify-between mb-2">
                     <div className="text-sm text-gray-500">Today's Intake</div>
                     <Truck className="w-4 h-4 text-purple-500" />
@@ -2460,7 +2680,7 @@ export default function WarehousePage() {
                     <Scale className="w-5 h-5" />
                     Weight Summary
                   </h4>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div>
                       <div className="text-sm text-gray-600">Total Intake Weight</div>
                       <div className="text-xl font-bold text-blue-700">
@@ -2474,13 +2694,19 @@ export default function WarehousePage() {
                       </div>
                     </div>
                     <div>
+                      <div className="text-sm text-gray-600">Total Rejected Weight</div>
+                      <div className="text-xl font-bold text-orange-700">
+                        {safeToFixed(stats.weight_summary.total_rejected_weight, 1)} kg
+                      </div>
+                    </div>
+                    <div>
                       <div className="text-sm text-gray-600">Weight Variance</div>
                       <div className={`text-xl font-bold ${
-                        (stats.weight_summary.total_intake_weight - stats.weight_summary.total_counted_weight) > 0 
+                        (stats.weight_summary.total_intake_weight - stats.weight_summary.total_counted_weight - stats.weight_summary.total_rejected_weight) > 0 
                           ? 'text-red-600' 
                           : 'text-green-600'
                       }`}>
-                        {safeToFixed(stats.weight_summary.total_intake_weight - stats.weight_summary.total_counted_weight, 1)} kg
+                        {safeToFixed(stats.weight_summary.total_intake_weight - stats.weight_summary.total_counted_weight - stats.weight_summary.total_rejected_weight, 1)} kg
                       </div>
                     </div>
                   </div>
@@ -2864,7 +3090,7 @@ export default function WarehousePage() {
 
                                     {alreadyCounted && (
                                       <div className="pt-4 border-t">
-                                        <div className="text-center p-3 bg-blue-50 rounded-lg">
+                                        <div className="text-center p-3 bg-black-50 rounded-lg">
                                           <CheckCircle className="w-5 h-5 text-blue-600 mx-auto mb-2" />
                                           <p className="text-sm font-medium text-blue-700">Already Counted</p>
                                           <p className="text-xs text-blue-600">
@@ -3029,12 +3255,12 @@ export default function WarehousePage() {
                                 <CreditCard className="w-4 h-4" />
                                 Bank Account Number
                               </Label>
-                              <Input
-                                id="bank_account"
-                                value={countingForm.bank_account}
-                                onChange={(e) => handleInputChange('bank_account', e.target.value)}
-                                placeholder="Enter account number"
-                              />
+                                <Input
+                                  id="bank_account"
+                                  value={countingForm.bank_account}
+                                  onChange={(e) => handleInputChange('bank_account', e.target.value)}
+                                  placeholder="Enter account number"
+                                />
                             </div>
                           </div>
                         </div>
@@ -3460,6 +3686,7 @@ export default function WarehousePage() {
                           const isExpanded = expandedHistory.has(record.id);
                           const hasFuerte = record.fuerte_4kg_total + record.fuerte_10kg_total > 0;
                           const hasHass = record.hass_4kg_total + record.hass_10kg_total > 0;
+                          const hasRejection = record.rejected_weight && record.rejected_weight > 0;
                           
                           return (
                             <Collapsible
@@ -3480,6 +3707,11 @@ export default function WarehousePage() {
                                         <span>Pallet: {record.pallet_id}</span>
                                         <span>Boxes: {boxesSummary.total} boxes</span>
                                         <span>Weight: {safeToFixed(record.total_counted_weight)} kg</span>
+                                        {hasRejection && (
+                                          <span className="text-red-600">
+                                            Rejected: {safeToFixed(record.rejected_weight)} kg
+                                          </span>
+                                        )}
                                         <span>{formatDate(record.submitted_at)}</span>
                                       </div>
                                     </div>
@@ -3508,6 +3740,11 @@ export default function WarehousePage() {
                                           Hass: {record.hass_4kg_total + record.hass_10kg_total}
                                         </Badge>
                                       )}
+                                      {hasRejection && (
+                                        <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
+                                          Rejected: {safeToFixed(record.rejected_weight)} kg
+                                        </Badge>
+                                      )}
                                     </div>
                                     <Badge variant="outline" className={
                                       record.for_coldroom && record.status === 'pending_coldroom' 
@@ -3527,7 +3764,7 @@ export default function WarehousePage() {
                               </CollapsibleTrigger>
                               <CollapsibleContent className="p-4 bg-black border-t">
                                 <div className="space-y-4">
-                                  <div className="bg-black p-4 rounded-lg">
+                                  <div className="bg-black-50 p-4 rounded-lg">
                                     <h4 className="font-semibold mb-3">Supplier Information</h4>
                                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                                       <div>
@@ -3593,6 +3830,20 @@ export default function WarehousePage() {
                                       <div className="font-bold text-lg">{safeToFixed(record.total_counted_weight)} kg</div>
                                     </div>
                                     <div className="bg-black-50 p-3 rounded border">
+                                      <div className="text-gray-500">Rejected Weight</div>
+                                      <div className="font-bold text-lg">{safeToFixed(record.rejected_weight || 0)} kg</div>
+                                    </div>
+                                    <div className="bg-black-50 p-3 rounded border">
+                                      <div className="text-gray-500">Weight Variance</div>
+                                      <div className={`font-bold text-lg ${
+                                        (record.total_weight - (record.total_counted_weight || 0) - (record.rejected_weight || 0)) > 0 
+                                          ? 'text-red-600' 
+                                          : 'text-green-600'
+                                      }`}>
+                                        {safeToFixed(record.total_weight - (record.total_counted_weight || 0) - (record.rejected_weight || 0))} kg
+                                      </div>
+                                    </div>
+                                    <div className="bg-black-50 p-3 rounded border">
                                       <div className="text-gray-500">Status</div>
                                       <div className={`font-bold text-lg ${
                                         record.for_coldroom && record.status === 'pending_coldroom' 
@@ -3615,6 +3866,38 @@ export default function WarehousePage() {
                                       </div>
                                     </div>
                                   </div>
+
+                                  {record.rejected_weight > 0 && (
+                                    <div className="bg-black-50 p-4 rounded-lg border border-red-200">
+                                      <h4 className="font-semibold text-red-800 mb-3 flex items-center gap-2">
+                                        <AlertTriangle className="w-5 h-5" />
+                                        Rejection Details
+                                      </h4>
+                                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        <div>
+                                          <div className="text-sm text-gray-600">Rejected Weight</div>
+                                          <div className="text-xl font-bold text-red-700">
+                                            {safeToFixed(record.rejected_weight, 2)} kg
+                                          </div>
+                                          <div className="text-xs text-red-600">
+                                            {((record.rejected_weight / record.total_weight) * 100).toFixed(1)}% of intake
+                                          </div>
+                                        </div>
+                                        {record.rejection_reason && (
+                                          <div className="col-span-2">
+                                            <div className="text-sm text-gray-600">Rejection Reason</div>
+                                            <div className="font-medium">{record.rejection_reason}</div>
+                                          </div>
+                                        )}
+                                      </div>
+                                      {record.rejection_notes && (
+                                        <div className="mt-3 pt-3 border-t border-red-200">
+                                          <div className="text-sm text-gray-600">Notes</div>
+                                          <div className="text-sm">{record.rejection_notes}</div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
 
                                   <div className="bg-black-50 p-4 rounded-lg">
                                     <h4 className="font-semibold mb-3">Variety Breakdown</h4>
@@ -3675,7 +3958,7 @@ export default function WarehousePage() {
                                   {record.notes && (
                                     <div>
                                       <div className="text-gray-500 mb-2">Notes</div>
-                                      <div className="bg-gray-50 p-3 rounded border text-sm">
+                                      <div className="bg-black-50 p-3 rounded border text-sm">
                                         {record.notes}
                                       </div>
                                     </div>
@@ -3704,7 +3987,7 @@ export default function WarehousePage() {
               </Card>
             </TabsContent>
 
-            {/* Statistics Tab - UPDATED TO SHOW REAL DATA */}
+            {/* Statistics Tab */}
             <TabsContent value="statistics" className="space-y-6">
               <Card>
                 <CardHeader>
@@ -4018,6 +4301,38 @@ export default function WarehousePage() {
                       </div>
                     </div>
 
+                    {/* Rejection Statistics */}
+                    <div className="border rounded-lg overflow-hidden">
+                      <div className="bg-red-50 p-3 border-b">
+                        <div className="flex items-center gap-2">
+                          <AlertTriangle className="w-4 h-4 text-red-600" />
+                          <span className="font-semibold text-red-800">Rejection Statistics</span>
+                        </div>
+                      </div>
+                      <div className="p-4">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div className="text-center">
+                            <div className="text-2xl font-bold text-red-700">
+                              {countingRecords.filter(r => r.rejected_weight && r.rejected_weight > 0).length}
+                            </div>
+                            <div className="text-sm text-gray-600">Records with Rejections</div>
+                          </div>
+                          <div className="text-center">
+                            <div className="text-2xl font-bold text-red-700">
+                              {safeToFixed(countingRecords.reduce((sum, r) => sum + (r.rejected_weight || 0), 0), 1)} kg
+                            </div>
+                            <div className="text-sm text-gray-600">Total Rejected Weight</div>
+                          </div>
+                          <div className="text-center">
+                            <div className="text-2xl font-bold text-red-700">
+                              {stats.weight_summary ? safeToFixed((stats.weight_summary.total_rejected_weight / stats.weight_summary.total_intake_weight) * 100, 2) : '0'}%
+                            </div>
+                            <div className="text-sm text-gray-600">Average Rejection Rate</div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
                     {/* Debug Information */}
                     <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
                       <h4 className="font-semibold text-gray-800 mb-3">Data Information</h4>
@@ -4028,8 +4343,16 @@ export default function WarehousePage() {
                             <div>{countingRecords.length}</div>
                           </div>
                           <div>
+                            <div className="font-medium">Total Rejects Records:</div>
+                            <div>{rejects.length}</div>
+                          </div>
+                          <div>
                             <div className="font-medium">Last Updated:</div>
                             <div>{lastRefreshed ? format(lastRefreshed, 'PPpp') : 'Never'}</div>
+                          </div>
+                          <div>
+                            <div className="font-medium">Integration Status:</div>
+                            <div className="text-green-600 font-medium">Active</div>
                           </div>
                         </div>
                         <div className="mt-3">
@@ -4037,10 +4360,12 @@ export default function WarehousePage() {
                             onClick={() => {
                               console.log('Debug Size Statistics:', {
                                 countingRecords: countingRecords.length,
+                                rejects: rejects.length,
                                 sizeStatistics,
                                 sampleRecord: countingRecords[0]?.counting_data
                                   ? Object.keys(countingRecords[0].counting_data).filter(k => k.includes('size'))
-                                  : 'No counting_data'
+                                  : 'No counting_data',
+                                sampleReject: rejects[0] || 'No rejects'
                               });
                               toast({
                                 title: 'Debug Info Logged',
@@ -4064,12 +4389,14 @@ export default function WarehousePage() {
                           const statsData = {
                             summary: {
                               total_records: countingRecords.length,
+                              total_rejections: rejects.length,
                               total_fuerte_boxes: sizeTotals.fuerte.overall,
                               total_hass_boxes: sizeTotals.hass.overall,
                               total_class1: sizeTotals.fuerte['4kg'].class1 + sizeTotals.fuerte['10kg'].class1 + 
                                          sizeTotals.hass['4kg'].class1 + sizeTotals.hass['10kg'].class1,
                               total_class2: sizeTotals.fuerte['4kg'].class2 + sizeTotals.fuerte['10kg'].class2 + 
                                          sizeTotals.hass['4kg'].class2 + sizeTotals.hass['10kg'].class2,
+                              total_rejected_weight: stats.weight_summary?.total_rejected_weight || 0,
                               grand_total: sizeTotals.grandTotal,
                               generated_at: new Date().toISOString()
                             },
