@@ -191,6 +191,173 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, data: boxes });
     }
 
+    // Check for existing boxes with same properties
+    if (action === 'check-existing-boxes') {
+      const variety = searchParams.get('variety');
+      const boxType = searchParams.get('boxType');
+      const size = searchParams.get('size');
+      const grade = searchParams.get('grade');
+      const countingRecordId = searchParams.get('countingRecordId');
+      const coldRoomId = searchParams.get('coldRoomId');
+
+      if (!variety || !boxType || !size || !grade || !coldRoomId) {
+        return NextResponse.json({ 
+          success: false, 
+          error: 'Missing required parameters' 
+        }, { status: 400 });
+      }
+
+      // Check for existing boxes with same properties
+      const existingBoxes = await prisma.cold_room_boxes.findMany({
+        where: {
+          variety,
+          box_type: boxType,
+          size,
+          grade,
+          cold_room_id: coldRoomId,
+          is_in_pallet: false,
+          ...(countingRecordId && { counting_record_id: countingRecordId })
+        }
+      });
+
+      const totalQuantity = existingBoxes.reduce((sum, box) => sum + (box.quantity || 0), 0);
+
+      return NextResponse.json({ 
+        success: true, 
+        exists: existingBoxes.length > 0,
+        quantity: totalQuantity,
+        boxes: existingBoxes
+      });
+    }
+
+    // Check for existing pallets with same combination
+    if (action === 'check-existing-pallet') {
+      const coldRoomId = searchParams.get('coldRoomId');
+      const boxGroups = searchParams.get('boxGroups');
+
+      if (!coldRoomId || !boxGroups) {
+        return NextResponse.json({ 
+          success: false, 
+          error: 'Missing required parameters' 
+        }, { status: 400 });
+      }
+
+      try {
+        const groups = JSON.parse(boxGroups);
+        
+        // Get all pallets in the cold room
+        const existingPallets = await prisma.cold_room_pallets.findMany({
+          where: {
+            cold_room_id: coldRoomId,
+            is_manual: true
+          },
+          include: {
+            boxes: true
+          }
+        });
+
+        // Check each pallet for matching box combinations
+        for (const pallet of existingPallets) {
+          const palletBoxes = pallet.boxes || [];
+          
+          // Group pallet boxes by type
+          const palletBoxGroups: Record<string, number> = {};
+          palletBoxes.forEach(box => {
+            const key = `${box.variety}_${box.box_type}_${box.grade}_${box.size}`;
+            palletBoxGroups[key] = (palletBoxGroups[key] || 0) + (box.quantity || 0);
+          });
+
+          // Compare with requested groups
+          let allMatch = true;
+          for (const group of groups) {
+            const groupKey = `${group.variety}_${group.boxType}_${group.grade}_${group.size}`;
+            const groupQty = group.quantity;
+            
+            if (palletBoxGroups[groupKey] !== groupQty) {
+              allMatch = false;
+              break;
+            }
+          }
+
+          if (allMatch) {
+            return NextResponse.json({ 
+              success: true, 
+              exists: true,
+              palletId: pallet.id,
+              palletName: pallet.pallet_name
+            });
+          }
+        }
+
+        return NextResponse.json({ 
+          success: true, 
+          exists: false 
+        });
+      } catch (error) {
+        return NextResponse.json({ 
+          success: false, 
+          error: 'Invalid box groups format' 
+        }, { status: 400 });
+      }
+    }
+
+    // Get grouped available boxes
+    if (action === 'grouped-boxes') {
+      const coldRoomId = searchParams.get('coldRoomId');
+      const showOnlyAvailable = searchParams.get('showOnlyAvailable') === 'true';
+
+      const whereClause: any = {
+        ...(coldRoomId && { cold_room_id: coldRoomId })
+      };
+
+      if (showOnlyAvailable) {
+        whereClause.is_in_pallet = false;
+        whereClause.loading_sheet_id = null;
+      }
+
+      const boxes = await prisma.cold_room_boxes.findMany({
+        where: whereClause,
+        orderBy: {
+          created_at: 'desc',
+        },
+      });
+
+      // Group boxes by size, variety, type, and grade
+      const groupedBoxes: Record<string, {
+        size: string;
+        variety: string;
+        box_type: string;
+        grade: string;
+        cold_room_id: string;
+        totalQuantity: number;
+        boxes: any[];
+      }> = {};
+
+      boxes.forEach(box => {
+        const key = `${box.size}_${box.variety}_${box.box_type}_${box.grade}_${box.cold_room_id}`;
+        
+        if (!groupedBoxes[key]) {
+          groupedBoxes[key] = {
+            size: box.size,
+            variety: box.variety,
+            box_type: box.box_type,
+            grade: box.grade,
+            cold_room_id: box.cold_room_id,
+            totalQuantity: 0,
+            boxes: []
+          };
+        }
+        
+        groupedBoxes[key].totalQuantity += box.quantity || 0;
+        groupedBoxes[key].boxes.push(box);
+      });
+
+      return NextResponse.json({ 
+        success: true, 
+        data: Object.values(groupedBoxes)
+      });
+    }
+
     return NextResponse.json({ 
       success: false, 
       error: 'Invalid action' 
@@ -217,25 +384,51 @@ export async function POST(request: NextRequest) {
       const createdBoxes = [];
       const updatedCountingRecords = [];
 
-      // Create boxes
+      // Check for duplicates before creating
       for (const boxData of boxesData) {
-        const box = await prisma.cold_room_boxes.create({
-          data: {
+        // Check if box already exists
+        const existingBoxes = await prisma.cold_room_boxes.findMany({
+          where: {
             variety: boxData.variety,
             box_type: boxData.boxType,
             size: boxData.size,
             grade: boxData.grade,
-            quantity: boxData.quantity,
             cold_room_id: boxData.coldRoomId,
-            supplier_name: boxData.supplierName || 'Unknown Supplier',
-            pallet_id: boxData.palletId || null,
-            region: boxData.region || '',
-            counting_record_id: boxData.countingRecordId || null,
-            is_in_pallet: !!boxData.palletId,
-            converted_to_pallet_at: boxData.palletId ? new Date() : null,
-          },
+            is_in_pallet: false,
+            counting_record_id: boxData.countingRecordId || null
+          }
         });
-        createdBoxes.push(box);
+
+        const totalExisting = existingBoxes.reduce((sum, box) => sum + (box.quantity || 0), 0);
+
+        if (totalExisting >= boxData.quantity) {
+          // Boxes already exist, skip creation
+          console.log(`Skipping duplicate: ${boxData.variety} ${boxData.boxType} ${boxData.size} ${boxData.grade} - ${boxData.quantity} boxes already exist`);
+          continue;
+        }
+
+        // Create only the difference
+        const quantityToCreate = boxData.quantity - totalExisting;
+        
+        if (quantityToCreate > 0) {
+          const box = await prisma.cold_room_boxes.create({
+            data: {
+              variety: boxData.variety,
+              box_type: boxData.boxType,
+              size: boxData.size,
+              grade: boxData.grade,
+              quantity: quantityToCreate,
+              cold_room_id: boxData.coldRoomId,
+              supplier_name: boxData.supplierName || 'Unknown Supplier',
+              pallet_id: boxData.palletId || null,
+              region: boxData.region || '',
+              counting_record_id: boxData.countingRecordId || null,
+              is_in_pallet: !!boxData.palletId,
+              converted_to_pallet_at: boxData.palletId ? new Date() : null,
+            },
+          });
+          createdBoxes.push(box);
+        }
       }
 
       // Update counting records
@@ -302,153 +495,233 @@ export async function POST(request: NextRequest) {
         data: {
           createdBoxes,
           updatedCountingRecords,
-          message: `Loaded ${createdBoxes.length} boxes successfully`,
+          message: `Loaded ${createdBoxes.length} new boxes successfully`,
         },
       });
     }
 
-    // Create manual pallet
-if (action === 'create-manual-pallet') {
-  const { palletName, coldRoomId, boxes, boxesPerPallet } = body;
+    // Create manual pallet with size grouping
+    if (action === 'create-manual-pallet') {
+      const { palletName, coldRoomId, boxes, boxesPerPallet } = body;
 
-  if (!palletName || !coldRoomId || !boxes || boxes.length === 0) {
-    return NextResponse.json({ 
-      success: false, 
-      error: 'Missing required fields' 
-    }, { status: 400 });
-  }
+      if (!palletName || !coldRoomId || !boxes || boxes.length === 0) {
+        return NextResponse.json({ 
+          success: false, 
+          error: 'Missing required fields' 
+        }, { status: 400 });
+      }
 
-      // Calculate totals
-  const totalBoxes = boxes.reduce((sum: number, box: any) => sum + (box.quantity || 0), 0);
-  const totalWeight = boxes.reduce((sum: number, box: any) => {
-    const boxWeight = box.boxType === '4kg' ? 4 : 10;
-    return sum + (box.quantity * boxWeight);
-  }, 0);
-
-      // Create pallet
-  const pallet = await prisma.cold_room_pallets.create({
-    data: {
-      pallet_name: palletName,
-      cold_room_id: coldRoomId,
-      pallet_count: 1, // Always 1 pallet regardless of box count
-      is_manual: true,
-      total_boxes: totalBoxes,
-      total_weight_kg: totalWeight,
-      boxes_per_pallet: boxesPerPallet, // Still track for reference
-    },
-  });
-
-      // Update boxes to link them to the pallet
-      const boxUpdates = [];
-      for (const boxData of boxes) {
-        // Find available boxes (not in pallet)
-        const availableBoxes = await prisma.cold_room_boxes.findMany({
+      // Check for duplicate pallet with same box combination
+      const duplicateCheck = await prisma.$transaction(async (tx) => {
+        const existingPallets = await tx.cold_room_pallets.findMany({
           where: {
-            variety: boxData.variety,
-            box_type: boxData.boxType,
-            size: boxData.size,
-            grade: boxData.grade,
             cold_room_id: coldRoomId,
-            is_in_pallet: false,
-            quantity: { gte: boxData.quantity },
+            is_manual: true
           },
-          orderBy: { created_at: 'asc' },
+          include: {
+            boxes: true
+          }
         });
 
-        let remainingQty = boxData.quantity;
-        for (const box of availableBoxes) {
-          if (remainingQty <= 0) break;
+        for (const pallet of existingPallets) {
+          const palletBoxes = pallet.boxes || [];
+          const palletBoxGroups: Record<string, number> = {};
+          
+          palletBoxes.forEach(box => {
+            const key = `${box.variety}_${box.box_type}_${box.grade}_${box.size}`;
+            palletBoxGroups[key] = (palletBoxGroups[key] || 0) + (box.quantity || 0);
+          });
 
-          if (box.quantity <= remainingQty) {
-            // Use entire box
-            await prisma.cold_room_boxes.update({
-              where: { id: box.id },
-              data: {
-                pallet_id: pallet.id,
-                is_in_pallet: true,
-                converted_to_pallet_at: new Date(),
-              },
-            });
-            remainingQty -= box.quantity;
-            boxUpdates.push({
-              boxId: box.id,
-              action: 'full',
-              quantity: box.quantity,
-            });
-          } else {
-            // Split the box
-            const newBox = await prisma.cold_room_boxes.create({
-              data: {
-                variety: box.variety,
-                box_type: box.box_type,
-                size: box.size,
-                grade: box.grade,
-                quantity: remainingQty,
-                cold_room_id: box.cold_room_id,
-                supplier_name: box.supplier_name,
-                region: box.region,
-                counting_record_id: box.counting_record_id,
-                pallet_id: pallet.id,
-                is_in_pallet: true,
-                converted_to_pallet_at: new Date(),
-              },
-            });
+          // Compare with requested boxes
+          let allMatch = true;
+          for (const box of boxes) {
+            const boxKey = `${box.variety}_${box.boxType}_${box.grade}_${box.size}`;
+            const boxQty = box.quantity;
+            
+            if (palletBoxGroups[boxKey] !== boxQty) {
+              allMatch = false;
+              break;
+            }
+          }
 
-            // Update original box with remaining quantity
-            await prisma.cold_room_boxes.update({
-              where: { id: box.id },
-              data: {
-                quantity: box.quantity - remainingQty,
-              },
-            });
-
-            remainingQty = 0;
-            boxUpdates.push({
-              boxId: box.id,
-              newBoxId: newBox.id,
-              action: 'split',
-              quantity: remainingQty,
-            });
+          if (allMatch) {
+            return { isDuplicate: true, palletId: pallet.id, palletName: pallet.pallet_name };
           }
         }
 
-        if (remainingQty > 0) {
-          // Create new box if not enough available
-          const newBox = await prisma.cold_room_boxes.create({
-            data: {
-              variety: boxData.variety,
-              box_type: boxData.boxType,
-              size: boxData.size,
-              grade: boxData.grade,
-              quantity: remainingQty,
-              cold_room_id: coldRoomId,
-              supplier_name: boxData.supplierName || 'Unknown Supplier',
-              region: boxData.region || '',
-              counting_record_id: boxData.countingRecordId || null,
-              pallet_id: pallet.id,
-              is_in_pallet: true,
-              converted_to_pallet_at: new Date(),
-            },
-          });
-          boxUpdates.push({
-            boxId: newBox.id,
-            action: 'new',
-            quantity: remainingQty,
-          });
-        }
+        return { isDuplicate: false };
+      });
+
+      if (duplicateCheck.isDuplicate) {
+        return NextResponse.json({
+          success: false,
+          error: `Duplicate pallet found: "${duplicateCheck.palletName}" already has the exact same box combination`,
+          palletId: duplicateCheck.palletId
+        }, { status: 409 });
       }
 
-      return NextResponse.json({
-        success: true,
-        data: {
-          pallet,
-          boxUpdates,
-          totalBoxes,
-          totalWeight,
-          fullPallets: Math.floor(totalBoxes / boxesPerPallet),
-          remainingBoxes: totalBoxes % boxesPerPallet,
-        },
-      });
+      // Calculate totals
+      const totalBoxes = boxes.reduce((sum: number, box: any) => sum + (box.quantity || 0), 0);
+      const totalWeight = boxes.reduce((sum: number, box: any) => {
+        const boxWeight = box.boxType === '4kg' ? 4 : 10;
+        return sum + (box.quantity * boxWeight);
+      }, 0);
+
+      try {
+        // Create pallet in transaction to ensure data consistency
+        const result = await prisma.$transaction(async (tx) => {
+          // Create pallet
+          const pallet = await tx.cold_room_pallets.create({
+            data: {
+              pallet_name: palletName,
+              cold_room_id: coldRoomId,
+              pallet_count: 1,
+              is_manual: true,
+              total_boxes: totalBoxes,
+              total_weight_kg: totalWeight,
+              boxes_per_pallet: boxesPerPallet,
+            },
+          });
+
+          const boxUpdates = [];
+          const newBoxes: string[] = [];
+          const allProcessedBoxIds: string[] = [];
+
+          // Process each box group
+          for (const boxData of boxes) {
+            if (boxData.quantity <= 0) continue;
+
+            // Find available boxes (not in pallet, not assigned to loading sheet)
+            const availableBoxes = await tx.cold_room_boxes.findMany({
+              where: {
+                variety: boxData.variety,
+                box_type: boxData.boxType,
+                size: boxData.size,
+                grade: boxData.grade,
+                cold_room_id: coldRoomId,
+                is_in_pallet: false,
+                loading_sheet_id: null,
+                quantity: { gt: 0 }
+              },
+              orderBy: { created_at: 'asc' },
+            });
+
+            let remainingQty = boxData.quantity;
+            const processedBoxIds: string[] = [];
+
+            // Use existing boxes first
+            for (const box of availableBoxes) {
+              if (remainingQty <= 0) break;
+
+              if (box.quantity <= remainingQty) {
+                // Use entire box
+                await tx.cold_room_boxes.update({
+                  where: { id: box.id },
+                  data: {
+                    pallet_id: pallet.id,
+                    is_in_pallet: true,
+                    converted_to_pallet_at: new Date(),
+                  },
+                });
+                
+                remainingQty -= box.quantity;
+                processedBoxIds.push(box.id);
+                boxUpdates.push({
+                  boxId: box.id,
+                  action: 'full',
+                  quantity: box.quantity,
+                });
+              } else {
+                // Split the box
+                const newBox = await tx.cold_room_boxes.create({
+                  data: {
+                    variety: box.variety,
+                    box_type: box.box_type,
+                    size: box.size,
+                    grade: box.grade,
+                    quantity: remainingQty,
+                    cold_room_id: box.cold_room_id,
+                    supplier_name: box.supplier_name,
+                    region: box.region,
+                    counting_record_id: box.counting_record_id,
+                    pallet_id: pallet.id,
+                    is_in_pallet: true,
+                    converted_to_pallet_at: new Date(),
+                  },
+                });
+
+                // Update original box with remaining quantity
+                await tx.cold_room_boxes.update({
+                  where: { id: box.id },
+                  data: {
+                    quantity: box.quantity - remainingQty,
+                  },
+                });
+
+                remainingQty = 0;
+                processedBoxIds.push(box.id);
+                newBoxes.push(newBox.id);
+                boxUpdates.push({
+                  boxId: box.id,
+                  newBoxId: newBox.id,
+                  action: 'split',
+                  quantity: remainingQty,
+                });
+              }
+            }
+
+            // Add to the main array
+            allProcessedBoxIds.push(...processedBoxIds.filter(Boolean));
+
+            // Create new box if not enough available
+            if (remainingQty > 0) {
+              const newBox = await tx.cold_room_boxes.create({
+                data: {
+                  variety: boxData.variety,
+                  box_type: boxData.boxType,
+                  size: boxData.size,
+                  grade: boxData.grade,
+                  quantity: remainingQty,
+                  cold_room_id: coldRoomId,
+                  supplier_name: boxData.supplierName || 'Unknown Supplier',
+                  region: boxData.region || '',
+                  counting_record_id: boxData.countingRecordId || null,
+                  pallet_id: pallet.id,
+                  is_in_pallet: true,
+                  converted_to_pallet_at: new Date(),
+                },
+              });
+              newBoxes.push(newBox.id);
+              boxUpdates.push({
+                boxId: newBox.id,
+                action: 'new',
+                quantity: remainingQty,
+              });
+            }
+          }
+
+          return { pallet, boxUpdates, processedBoxIds: allProcessedBoxIds.filter(Boolean), newBoxes };
+        });
+
+        return NextResponse.json({
+          success: true,
+          data: {
+            pallet: result.pallet,
+            boxUpdates: result.boxUpdates,
+            totalBoxes,
+            totalWeight,
+            fullPallets: Math.floor(totalBoxes / boxesPerPallet),
+            remainingBoxes: totalBoxes % boxesPerPallet,
+            message: `Pallet "${palletName}" created successfully with ${totalBoxes} boxes`
+          },
+        });
+      } catch (error) {
+        console.error('Error creating manual pallet:', error);
+        return NextResponse.json({
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to create pallet'
+        }, { status: 500 });
+      }
     }
 
     // Dissolve pallet
@@ -623,6 +896,7 @@ async function decreaseBoxQuantity(coldRoomId: string, boxData: any) {
       size: boxData.size,
       grade: boxData.grade,
       quantity: { gte: boxData.quantity },
+      is_in_pallet: false,
     },
     orderBy: { created_at: 'asc' },
   });
@@ -660,6 +934,7 @@ async function increaseBoxQuantity(coldRoomId: string, boxData: any) {
       size: boxData.size,
       grade: boxData.grade,
       is_in_pallet: false,
+      loading_sheet_id: null
     },
   });
 
