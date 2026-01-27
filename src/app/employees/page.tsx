@@ -49,7 +49,7 @@ import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { format, parseISO, addDays, differenceInHours, startOfDay, endOfDay, isToday, isSameDay } from 'date-fns';
+import { format, parseISO, addDays, differenceInHours, startOfDay, endOfDay, isToday, isSameDay, eachDayOfInterval, differenceInDays } from 'date-fns';
 import { Progress } from '@/components/ui/progress';
 import { Textarea } from '@/components/ui/textarea';
 import { Separator } from '@/components/ui/separator';
@@ -471,17 +471,20 @@ const GateOutCard: React.FC<GateOutCardProps> = ({
   onCheckOut,
   disabled = false
 }) => {
-  const isPresent = todayRecord?.status === 'Present' || todayRecord?.status === 'Late';
   const hasCheckedIn = !!todayRecord?.clockInTime;
   const hasCheckedOut = !!todayRecord?.clockOutTime;
   const hasDesignation = !!todayRecord?.designation;
+  
+  // Only contract employees require designation
+  const requiresDesignation = employee.contract === 'Contract';
+  const canCheckOut = hasCheckedIn && !hasCheckedOut && (!requiresDesignation || hasDesignation);
   
   return (
     <Card className={cn(
       "overflow-hidden transition-all",
       disabled && "opacity-60",
       !hasCheckedIn && "border-amber-200",
-      !hasDesignation && hasCheckedIn && "border-orange-200"
+      requiresDesignation && !hasDesignation && hasCheckedIn && "border-orange-200"
     )}>
       <CardContent className="p-4">
         <div className="flex items-start justify-between">
@@ -551,10 +554,10 @@ const GateOutCard: React.FC<GateOutCardProps> = ({
               size="sm"
               className="h-10 w-full text-sm bg-red-600 hover:bg-red-700"
               onClick={() => onCheckOut(employee.id)}
-              disabled={disabled || !hasDesignation}
+              disabled={disabled || (requiresDesignation && !hasDesignation)}
             >
               <DoorClosed className="w-4 h-4 mr-2" />
-              {!hasDesignation ? "Assign Designation First" : "Check Out"}
+              {requiresDesignation && !hasDesignation ? "Assign Designation First" : "Check Out"}
             </Button>
           ) : hasCheckedOut ? (
             <div className="text-center text-sm text-green-600 font-medium p-2 border border-green-200 rounded-md bg-green-50">
@@ -568,7 +571,7 @@ const GateOutCard: React.FC<GateOutCardProps> = ({
             </div>
           )}
           
-          {!hasDesignation && hasCheckedIn && (
+          {requiresDesignation && !hasDesignation && hasCheckedIn && (
             <p className="text-xs text-orange-600 mt-2 text-center">
               Designation must be assigned before checking out
             </p>
@@ -589,6 +592,24 @@ const escapeCsvField = (field: any): string => {
     return `"${stringField.replace(/"/g, '""')}"`;
   }
   return stringField;
+};
+
+// Helper function to determine shift type based on hours worked
+const getShiftType = (clockInTime?: string, clockOutTime?: string): string => {
+  if (!clockInTime || !clockOutTime) return 'N/A';
+  
+  const inTime = parseISO(clockInTime);
+  const outTime = parseISO(clockOutTime);
+  const hoursWorked = differenceInHours(outTime, inTime);
+  
+  if (hoursWorked >= 8) return 'Full';
+  if (hoursWorked >= 4) return 'Half';
+  return 'Short';
+};
+
+// Helper function to calculate number of days in date range
+const getNumberOfDays = (from: Date, to: Date): number => {
+  return differenceInDays(to, from) + 1;
 };
 
 export default function EmployeesPage() {
@@ -798,8 +819,10 @@ export default function EmployeesPage() {
       const hasDesignation = todayRecord?.designation;
       
       // For contract employees: must have checked in, have designation, and not checked out
-      // For others: just need to be checked in and not checked out
-      if (employee.contract === 'Contract') {
+      // For permanent employees (Full-time, Part-time): just need to be checked in and not checked out
+      const requiresDesignation = employee.contract === 'Contract';
+      
+      if (requiresDesignation) {
         return hasCheckedIn && hasDesignation && !hasCheckedOut;
       } else {
         return hasCheckedIn && !hasCheckedOut;
@@ -1491,7 +1514,7 @@ export default function EmployeesPage() {
     setFilteredAttendance(filtered);
   }, [attendance, dateRange, attendanceSearchTerm, attendanceEmployeeFilter, attendanceTypeFilter, employees]);
 
-  // Export attendance to CSV
+  // Export attendance to CSV with enhanced headers
   const exportToCSV = () => {
     if (filteredAttendance.length === 0) {
       toast({
@@ -1502,16 +1525,130 @@ export default function EmployeesPage() {
       return;
     }
 
-    const headers = ['Name', 'ID Number', 'Phone Number', 'Designation'];
+    // Calculate number of days in the date range
+    const numberOfDays = getNumberOfDays(dateRange.from, dateRange.to);
     
-    const csvData = filteredAttendance.map(record => {
+    // Create the header row
+    const headers = [
+      'From Date',
+      'To Date',
+      'Name', 
+      'ID Number', 
+      'Tel Number', 
+      'Designation', 
+      'Shift(Full/Half)', 
+      'Number of days'
+    ];
+    
+    // Group attendance by employee for the date range
+    const employeeAttendanceMap = new Map<string, any[]>();
+    
+    filteredAttendance.forEach(record => {
       const employee = employees.find(emp => emp.id === record.employeeId);
+      if (!employee) return;
+      
+      if (!employeeAttendanceMap.has(employee.id)) {
+        employeeAttendanceMap.set(employee.id, []);
+      }
+      
+      employeeAttendanceMap.get(employee.id)?.push({
+        date: record.date,
+        shift: getShiftType(record.clockInTime, record.clockOutTime),
+        designation: record.designation ? designationLabels[record.designation] : 'N/A'
+      });
+    });
+    
+    // Create CSV data rows
+    const csvData = Array.from(employeeAttendanceMap.entries()).map(([employeeId, records]) => {
+      const employee = employees.find(emp => emp.id === employeeId);
+      if (!employee) return null;
+      
+      // Get unique designations for this employee in the date range
+      const designations = [...new Set(records.map(r => r.designation))].filter(d => d !== 'N/A');
+      const designation = designations.length > 0 ? designations.join(', ') : 'N/A';
+      
+      // Get most common shift type
+      const shiftCounts = records.reduce((acc, record) => {
+        acc[record.shift] = (acc[record.shift] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+      
+      const mostCommonShift = Object.entries(shiftCounts).sort((a, b) => b[1] - a[1])[0];
+      const shift = mostCommonShift ? `${mostCommonShift[0]} (${mostCommonShift[1]} days)` : 'N/A';
       
       return [
+        format(dateRange.from, 'yyyy-MM-dd'),
+        format(dateRange.to, 'yyyy-MM-dd'),
         employee?.name || 'Unknown',
         employee?.id_number || 'N/A',
         employee?.phone || 'N/A',
-        record.designation ? designationLabels[record.designation] : 'N/A'
+        designation,
+        shift,
+        numberOfDays.toString()
+      ];
+    }).filter(row => row !== null);
+    
+    // Create CSV content
+    const csvContent = [
+      headers.join(','),
+      ...csvData.map(row => row!.map(cell => escapeCsvField(cell)).join(','))
+    ].join('\n');
+
+    // Download the CSV file
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `attendance_report_${format(dateRange.from, 'yyyy-MM-dd')}_to_${format(dateRange.to, 'yyyy-MM-dd')}.csv`;
+    a.click();
+    
+    toast({
+      title: 'CSV Exported',
+      description: 'Attendance report has been downloaded.',
+    });
+  };
+
+  // Export employee list to CSV with enhanced headers
+  const exportEmployeeCSV = () => {
+    if (employees.length === 0) {
+      toast({
+        title: 'No Data',
+        description: 'No employees found.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // Get current date for the report
+    const reportDate = new Date();
+    
+    // Create the header row
+    const headers = [
+      'Report Date',
+      'Name', 
+      'ID Number', 
+      'Tel Number', 
+      'Designation', 
+      'Shift(Full/Half)', 
+      'Contract Type',
+      'Status'
+    ];
+    
+    // Create CSV data rows
+    const csvData = employees.map(employee => {
+      // Determine shift based on contract type
+      const shift = employee.contract === 'Full-time' ? 'Full' : 
+                   employee.contract === 'Part-time' ? 'Half' : 'Varies';
+      
+      return [
+        format(reportDate, 'yyyy-MM-dd'),
+        employee.name || 'N/A',
+        employee.id_number || 'N/A',
+        employee.phone || 'N/A',
+        employee.role || 'N/A',
+        shift,
+        employee.contract,
+        employee.status
       ];
     });
 
@@ -1524,50 +1661,12 @@ export default function EmployeesPage() {
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `attendance_${format(dateRange.from, 'yyyy-MM-dd')}_to_${format(dateRange.to, 'yyyy-MM-dd')}.csv`;
+    a.download = `employee_directory_${format(new Date(), 'yyyy-MM-dd')}.csv`;
     a.click();
     
     toast({
       title: 'CSV Exported',
-      description: 'Attendance data has been downloaded.',
-    });
-  };
-
-  // Export employee list to CSV
-  const exportEmployeeCSV = () => {
-    if (employees.length === 0) {
-      toast({
-        title: 'No Data',
-        description: 'No employees found.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    const headers = ['Name', 'ID Number', 'Phone Number', 'Designation'];
-    
-    const csvData = employees.map(employee => [
-      employee.name || 'N/A',
-      employee.id_number || 'N/A',
-      employee.phone || 'N/A',
-      employee.role || 'N/A'
-    ]);
-
-    const csvContent = [
-      headers.join(','),
-      ...csvData.map(row => row.map(cell => escapeCsvField(cell)).join(','))
-    ].join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `employees_${format(new Date(), 'yyyy-MM-dd')}.csv`;
-    a.click();
-    
-    toast({
-      title: 'CSV Exported',
-      description: 'Employee list has been downloaded.',
+      description: 'Employee directory has been downloaded.',
     });
   };
 
@@ -2213,7 +2312,7 @@ export default function EmployeesPage() {
                         Gate Out - Daily Check Out
                       </CardTitle>
                       <CardDescription>
-                        Check out employees who have completed their work for the day. Contract employees must have designation assigned.
+                        Check out employees who have completed their work for the day. Contract employees must have designation assigned. Permanent employees (Full-time/Part-time) can check out without designation.
                       </CardDescription>
                     </div>
                     <div className="flex items-center gap-4">
@@ -2345,7 +2444,7 @@ export default function EmployeesPage() {
                         <Clock className="w-12 h-12 mx-auto mb-4 text-amber-500" />
                         <h3 className="text-lg font-semibold mb-2">No employees ready for check out</h3>
                         <p className="text-muted-foreground">
-                          Employees need to check in and (for contract employees) have designation assigned before checking out.
+                          Employees need to check in first. Contract employees also need designation assigned.
                         </p>
                       </div>
                     ) : (
@@ -2642,18 +2741,21 @@ export default function EmployeesPage() {
                             <TableHead>Designation</TableHead>
                             <TableHead>Status</TableHead>
                             <TableHead>Hours</TableHead>
+                            <TableHead>Shift</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {filteredAttendance.map((record) => {
                             const employee = employees.find(emp => emp.id === record.employeeId);
                             let hoursWorked = 'N/A';
+                            let shift = 'N/A';
                             
                             if (record.clockInTime && record.clockOutTime) {
                               const inTime = parseISO(record.clockInTime);
                               const outTime = parseISO(record.clockOutTime);
                               const hours = differenceInHours(outTime, inTime);
                               hoursWorked = `${hours} hours`;
+                              shift = getShiftType(record.clockInTime, record.clockOutTime);
                             }
                             
                             const StatusIcon = statusInfo[record.status as keyof typeof statusInfo]?.icon || Clock;
@@ -2705,6 +2807,11 @@ export default function EmployeesPage() {
                                   </Badge>
                                 </TableCell>
                                 <TableCell>{hoursWorked}</TableCell>
+                                <TableCell>
+                                  <Badge variant={shift === 'Full' ? 'default' : shift === 'Half' ? 'secondary' : 'outline'}>
+                                    {shift}
+                                  </Badge>
+                                </TableCell>
                               </TableRow>
                             );
                           })}
