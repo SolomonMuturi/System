@@ -855,7 +855,7 @@ const generateWarehouseGRN = async (record: CountingRecord) => {
     
 
     
-    yPos += 75;
+    yPos += 100;
     
     if (record.bank_name || record.bank_account || record.kra_pin) {
       doc.setFillColor(249, 250, 251);
