@@ -30,6 +30,8 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  // Add this to disable dev indicators
+  devIndicators: false,
 };
 
 export default nextConfig;
