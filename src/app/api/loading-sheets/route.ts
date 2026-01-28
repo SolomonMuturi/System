@@ -120,7 +120,6 @@ export async function GET(request: NextRequest) {
 }
 
 // POST: Create a new loading sheet
-// POST: Create a new loading sheet
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -200,7 +199,7 @@ export async function POST(request: NextRequest) {
         },
         select: {
           id: true,
-          pallet_name: true, // Changed from pallet_no to pallet_name
+          pallet_name: true,
           loading_sheet_id: true
         }
       });
@@ -273,10 +272,10 @@ export async function POST(request: NextRequest) {
           id: palletId,
           loading_sheet_id: loadingSheet.id,
           pallet_no: index + 1,
-          temp: pallet.variety || '', // Store variety in temp field
-          trace_code: pallet.box_type || '', // Store box_type in trace_code
-          size24: quantity, // Store quantity in size24
-          total: quantity, // Also store in total
+          temp: pallet.variety || '',
+          trace_code: pallet.box_type || '',
+          size24: quantity,
+          total: quantity,
           
           // Store additional cold room info if available
           cold_room_id: pallet.coldRoomId || '',
@@ -317,7 +316,7 @@ export async function POST(request: NextRequest) {
           },
           data: {
             loading_sheet_id: loadingSheet.id,
-            last_updated: new Date() // Use last_updated instead of updated_at
+            last_updated: new Date()
           }
         });
         
@@ -366,6 +365,114 @@ export async function POST(request: NextRequest) {
         details: errorMessage,
         code: error.code,
         suggestion: error.code === 'P2000' ? 'Try saving with shorter field values.' : undefined
+      },
+      { status: 500 }
+    );
+  }
+}
+
+// GET: Fetch specific loading sheet details by ID
+export async function GET_BY_ID(request: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    const id = params.id;
+    console.log(`📋 Loading Sheets API: Fetching loading sheet ${id}...`);
+    
+    if (!id) {
+      return NextResponse.json(
+        { success: false, error: 'Missing loading sheet ID' },
+        { status: 400 }
+      );
+    }
+
+    // Fetch loading sheet with pallets
+    const loadingSheet = await prisma.loading_sheets.findUnique({
+      where: { id },
+      include: {
+        loading_pallets: {
+          orderBy: { pallet_no: 'asc' }
+        },
+        assigned_carrier: true
+      }
+    });
+
+    if (!loadingSheet) {
+      return NextResponse.json(
+        { success: false, error: 'Loading sheet not found' },
+        { status: 404 }
+      );
+    }
+
+    console.log(`✅ Found loading sheet: ${loadingSheet.bill_number || loadingSheet.id}`);
+
+    return NextResponse.json({
+      success: true,
+      data: loadingSheet
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error fetching loading sheet:', error);
+    return NextResponse.json(
+      { 
+        success: false,
+        error: 'Failed to fetch loading sheet', 
+        details: error.message 
+      },
+      { status: 500 }
+    );
+  }
+}
+
+// GET: Fetch pallets for a specific loading sheet
+export async function GET_PALLETS(request: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    const id = params.id;
+    console.log(`📦 Loading Sheets API: Fetching pallets for loading sheet ${id}...`);
+    
+    if (!id) {
+      return NextResponse.json(
+        { success: false, error: 'Missing loading sheet ID' },
+        { status: 400 }
+      );
+    }
+
+    // Check if loading sheet exists
+    const loadingSheet = await prisma.loading_sheets.findUnique({
+      where: { id },
+      select: { id: true, bill_number: true, client: true }
+    });
+
+    if (!loadingSheet) {
+      return NextResponse.json(
+        { success: false, error: 'Loading sheet not found' },
+        { status: 404 }
+      );
+    }
+
+    // Fetch pallets for this loading sheet
+    const pallets = await prisma.loading_pallets.findMany({
+      where: { loading_sheet_id: id },
+      orderBy: { pallet_no: 'asc' }
+    });
+
+    console.log(`✅ Found ${pallets.length} pallets for loading sheet ${id}`);
+
+    return NextResponse.json({
+      success: true,
+      data: pallets,
+      loadingSheet: {
+        id: loadingSheet.id,
+        bill_number: loadingSheet.bill_number,
+        client: loadingSheet.client
+      }
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error fetching pallets:', error);
+    return NextResponse.json(
+      { 
+        success: false,
+        error: 'Failed to fetch pallets', 
+        details: error.message 
       },
       { status: 500 }
     );
@@ -499,10 +606,10 @@ export async function PUT(request: NextRequest) {
               id: palletId,
               loading_sheet_id: id,
               pallet_no: pallet.palletNo || index + 1,
-              temp: pallet.variety || '', // Store variety in temp field
-              trace_code: pallet.box_type || '', // Store box_type in trace_code
-              size24: quantity, // Store quantity in size24
-              total: quantity, // Also store in total
+              temp: pallet.variety || '',
+              trace_code: pallet.box_type || '',
+              size24: quantity,
+              total: quantity,
               
               // Set other size fields to 0
               size12: 0,
@@ -856,8 +963,7 @@ export async function GET_DOWNLOAD(request: NextRequest) {
   }
 }
 
-// POST: Mark pallets as assigned (separate endpoint for frontend)
-// POST: Mark pallets as assigned (separate endpoint for frontend)
+// POST: Mark pallets as assigned
 export async function POST_ASSIGN_PALLETS(request: NextRequest) {
   try {
     const body = await request.json();
@@ -908,7 +1014,7 @@ export async function POST_ASSIGN_PALLETS(request: NextRequest) {
       },
       select: {
         id: true,
-        pallet_name: true, // Changed from pallet_no to pallet_name
+        pallet_name: true,
         loading_sheet_id: true
       }
     });
@@ -936,7 +1042,7 @@ export async function POST_ASSIGN_PALLETS(request: NextRequest) {
       },
       data: {
         loading_sheet_id: body.loadingSheetId,
-        last_updated: new Date() // Use last_updated instead of updated_at
+        last_updated: new Date()
       }
     });
 
