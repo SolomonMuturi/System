@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useEffect, Suspense } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import {
   SidebarProvider,
   Sidebar,
@@ -25,12 +25,23 @@ import {
 } from '@/components/ui/card';
 import dynamic from 'next/dynamic';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useSearchParams } from 'next/navigation';
+import { Suspense } from 'react';
 
-export default function TraceabilityPage() {
-  const searchParams = useSearchParams();
-  const [shipmentId, setShipmentId] = useState(searchParams.get('shipmentId') || '');
+// Create a separate component that uses URL params
+function TraceabilityContent() {
+  const [shipmentId, setShipmentId] = useState('');
   const [currentShipment, setCurrentShipment] = useState<ShipmentDetails | null>(null);
+
+  // Get shipmentId from URL on client side
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const urlShipmentId = params.get('shipmentId');
+      if (urlShipmentId) {
+        setShipmentId(urlShipmentId);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     if (shipmentId) {
@@ -60,85 +71,99 @@ export default function TraceabilityPage() {
   const route: [number, number][] = [originCoords, destCoords];
 
   return (
-    <Suspense fallback={<div className="flex items-center justify-center h-screen">Loading traceability...</div>}>
-      <SidebarProvider>
-        <Sidebar>
-          <SidebarHeader>
-            <div className="flex items-center gap-2 p-2">
-              <FreshTraceLogo className="w-8 h-8 text-primary" />
-              <h1 className="text-xl font-headline font-bold text-sidebar-foreground">
-                Harir International
-              </h1>
+    <SidebarProvider>
+      <Sidebar>
+        <SidebarHeader>
+          <div className="flex items-center gap-2 p-2">
+            <FreshTraceLogo className="w-8 h-8 text-primary" />
+            <h1 className="text-xl font-headline font-bold text-sidebar-foreground">
+              Harir International
+            </h1>
+          </div>
+        </SidebarHeader>
+        <SidebarContent>
+          <SidebarNav />
+        </SidebarContent>
+      </Sidebar>
+      <SidebarInset>
+        <Header />
+        <main className="p-4 md:p-6 lg:p-8">
+            <div className="flex items-center justify-between mb-6">
+                <div>
+                    <h2 className="text-2xl font-bold tracking-tight">
+                        Shipment Traceability
+                    </h2>
+                    <p className="text-muted-foreground">
+                        Track and trace shipments from origin to destination.
+                    </p>
+                </div>
+                <div className="flex w-full max-w-sm items-center space-x-2">
+                    <Input 
+                      type="text" 
+                      placeholder="Enter Shipment ID (e.g., SH-88120)" 
+                      value={shipmentId}
+                      onChange={(e) => setShipmentId(e.target.value)}
+                    />
+                    <Button type="submit">
+                        <Search className="mr-2 h-4 w-4" />
+                        Track
+                    </Button>
+                </div>
             </div>
-          </SidebarHeader>
-          <SidebarContent>
-            <SidebarNav />
-          </SidebarContent>
-        </Sidebar>
-        <SidebarInset>
-          <Header />
-          <main className="p-4 md:p-6 lg:p-8">
-              <div className="flex items-center justify-between mb-6">
-                  <div>
-                      <h2 className="text-2xl font-bold tracking-tight">
-                          Shipment Traceability
-                      </h2>
-                      <p className="text-muted-foreground">
-                          Track and trace shipments from origin to destination.
-                      </p>
+            
+            {currentShipment ? (
+              <div className="grid gap-6 md:gap-8 grid-cols-12">
+                  <div className="col-span-12 lg:col-span-4">
+                      <ShipmentTimeline shipment={currentShipment} />
                   </div>
-                  <div className="flex w-full max-w-sm items-center space-x-2">
-                      <Input 
-                        type="text" 
-                        placeholder="Enter Shipment ID (e.g., SH-88120)" 
-                        value={shipmentId}
-                        onChange={(e) => setShipmentId(e.target.value)}
-                      />
-                      <Button type="submit">
-                          <Search className="mr-2 h-4 w-4" />
-                          Track
-                      </Button>
+                  <div className="col-span-12 lg:col-span-8">
+                      <Card className="h-full">
+                      <CardHeader>
+                          <CardTitle>Route Overview</CardTitle>
+                          <CardDescription>
+                          From{' '}
+                          <span className="font-medium text-primary">{currentShipment.origin}</span>{' '}
+                          to{' '}
+                          <span className="font-medium text-primary">
+                              {currentShipment.destination}
+                          </span>
+                          </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                          <div className="relative aspect-[16/10] w-full overflow-hidden rounded-lg">
+                          <ShipmentMap
+                              origin={originCoords}
+                              destination={destCoords}
+                              route={route}
+                          />
+                          </div>
+                      </CardContent>
+                      </Card>
                   </div>
               </div>
-              
-              {currentShipment ? (
-                <div className="grid gap-6 md:gap-8 grid-cols-12">
-                    <div className="col-span-12 lg:col-span-4">
-                        <ShipmentTimeline shipment={currentShipment} />
-                    </div>
-                    <div className="col-span-12 lg:col-span-8">
-                        <Card className="h-full">
-                        <CardHeader>
-                            <CardTitle>Route Overview</CardTitle>
-                            <CardDescription>
-                            From{' '}
-                            <span className="font-medium text-primary">{currentShipment.origin}</span>{' '}
-                            to{' '}
-                            <span className="font-medium text-primary">
-                                {currentShipment.destination}
-                            </span>
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                            <div className="relative aspect-[16/10] w-full overflow-hidden rounded-lg">
-                            <ShipmentMap
-                                origin={originCoords}
-                                destination={destCoords}
-                                route={route}
-                            />
-                            </div>
-                        </CardContent>
-                        </Card>
-                    </div>
-                </div>
-              ) : (
-                <Card className="flex items-center justify-center h-96">
-                  <p className="text-muted-foreground">Enter a Shipment ID to see tracking details.</p>
-                </Card>
-              )}
-          </main>
-        </SidebarInset>
-      </SidebarProvider>
+            ) : (
+              <Card className="flex items-center justify-center h-96">
+                <p className="text-muted-foreground">Enter a Shipment ID to see tracking details.</p>
+              </Card>
+            )}
+        </main>
+      </SidebarInset>
+    </SidebarProvider>
+  );
+}
+
+// Main component with Suspense boundary
+export default function TraceabilityPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-center">
+          <h2 className="text-2xl font-bold">Loading Traceability...</h2>
+          <p className="text-muted-foreground">Please wait while we load the traceability system.</p>
+        </div>
+      </div>
+    }>
+      <TraceabilityContent />
     </Suspense>
   );
 }
