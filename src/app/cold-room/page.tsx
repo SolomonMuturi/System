@@ -2477,11 +2477,11 @@ export default function ColdRoomPage() {
                                           <span className="text-xs font-medium w-10 text-right">
                                             {progress}%
                                           </span>
-                                        </div>
+                                        </div>  
                                         <div className="text-xs text-gray-500 mt-1">
                                           {remainingBoxes} remaining of {totalBoxes + loadedBoxes} total
                                         </div>
-                                      </TableCell>
+                                      </TableCell> 
                                       <TableCell>
                                         <div className="text-sm">{formatDate(record.submitted_at)}</div>
                                       </TableCell>
