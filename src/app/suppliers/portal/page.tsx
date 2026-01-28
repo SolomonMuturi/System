@@ -1,8 +1,6 @@
-
 'use client';
 
-import { useSearchParams } from 'next/navigation';
-import { useMemo, useState } from 'react';
+import { Suspense, useMemo, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { FreshTraceLogo } from '@/components/icons';
 import { Button } from '@/components/ui/button';
@@ -18,10 +16,19 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
 
-export default function SupplierPortalPage() {
-  const searchParams = useSearchParams();
-  const router = useRouter();
+// Create a separate component that uses useSearchParams
+function SupplierPortalContent() {
   const { toast } = useToast();
+  const router = useRouter();
+  
+  // Use URLSearchParams from window.location instead of useSearchParams
+  const [searchParams] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return new URLSearchParams(window.location.search);
+    }
+    return new URLSearchParams();
+  });
+  
   const supplierId = searchParams.get('supplierId');
   const supplier = useMemo(() => supplierData.find(s => s.id === supplierId), [supplierId]);
 
@@ -294,5 +301,21 @@ export default function SupplierPortalPage() {
             </div>
         </main>
     </div>
+  );
+}
+
+// Main component with Suspense boundary
+export default function SupplierPortalPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex h-screen w-full items-center justify-center bg-muted/40">
+        <div className="text-center">
+          <h2 className="text-2xl font-bold">Loading Supplier Portal...</h2>
+          <p className="text-muted-foreground">Please wait while we load your supplier information.</p>
+        </div>
+      </div>
+    }>
+      <SupplierPortalContent />
+    </Suspense>
   );
 }
