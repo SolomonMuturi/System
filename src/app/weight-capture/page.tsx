@@ -75,14 +75,14 @@ interface WeightEntry {
 
 interface CheckedInSupplier {
   id: string;
-  supplier_code: string;
-  company_name: string; 
-  driver_name: string;
-  phone_number: string;
-  id_number: string;
-  vehicle_plate: string;
-  fruit_varieties: string[];
-  region: string;
+  supplier_code?: string;
+  company_name?: string;
+  driver_name?: string;
+  phone_number?: string;
+  id_number?: string;
+  vehicle_plate?: string;
+  fruit_varieties?: string[];
+  region?: string;
   check_in_time: string;
   status?: 'pending' | 'weighed';
 }
@@ -851,100 +851,151 @@ const safeFormatTime = (dateString: string) => {
   };
 
   // Generate CSV data
-  const generateCSVData = (weights: WeightEntry[]) => {
-    const supplierMap = new Map<string, any>();
+// Generate CSV data with row totals
+const generateCSVData = (weights: WeightEntry[]) => {
+  const supplierMap = new Map<string, any>();
+  
+  weights.forEach(entry => {
+    const date = new Date(entry.created_at).toISOString().split('T')[0];
+    const supplierKey = entry.supplier || entry.driver_name || 'Unknown';
+    const phoneKey = entry.supplier_phone || entry.driver_phone || '';
+    const vehicleKey = entry.vehicle_plate || '';
+    const regionKey = entry.region || '';
     
-    weights.forEach(entry => {
-      const date = new Date(entry.created_at).toISOString().split('T')[0];
-      const supplierKey = entry.supplier || entry.driver_name || 'Unknown';
-      const phoneKey = entry.supplier_phone || entry.driver_phone || '';
-      const vehicleKey = entry.vehicle_plate || '';
-      const regionKey = entry.region || '';
-      
-      const key = `${date}_${supplierKey}_${vehicleKey}`;
-      
-      if (!supplierMap.has(key)) {
-        supplierMap.set(key, {
-          date,
-          supplier_name: supplierKey,
-          phone_number: phoneKey,
-          vehicle_plate_number: vehicleKey,
-          fuerte_weight: 0,
-          hass_weight: 0,
-          fuerte_crates_in: 0,
-          hass_crates_in: 0,
-          region: regionKey
-        });
-      }
-      
-      const row = supplierMap.get(key)!;
-      
-      row.fuerte_weight += entry.fuerte_weight || 0;
-      row.fuerte_crates_in += entry.fuerte_crates || 0;
-      row.hass_weight += entry.hass_weight || 0;
-      row.hass_crates_in += entry.hass_crates || 0;
-    });
+    const key = `${date}_${supplierKey}_${vehicleKey}`;
     
-    return Array.from(supplierMap.values());
-  };
-
-  // Download CSV
-  const downloadCSV = (weights: WeightEntry[], date: Date) => {
-    const csvData = generateCSVData(weights);
-    
-    if (csvData.length === 0) {
-      toast({
-        title: 'No Data',
-        description: 'No data available to download for the selected date.',
-        variant: 'destructive',
+    if (!supplierMap.has(key)) {
+      supplierMap.set(key, {
+        date,
+        supplier_name: supplierKey,
+        phone_number: phoneKey,
+        vehicle_plate_number: vehicleKey,
+        fuerte_weight: 0,
+        hass_weight: 0,
+        total_weight: 0,
+        fuerte_crates_in: 0,
+        hass_crates_in: 0,
+        total_crates: 0,
+        region: regionKey
       });
-      return;
     }
     
-    const headers = [
-      'Date',
-      'Supplier Name',
-      'Phone Number',
-      'Vehicle Plate Number',
-      'Fuerte Weight (kg)',
-      'Hass Weight (kg)',
-      'Fuerte Crates In',
-      'Hass Crates In',
-      'Region'
-    ];
+    const row = supplierMap.get(key)!;
     
-    const rows = csvData.map(row => [
-      row.date,
-      `"${row.supplier_name}"`,
-      `"${row.phone_number}"`,
-      `"${row.vehicle_plate_number}"`,
-      row.fuerte_weight.toFixed(2),
-      row.hass_weight.toFixed(2),
-      row.fuerte_crates_in,
-      row.hass_crates_in,
-      `"${row.region}"`
-    ]);
-    
-    const csvContent = [
-      headers.join(','),
-      ...rows.map(row => row.join(','))
-    ].join('\n');
-    
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', `weight_data_${format(date, 'yyyy-MM-dd')}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    
+    row.fuerte_weight += entry.fuerte_weight || 0;
+    row.fuerte_crates_in += entry.fuerte_crates || 0;
+    row.hass_weight += entry.hass_weight || 0;
+    row.hass_crates_in += entry.hass_crates || 0;
+    row.total_weight = row.fuerte_weight + row.hass_weight;
+    row.total_crates = row.fuerte_crates_in + row.hass_crates_in;
+  });
+  
+  return Array.from(supplierMap.values());
+};
+
+// Download CSV with totals row
+const downloadCSV = (weights: WeightEntry[], date: Date) => {
+  const csvData = generateCSVData(weights);
+  
+  if (csvData.length === 0) {
     toast({
-      title: 'CSV Downloaded',
-      description: `Weight data for ${format(date, 'MMMM d, yyyy')} has been downloaded.`,
+      title: 'No Data',
+      description: 'No data available to download for the selected date.',
+      variant: 'destructive',
     });
-  };
+    return;
+  }
+  
+  // Calculate totals
+  const totals = csvData.reduce((acc, row) => {
+    return {
+      totalFuerteWeight: acc.totalFuerteWeight + (row.fuerte_weight || 0),
+      totalHassWeight: acc.totalHassWeight + (row.hass_weight || 0),
+      totalFuerteCrates: acc.totalFuerteCrates + (row.fuerte_crates_in || 0),
+      totalHassCrates: acc.totalHassCrates + (row.hass_crates_in || 0),
+      totalWeight: acc.totalWeight + (row.fuerte_weight || 0) + (row.hass_weight || 0)
+    };
+  }, {
+    totalFuerteWeight: 0,
+    totalHassWeight: 0,
+    totalFuerteCrates: 0,
+    totalHassCrates: 0,
+    totalWeight: 0
+  });
+  
+  const headers = [
+    'Date',
+    'Supplier Name',
+    'Phone Number',
+    'Vehicle Plate Number',
+    'Fuerte Weight (kg)',
+    'Hass Weight (kg)',
+    'Fuerte Crates In',
+    'Hass Crates In',
+    'Region'
+  ];
+  
+  const rows = csvData.map(row => [
+    row.date,
+    `"${row.supplier_name}"`,
+    `"${row.phone_number}"`,
+    `"${row.vehicle_plate_number}"`,
+    row.fuerte_weight.toFixed(2),
+    row.hass_weight.toFixed(2),
+    row.fuerte_crates_in,
+    row.hass_crates_in,
+    `"${row.region}"`
+  ]);
+  
+  // Add empty row before totals
+  rows.push(['', '', '', '', '', '', '', '', '']);
+  
+  // Add totals row
+  rows.push([
+    'TOTALS',
+    '',
+    '',
+    '',
+    totals.totalFuerteWeight.toFixed(2),
+    totals.totalHassWeight.toFixed(2),
+    totals.totalFuerteCrates,
+    totals.totalHassCrates,
+    ''
+  ]);
+  
+  // Add grand total row for total fruits weight
+  rows.push([
+    'GRAND TOTAL',
+    '',
+    '',
+    '',
+    'Total Fruits Weight:',
+    totals.totalWeight.toFixed(2) + ' kg',
+    '',
+    '',
+    ''
+  ]);
+  
+  const csvContent = [
+    headers.join(','),
+    ...rows.map(row => row.join(','))
+  ].join('\n');
+  
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  const url = URL.createObjectURL(blob);
+  link.setAttribute('href', url);
+  link.setAttribute('download', `weight_data_${format(date, 'yyyy-MM-dd')}.csv`);
+  link.style.visibility = 'hidden';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  
+  toast({
+    title: 'CSV Downloaded',
+    description: `Weight data for ${format(date, 'MMMM d, yyyy')} has been downloaded with totals.`,
+  });
+};
 
   // Download Supplier GRN
   const downloadSupplierGRN = async (supplierId: string) => {
@@ -2165,14 +2216,14 @@ const safeFormatTime = (dateString: string) => {
                       )}
                     </div>
 
-                    {/* Export Summary */}
+                    {/* Updated Export Summary */}
                     {filteredHistoryWeights.length > 0 && (
                       <Card>
                         <CardHeader>
                           <CardTitle className="text-sm">Export Summary</CardTitle>
                         </CardHeader>
                         <CardContent>
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-4">
                             <div className="text-center">
                               <div className="text-2xl font-bold text-blue-600">
                                 {new Set(filteredHistoryWeights.map(w => w.supplier_id)).size}
@@ -2187,24 +2238,58 @@ const safeFormatTime = (dateString: string) => {
                             </div>
                             <div className="text-center">
                               <div className="text-2xl font-bold text-green-600">
-                                {(filteredHistoryWeights.reduce((sum, w) => sum + (w.fuerte_weight || 0) + (w.hass_weight || 0), 0) / 1000).toFixed(1)} t
+                                {(filteredHistoryWeights.reduce((sum, w) => sum + (w.fuerte_weight || 0), 0) / 1000).toFixed(1)} t
                               </div>
-                              <div className="text-sm text-gray-600">Total Weight</div>
+                              <div className="text-sm text-gray-600">Fuerte Weight</div>
+                            </div>
+                            <div className="text-center">
+                              <div className="text-2xl font-bold text-green-600">
+                                {(filteredHistoryWeights.reduce((sum, w) => sum + (w.hass_weight || 0), 0) / 1000).toFixed(1)} t
+                              </div>
+                              <div className="text-sm text-gray-600">Hass Weight</div>
                             </div>
                             <div className="text-center">
                               <div className="text-2xl font-bold text-purple-600">
-                                {new Set(filteredHistoryWeights.map(w => w.region)).size}
+                                {filteredHistoryWeights.reduce((sum, w) => sum + (w.fuerte_crates || 0), 0)}
                               </div>
-                              <div className="text-sm text-gray-600">Regions</div>
+                              <div className="text-sm text-gray-600">Fuerte Crates</div>
+                            </div>
+                            <div className="text-center">
+                              <div className="text-2xl font-bold text-purple-600">
+                                {filteredHistoryWeights.reduce((sum, w) => sum + (w.hass_crates || 0), 0)}
+                              </div>
+                              <div className="text-sm text-gray-600">Hass Crates</div>
                             </div>
                           </div>
-                          <div className="mt-4 flex justify-center">
+                          
+                          <div className="bg-black-50 p-4 rounded-lg mb-4">
+                            <div className="flex justify-between items-center">
+                              <div>
+                                <div className="text-lg font-bold">
+                                  Total Fruits Weight: {(filteredHistoryWeights.reduce((sum, w) => sum + (w.fuerte_weight || 0) + (w.hass_weight || 0), 0) / 1000).toFixed(1)} tons
+                                </div>
+                                <div className="text-sm text-gray-600">
+                                  Total Crates: {filteredHistoryWeights.reduce((sum, w) => sum + (w.fuerte_crates || 0) + (w.hass_crates || 0), 0)}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div className="mt-4 flex justify-center gap-4">
                             <Button
                               onClick={() => historyDate && downloadCSV(filteredHistoryWeights, historyDate)}
                               className="gap-2"
                             >
                               <Download className="w-4 h-4" />
-                              Download All Data as CSV
+                              Download CSV with Totals
+                            </Button>
+                            <Button
+                              onClick={() => historyDate && downloadEnhancedCSV(filteredHistoryWeights, historyDate)}
+                              className="gap-2"
+                              variant="outline"
+                            >
+                              <Download className="w-4 h-4" />
+                              Enhanced CSV
                             </Button>
                           </div>
                         </CardContent>
