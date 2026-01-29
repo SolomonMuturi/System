@@ -22,7 +22,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { CreateSupplierGateForm, type SupplierFormValues } from '@/components/dashboard/create-supplier-gate-form';
-import { Truck, QrCode, Printer, DoorOpen, Loader2, RefreshCw, CheckCircle, Clock, Calendar, CheckCheck, Package, Fuel, Gauge, AlertCircle, Download } from 'lucide-react';
+import { Truck, QrCode, Printer, DoorOpen, Loader2, RefreshCw, CheckCircle, Clock, Calendar, CheckCheck, Package, Fuel, Gauge, AlertCircle, Download, Search, X } from 'lucide-react';
 import { GatePassDialog } from '@/components/dashboard/gate-pass-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { RegistrationSuccess } from '@/components/dashboard/registration-success';
@@ -38,6 +38,7 @@ import { PrintableVehicleReport } from '@/components/dashboard/printable-vehicle
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar as CalendarComponent } from '@/components/ui/calendar';
 import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 
 // Supplier Vehicle type definition
 interface SupplierVehicle {
@@ -68,6 +69,8 @@ type DateRange = {
 
 export default function VehicleManagementPage() {
   const [vehicles, setVehicles] = useState<SupplierVehicle[]>([]);
+  const [filteredVehicles, setFilteredVehicles] = useState<SupplierVehicle[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
   const [isRegisterDialogOpen, setIsRegisterDialogOpen] = useState(false);
   const [isGatePassOpen, setIsGatePassOpen] = useState(false);
   const [selectedVehicle, setSelectedVehicle] = useState<SupplierVehicle | null>(null);
@@ -89,6 +92,25 @@ export default function VehicleManagementPage() {
   useEffect(() => {
     fetchSupplierVehicles();
   }, []);
+
+  // Update filtered vehicles when vehicles or search query changes
+  useEffect(() => {
+    if (searchQuery.trim() === '') {
+      setFilteredVehicles(vehicles);
+    } else {
+      const query = searchQuery.toLowerCase();
+      const filtered = vehicles.filter(vehicle => 
+        vehicle.driverName.toLowerCase().includes(query) ||
+        vehicle.company.toLowerCase().includes(query) ||
+        vehicle.vehiclePlate.toLowerCase().includes(query) ||
+        vehicle.vehicleCode.toLowerCase().includes(query) ||
+        vehicle.phone.toLowerCase().includes(query) ||
+        vehicle.status.toLowerCase().includes(query) ||
+        vehicle.vehicleType.toLowerCase().includes(query)
+      );
+      setFilteredVehicles(filtered);
+    }
+  }, [vehicles, searchQuery]);
 
   const fetchSupplierVehicles = async () => {
     try {
@@ -122,7 +144,7 @@ export default function VehicleManagementPage() {
         email: supplier.contact_email || '',
         phone: supplier.contact_phone || '',
         vehiclePlate: supplier.vehicle_number_plate || '',
-        vehicleType: 'Truck', // Default for suppliers
+        vehicleType: supplier.vehicle_type || 'Truck',
         cargoDescription: supplier.produce_types ? 
           (Array.isArray(supplier.produce_types) ? 
             supplier.produce_types.join(', ') : 
@@ -140,6 +162,7 @@ export default function VehicleManagementPage() {
       
       console.log(`🚚 Converted ${convertedVehicles.length} supplier vehicles`);
       setVehicles(convertedVehicles);
+      setFilteredVehicles(convertedVehicles);
       
     } catch (error: any) {
       console.error('❌ Error fetching supplier vehicles:', error);
@@ -152,6 +175,7 @@ export default function VehicleManagementPage() {
       });
       
       setVehicles([]);
+      setFilteredVehicles([]);
     } finally {
       setIsLoading(false);
     }
@@ -178,6 +202,14 @@ export default function VehicleManagementPage() {
     }
   };
 
+  const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(e.target.value);
+  };
+
+  const clearSearch = () => {
+    setSearchQuery('');
+  };
+
   // Handle form submission - saves to SUPPLIERS database
   const handleAddVehicle = async (values: SupplierFormValues) => {
     try {
@@ -188,17 +220,18 @@ export default function VehicleManagementPage() {
       
       // Prepare data for API based on your supplier form fields
       const vehicleData = {
-        name: values.company || `${values.driverName}'s Transport`,
+        name: values.company || `${values.driverName}`,
         contact_name: values.driverName,
         contact_phone: values.phoneNumber,
         supplier_code: vehicleCode,
         location: 'Gate Registration',
-        produce_types: ['Vehicle Delivery'],
+        produce_types: ['Avocado Delivery'],
         status: 'Active',
         vehicle_number_plate: values.vehicleRegNo,
+        vehicle_type: values.vehicleType,
         driver_name: values.driverName,
         driver_id_number: values.idNumber,
-        vehicle_status: 'Pre-registered', // Initial vehicle status
+        vehicle_status: 'Pre-registered',
       };
 
       console.log('📤 Sending to suppliers API:', vehicleData);
@@ -235,12 +268,12 @@ export default function VehicleManagementPage() {
         vehicleCode: savedSupplier.supplier_code || vehicleCode,
         driverName: savedSupplier.driver_name || values.driverName,
         idNumber: savedSupplier.driver_id_number || values.idNumber,
-        company: savedSupplier.name || values.company || `${values.driverName}'s Transport`,
+        company: savedSupplier.name || values.company || `${values.driverName}`,
         email: savedSupplier.contact_email || '',
         phone: savedSupplier.contact_phone || values.phoneNumber,
         vehiclePlate: savedSupplier.vehicle_number_plate || values.vehicleRegNo,
-        vehicleType: 'Truck',
-        cargoDescription: 'Vehicle Delivery',
+        vehicleType: savedSupplier.vehicle_type || values.vehicleType,
+        cargoDescription: 'Avocado Delivery',
         vehicleTypeCategory: 'supplier',
         status: 'Pre-registered',
         expectedCheckInTime: savedSupplier.created_at || new Date().toISOString(),
@@ -250,6 +283,7 @@ export default function VehicleManagementPage() {
       };
       
       setVehicles(prev => [newVehicle, ...prev]);
+      setFilteredVehicles(prev => [newVehicle, ...prev]);
       setNewlyRegisteredVehicle(newVehicle);
       
       toast({
@@ -289,10 +323,13 @@ export default function VehicleManagementPage() {
       const vehicle = vehicles.find(v => v.id === vehicleId);
       if (!vehicle) return;
 
-      if (vehicle.status !== 'Pre-registered') {
+      // Allow re-checking in for vehicles that are checked out
+      // Vehicles can be checked in if they are: Pre-registered OR Checked-out
+      const allowedStatuses = ['Pre-registered', 'Checked-out'];
+      if (!allowedStatuses.includes(vehicle.status)) {
         toast({
           title: 'Cannot Check In',
-          description: `Vehicle ${vehicle.driverName} is already ${vehicle.status.toLowerCase()}.`,
+          description: `Vehicle ${vehicle.driverName} is currently ${vehicle.status.toLowerCase()}. Can only check in when status is Pre-registered or Checked-out.`,
           variant: 'destructive',
         });
         return;
@@ -308,6 +345,7 @@ export default function VehicleManagementPage() {
         body: JSON.stringify({
           vehicle_status: 'Checked-in',
           vehicle_check_in_time: checkInTime,
+          vehicle_check_out_time: null, // Clear check-out time when checking in again
         }),
       });
 
@@ -322,9 +360,11 @@ export default function VehicleManagementPage() {
         ...vehicle,
         status: 'Checked-in',
         checkInTime: checkInTime,
+        checkOutTime: undefined, // Clear check-out time
       };
 
       setVehicles(prev => prev.map(v => v.id === vehicleId ? updatedVehicle : v));
+      setFilteredVehicles(prev => prev.map(v => v.id === vehicleId ? updatedVehicle : v));
       setSelectedVehicle(updatedVehicle);
       
       toast({
@@ -378,6 +418,7 @@ export default function VehicleManagementPage() {
         };
 
         setVehicles(prev => prev.map(v => v.id === vehicleId ? updatedVehicle : v));
+        setFilteredVehicles(prev => prev.map(v => v.id === vehicleId ? updatedVehicle : v));
         setSelectedVehicle(null);
         
         toast({
@@ -409,6 +450,7 @@ export default function VehicleManagementPage() {
         };
 
         setVehicles(prev => prev.map(v => v.id === vehicleId ? updatedVehicle : v));
+        setFilteredVehicles(prev => prev.map(v => v.id === vehicleId ? updatedVehicle : v));
         setSelectedVehicle(updatedVehicle);
         
         toast({
@@ -532,7 +574,6 @@ export default function VehicleManagementPage() {
         'Vehicle Code',
         'Driver Name',
         'ID Number',
-        'Company',
         'Phone',
         'Vehicle Plate',
         'Vehicle Type',
@@ -540,7 +581,6 @@ export default function VehicleManagementPage() {
         'Check-in Time',
         'Check-out Time',
         'Status',
-        'Expected Check-in Time',
         'Department'
       ];
       
@@ -548,15 +588,13 @@ export default function VehicleManagementPage() {
         'Vehicle Code': vehicle.vehicleCode,
         'Driver Name': vehicle.driverName,
         'ID Number': vehicle.idNumber,
-        'Company': vehicle.company,
         'Phone': vehicle.phone,
         'Vehicle Plate': vehicle.vehiclePlate || 'None',
         'Vehicle Type': vehicle.vehicleType,
-        'Cargo Description': vehicle.cargoDescription || '',
+        'Cargo Description': 'Avocado Delivery',
         'Check-in Time': vehicle.checkInTime ? format(parseISO(vehicle.checkInTime), 'yyyy-MM-dd HH:mm:ss') : 'N/A',
         'Check-out Time': vehicle.checkOutTime ? format(parseISO(vehicle.checkOutTime), 'yyyy-MM-dd HH:mm:ss') : 'N/A',
         'Status': vehicle.status,
-        'Expected Check-in Time': vehicle.expectedCheckInTime ? format(parseISO(vehicle.expectedCheckInTime), 'yyyy-MM-dd HH:mm:ss') : 'N/A',
         'Department': vehicle.department || ''
       }));
 
@@ -607,7 +645,6 @@ export default function VehicleManagementPage() {
         'Vehicle Code',
         'Driver Name',
         'ID Number',
-        'Company',
         'Phone',
         'Vehicle Plate',
         'Vehicle Type',
@@ -615,7 +652,6 @@ export default function VehicleManagementPage() {
         'Status',
         'Check-in Time',
         'Check-out Time',
-        'Expected Check-in Time',
         'Department'
       ];
       
@@ -623,15 +659,13 @@ export default function VehicleManagementPage() {
         'Vehicle Code': vehicle.vehicleCode,
         'Driver Name': vehicle.driverName,
         'ID Number': vehicle.idNumber,
-        'Company': vehicle.company,
         'Phone': vehicle.phone,
         'Vehicle Plate': vehicle.vehiclePlate || 'None',
         'Vehicle Type': vehicle.vehicleType,
-        'Cargo Description': vehicle.cargoDescription || '',
+        'Cargo Description': 'Avocado Delivery',
         'Status': vehicle.status,
         'Check-in Time': vehicle.checkInTime ? format(parseISO(vehicle.checkInTime), 'yyyy-MM-dd HH:mm:ss') : 'N/A',
         'Check-out Time': vehicle.checkOutTime ? format(parseISO(vehicle.checkOutTime), 'yyyy-MM-dd HH:mm:ss') : 'N/A',
-        'Expected Check-in Time': vehicle.expectedCheckInTime ? format(parseISO(vehicle.expectedCheckInTime), 'yyyy-MM-dd HH:mm:ss') : 'N/A',
         'Department': vehicle.department || ''
       }));
 
@@ -786,16 +820,16 @@ export default function VehicleManagementPage() {
                   ) : (
                     <Download className="h-4 w-4" />
                   )}
-                  Export All CSV
+                  Export All CSV ({vehicles.length})
                 </Button>
                 <Button 
                   variant="default"
                   onClick={() => selectedVehicle && handleCheckIn(selectedVehicle.id)}
-                  disabled={!selectedVehicle || selectedVehicle.status !== 'Pre-registered'}
+                  disabled={!selectedVehicle || !['Pre-registered', 'Checked-out'].includes(selectedVehicle.status)}
                   className="gap-2 bg-green-600 hover:bg-green-700"
                 >
                   <CheckCheck className="h-4 w-4" />
-                  Check In Selected
+                  {selectedVehicle?.status === 'Checked-out' ? 'Re-check In' : 'Check In Selected'}
                 </Button>
                 <Button 
                   variant="default"
@@ -855,8 +889,11 @@ export default function VehicleManagementPage() {
                         Selected Vehicle: {selectedVehicle.driverName} ({selectedVehicle.company})
                       </p>
                       <div className="text-sm text-blue-950">
-                        Plate: {selectedVehicle.vehiclePlate} • Status: 
-                        <Badge variant="outline" className="ml-2 bg-red-50 text-red-700 border-red-200">
+                        Plate: {selectedVehicle.vehiclePlate} • Type: {selectedVehicle.vehicleType} • Status: 
+                        <Badge variant="outline" className={`ml-2 ${selectedVehicle.status === 'Checked-out' ? 'bg-purple-50 text-purple-700 border-purple-200' : 
+                          selectedVehicle.status === 'Checked-in' ? 'bg-green-50 text-green-700 border-green-200' : 
+                          selectedVehicle.status === 'Pending Exit' ? 'bg-amber-50 text-amber-700 border-amber-200' : 
+                          'bg-red-50 text-red-700 border-red-200'}`}>
                           {selectedVehicle.status}
                         </Badge>
                       </div>
@@ -871,30 +908,32 @@ export default function VehicleManagementPage() {
                     Clear Selection
                   </Button>
                 </div>
-                {selectedVehicle.status === 'Pre-registered' && (
-                  <div className="mt-3 pt-3 border-t border-blue-200">
+                <div className="mt-3 pt-3 border-t border-blue-200">
+                  {selectedVehicle.status === 'Pre-registered' && (
                     <div className="text-sm text-blue-700">
                       <CheckCheck className="inline h-4 w-4 mr-1" />
                       Ready to check in. Click "Check In Selected" button above.
                     </div>
-                  </div>
-                )}
-                {selectedVehicle.status === 'Checked-in' && (
-                  <div className="mt-3 pt-3 border-t border-blue-200">
+                  )}
+                  {selectedVehicle.status === 'Checked-out' && (
+                    <div className="text-sm text-purple-700">
+                      <Truck className="inline h-4 w-4 mr-1" />
+                      Vehicle has checked out. Can be checked in again. Click "Re-check In" button above.
+                    </div>
+                  )}
+                  {selectedVehicle.status === 'Checked-in' && (
                     <div className="text-sm text-amber-700">
                       <DoorOpen className="inline h-4 w-4 mr-1" />
                       Ready to check out. Click "Check Out Now" button above.
                     </div>
-                  </div>
-                )}
-                {selectedVehicle.status === 'Pending Exit' && (
-                  <div className="mt-3 pt-3 border-t border-blue-200">
+                  )}
+                  {selectedVehicle.status === 'Pending Exit' && (
                     <div className="text-sm text-green-700">
                       <CheckCircle className="inline h-4 w-4 mr-1" />
                       Ready to verify exit. Click "Verify Exit" button above.
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             )}
 
@@ -939,14 +978,14 @@ export default function VehicleManagementPage() {
                 </CardContent>
               </Card>
 
-              <Card className="border-l-4 border-l-gray-500 shadow-sm hover:shadow-md transition-shadow">
+              <Card className="border-l-4 border-l-purple-500 shadow-sm hover:shadow-md transition-shadow">
                 <CardContent className="p-4">
                   <div className="flex flex-col">
-                    <p className="text-sm font-medium text-gray-500">Completed</p>
-                    <h3 className="text-2xl font-bold mt-1 text-white-900">{filteredCompletedVehicles.length}</h3>
+                    <p className="text-sm font-medium text-gray-500">Checked Out</p>
+                    <h3 className="text-2xl font-bold mt-1 text-white-900">{checkedOutVehicles.length}</h3>
                     <div className="flex items-center mt-1 text-sm text-gray-500">
-                      <CheckCircle className="h-4 w-4 mr-1 text-gray-500" />
-                      <span>Filtered</span>
+                      <Truck className="h-4 w-4 mr-1 text-purple-500" />
+                      <span>Available for re-check in</span>
                     </div>
                   </div>
                 </CardContent>
@@ -962,6 +1001,9 @@ export default function VehicleManagementPage() {
                     <Badge variant="outline" className="text-xs">
                       Total: {vehicles.length}
                     </Badge>
+                    <div className="text-xs text-gray-500 px-2 py-1 bg-gray-100 rounded">
+                      CSV Export: {vehicles.length} vehicles
+                    </div>
                   </div>
                 </div>
                 <Separator className="my-4" />
@@ -1003,18 +1045,68 @@ export default function VehicleManagementPage() {
                   {/* Overview Tab */}
                   <TabsContent value="overview" className="space-y-4 mt-6">
                     <div className="space-y-4">
-                      <div className="flex items-center justify-between">
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                         <div>
                           <h3 className="text-lg font-semibold">All Supplier Vehicles</h3>
                           <p className="text-sm text-gray-500">
                             Complete list of all supplier vehicles in the system
                           </p>
                         </div>
-                        <Badge variant="outline">
-                          {vehicles.length} Vehicles
-                        </Badge>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline">
+                            {filteredVehicles.length} Vehicles
+                          </Badge>
+                          <div className="text-xs text-gray-500 px-2 py-1 bg-blue-50 rounded">
+                            Showing {filteredVehicles.length} of {vehicles.length} records
+                          </div>
+                        </div>
                       </div>
-                      {vehicles.length === 0 ? (
+
+                      {/* Search Bar */}
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                        <Input
+                          placeholder="Search suppliers by driver name, company, vehicle plate, phone, or status..."
+                          value={searchQuery}
+                          onChange={handleSearch}
+                          className="pl-10 pr-10"
+                        />
+                        {searchQuery && (
+                          <button
+                            onClick={clearSearch}
+                            className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+
+                      {searchQuery && filteredVehicles.length === 0 && (
+                        <div className="bg-gray-50 p-4 rounded-lg border text-center">
+                          <p className="text-gray-600">
+                            No supplier vehicles found matching "{searchQuery}"
+                          </p>
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            onClick={clearSearch}
+                            className="mt-2"
+                          >
+                            Clear search
+                          </Button>
+                        </div>
+                      )}
+
+                      {searchQuery && filteredVehicles.length > 0 && (
+                        <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
+                          <div className="text-sm text-blue-700">
+                            <Search className="inline h-4 w-4 mr-1" />
+                            Found {filteredVehicles.length} vehicles matching "{searchQuery}"
+                          </div>
+                        </div>
+                      )}
+
+                      {filteredVehicles.length === 0 && vehicles.length === 0 ? (
                         <Card>
                           <CardContent className="p-8 text-center">
                             <Truck className="h-12 w-12 mx-auto text-gray-400 mb-4" />
@@ -1028,14 +1120,109 @@ export default function VehicleManagementPage() {
                             </Button>
                           </CardContent>
                         </Card>
+                      ) : filteredVehicles.length === 0 ? (
+                        <Card>
+                          <CardContent className="p-8 text-center">
+                            <Search className="h-12 w-12 mx-auto text-gray-400 mb-4" />
+                            <h3 className="text-lg font-semibold mb-2">No Matching Vehicles</h3>
+                            <p className="text-gray-500 mb-4">
+                              No supplier vehicles match your search criteria.
+                            </p>
+                            <Button 
+                              variant="outline" 
+                              onClick={clearSearch}
+                            >
+                              Clear Search
+                            </Button>
+                          </CardContent>
+                        </Card>
                       ) : (
-                        <VehicleDataTable 
-                          vehicles={vehicles}
-                          onCheckIn={handleCheckIn}
-                          onCheckOut={handleCheckOut}
-                          onRowClick={handleRowClick}
-                          selectedVehicleId={selectedVehicle?.id}
-                        />
+                        <>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                            <Card className="bg-blue-50 border-blue-100">
+                              <CardContent className="p-4">
+                                <p className="text-sm text-blue-700 font-medium">Showing</p>
+                                <p className="text-2xl font-bold text-blue-900">{filteredVehicles.length}</p>
+                                <p className="text-xs text-blue-600 mt-1">
+                                  of {vehicles.length} total vehicles
+                                </p>
+                              </CardContent>
+                            </Card>
+                            <Card className="bg-green-50 border-green-100">
+                              <CardContent className="p-4">
+                                <p className="text-sm text-green-700 font-medium">Status Breakdown</p>
+                                <div className="flex items-center justify-between mt-1">
+                                  <span className="text-xs text-green-700">Checked-in:</span>
+                                  <Badge variant="outline" className="text-xs text-green-700 bg-green-100">
+                                    {filteredVehicles.filter(v => v.status === 'Checked-in').length}
+                                  </Badge>
+                                </div>
+                                <div className="flex items-center justify-between mt-1">
+                                  <span className="text-xs text-green-700">Pre-registered:</span>
+                                  <Badge variant="outline" className="text-xs text-green-700 bg-amber-100">
+                                    {filteredVehicles.filter(v => v.status === 'Pre-registered').length}
+                                  </Badge>
+                                </div>
+                                <div className="flex items-center justify-between mt-1">
+                                  <span className="text- text-green-700">Checked-out:</span>
+                                  <Badge variant="outline" className="text- text-green-700 bg-purple-100">
+                                    {filteredVehicles.filter(v => v.status === 'Checked-out').length}
+                                  </Badge>
+                                </div>
+                              </CardContent>
+                            </Card>
+                            <Card className="bg-amber-50 border-amber-100">
+                              <CardContent className="p-4">
+                                <p className="text-sm text-amber-700 font-medium">Search Help</p>
+                                <p className="text-xs text-amber-600 mt-1">
+                                  Search by: driver name, company, vehicle plate, phone, status, or vehicle type
+                                </p>
+                                <div className="flex items-center gap-1 mt-2">
+                                  <Badge variant="outline" className="text-xs cursor-pointer text-amber-700 hover:bg-amber-100" onClick={() => setSearchQuery('Truck')}>
+                                    Probox
+                                  </Badge>
+                                  <Badge variant="outline" className="text-xs cursor-pointer text-amber-700 hover:bg-amber-100" onClick={() => setSearchQuery('Checked')}>
+                                    Checked
+                                  </Badge>
+                                  <Badge variant="outline" className="text-xs cursor-pointer text-amber-700 hover:bg-amber-100" onClick={() => setSearchQuery('Pending')}>
+                                    Pending
+                                  </Badge>
+                                </div>
+                              </CardContent>
+                            </Card>
+                            <Card className="bg-purple-50 border-purple-100">
+                              <CardContent className="p-4">
+                                <p className="text-sm text-purple-700 font-medium">Quick Actions</p>
+                                <div className="flex flex-col gap-2 mt-2">
+                                  <Button 
+                                    size="sm" 
+                                    variant="outline"
+                                    onClick={clearSearch}
+                                    className="text-xs"
+                                  >
+                                    Clear Search
+                                  </Button>
+                                  <Button 
+                                    size="sm" 
+                                    variant="outline"
+                                    onClick={() => setSearchQuery('Checked-out')}
+                                    className="text-xs"
+                                  >
+                                    Show Checked-out
+                                  </Button>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          </div>
+                          
+                          <VehicleDataTable 
+                            vehicles={filteredVehicles}
+                            onCheckIn={handleCheckIn}
+                            onCheckOut={handleCheckOut}
+                            onRowClick={handleRowClick}
+                            selectedVehicleId={selectedVehicle?.id}
+                          />
+                        </>
                       )}
                     </div>
                   </TabsContent>
@@ -1050,9 +1237,14 @@ export default function VehicleManagementPage() {
                             Supplier vehicles that are checked in and making deliveries
                           </p>
                         </div>
-                        <Badge variant="outline">
-                          {vehicles.filter(v => v.status === 'Checked-in').length} Active
-                        </Badge>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline">
+                            {vehicles.filter(v => v.status === 'Checked-in').length} Active
+                          </Badge>
+                          <div className="text-xs text-gray-500 px-2 py-1 bg-green-50 rounded">
+                            In Export: {vehicles.filter(v => v.status === 'Checked-in').length} records
+                          </div>
+                        </div>
                       </div>
                       {vehicles.filter(v => v.status === 'Checked-in').length === 0 ? (
                         <Card>
@@ -1065,13 +1257,21 @@ export default function VehicleManagementPage() {
                           </CardContent>
                         </Card>
                       ) : (
-                        <VehicleDataTable 
-                          vehicles={vehicles.filter(v => v.status === 'Checked-in')}
-                          onCheckIn={handleCheckIn}
-                          onCheckOut={handleCheckOut}
-                          onRowClick={handleRowClick}
-                          selectedVehicleId={selectedVehicle?.id}
-                        />
+                        <>
+                          <div className="bg-green-50 p-3 rounded-lg border border-green-200">
+                            <div className="text-sm text-green-700">
+                              <CheckCircle className="inline h-4 w-4 mr-1" />
+                              {vehicles.filter(v => v.status === 'Checked-in').length} active vehicles will be included in CSV export
+                            </div>
+                          </div>
+                          <VehicleDataTable 
+                            vehicles={vehicles.filter(v => v.status === 'Checked-in')}
+                            onCheckIn={handleCheckIn}
+                            onCheckOut={handleCheckOut}
+                            onRowClick={handleRowClick}
+                            selectedVehicleId={selectedVehicle?.id}
+                          />
+                        </>
                       )}
                     </div>
                   </TabsContent>
@@ -1086,9 +1286,14 @@ export default function VehicleManagementPage() {
                             Supplier vehicles awaiting exit verification
                           </p>
                         </div>
-                        <Badge variant="outline">
-                          {pendingExitVehicles.length} Pending
-                        </Badge>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline">
+                            {pendingExitVehicles.length} Pending
+                          </Badge>
+                          <div className="text-xs text-gray-500 px-2 py-1 bg-amber-50 rounded">
+                            In Export: {pendingExitVehicles.length} records
+                          </div>
+                        </div>
                       </div>
                       {pendingExitVehicles.length === 0 ? (
                         <Card>
@@ -1101,13 +1306,21 @@ export default function VehicleManagementPage() {
                           </CardContent>
                         </Card>
                       ) : (
-                        <VehicleDataTable 
-                          vehicles={pendingExitVehicles}
-                          onCheckIn={handleCheckIn}
-                          onCheckOut={handleCheckOut}
-                          onRowClick={handleRowClick}
-                          selectedVehicleId={selectedVehicle?.id}
-                        />
+                        <>
+                          <div className="bg-amber-50 p-3 rounded-lg border border-amber-200">
+                            <div className="text-sm text-amber-700">
+                              <Clock className="inline h-4 w-4 mr-1" />
+                              {pendingExitVehicles.length} pending vehicles will be included in CSV export
+                            </div>
+                          </div>
+                          <VehicleDataTable 
+                            vehicles={pendingExitVehicles}
+                            onCheckIn={handleCheckIn}
+                            onCheckOut={handleCheckOut}
+                            onRowClick={handleRowClick}
+                            selectedVehicleId={selectedVehicle?.id}
+                          />
+                        </>
                       )}
                     </div>
                   </TabsContent>
@@ -1138,7 +1351,7 @@ export default function VehicleManagementPage() {
                             ) : (
                               <Download className="h-4 w-4" />
                             )}
-                            Export CSV
+                            CSV ({filteredCompletedVehicles.length})
                           </Button>
                         </div>
                       </div>
@@ -1196,7 +1409,7 @@ export default function VehicleManagementPage() {
                                 </PopoverContent>
                               </Popover>
                               <p className="text-xs text-gray-500 mt-2">
-                                Showing vehicles that checked out between {format(historyDateRange.from, 'MMM dd, yyyy')} and {format(historyDateRange.to, 'MMM dd, yyyy')}
+                                Showing {filteredCompletedVehicles.length} vehicles that checked out between {format(historyDateRange.from, 'MMM dd, yyyy')} and {format(historyDateRange.to, 'MMM dd, yyyy')}
                               </p>
                             </div>
                             <div className="flex items-end gap-2">
@@ -1273,6 +1486,9 @@ export default function VehicleManagementPage() {
                               <CardContent className="p-4">
                                 <p className="text-sm text-blue-700 font-medium">Total Records</p>
                                 <p className="text-2xl font-bold text-blue-900">{filteredCompletedVehicles.length}</p>
+                                <p className="text-xs text-blue-600 mt-1">
+                                  Will be exported to CSV
+                                </p>
                               </CardContent>
                             </Card>
                             <Card className="bg-green-50 border-green-100">
@@ -1280,6 +1496,9 @@ export default function VehicleManagementPage() {
                                 <p className="text-sm text-green-700 font-medium">Date Range</p>
                                 <p className="text-lg font-bold text-green-900">
                                   {format(historyDateRange.from, 'MMM dd')} - {format(historyDateRange.to, 'MMM dd')}
+                                </p>
+                                <p className="text-xs text-green-600 mt-1">
+                                  Filter applied
                                 </p>
                               </CardContent>
                             </Card>
@@ -1292,6 +1511,9 @@ export default function VehicleManagementPage() {
                                     : 'N/A'
                                   }
                                 </p>
+                                <p className="text-xs text-amber-600 mt-1">
+                                  First completion
+                                </p>
                               </CardContent>
                             </Card>
                             <Card className="bg-purple-50 border-purple-100">
@@ -1303,9 +1525,13 @@ export default function VehicleManagementPage() {
                                     : 'N/A'
                                   }
                                 </p>
+                                <p className="text-xs text-purple-600 mt-1">
+                                  Most recent
+                                </p>
                               </CardContent>
                             </Card>
                           </div>
+
                           <VehicleDataTable 
                             vehicles={filteredCompletedVehicles}
                             onCheckIn={handleCheckIn}
