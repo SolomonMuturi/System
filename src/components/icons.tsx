@@ -4,7 +4,7 @@ import type { ImgHTMLAttributes } from 'react';
 export function FreshTraceLogo(props: ImgHTMLAttributes<HTMLImageElement>) {
   return (
     <img
-      src="/images/Harirlogo.jpeg"
+      src="/images/Harirlogo.jpg"
       alt="Harir International"
       {...props}
     />
@@ -15,7 +15,7 @@ export function FreshTraceLogo(props: ImgHTMLAttributes<HTMLImageElement>) {
 export function FreshViewLogo(props: ImgHTMLAttributes<HTMLImageElement>) {
   return (
     <img
-      src="/images/Harirlogo.jpeg" // Or different image for FreshView
+      src="/images/Harirlogo.jpg" // Or different image for FreshView
       alt="Harir International"
       {...props}
     />
