@@ -14,7 +14,7 @@ import { SidebarNav } from '@/components/layout/sidebar-nav';
 import { Header } from '@/components/layout/header';
 import { WeightCapture } from '@/components/dashboard/weight-capture';
 import { FinalTagDialog } from '@/components/dashboard/final-tag-dialog';
-import { Scale, Boxes, Truck, Loader2, RefreshCw, AlertCircle, CheckCircle, Package, TrendingUp, TrendingDown, Minus, Clock, CheckCheck, Download, Calendar, FileSpreadsheet, Search, Printer, FileText, AlertTriangle, XCircle, Trash2, Plus, Filter, Eye, EyeOff, Users, Apple, PieChart, History, Calculator, BarChart3, Layers } from 'lucide-react';
+import { Scale, Boxes, Truck, Loader2, RefreshCw, AlertCircle, CheckCircle, Package, TrendingUp, TrendingDown, Minus, Clock, CheckCheck, Download, Calendar, FileSpreadsheet, Search, Printer, FileText, AlertTriangle, XCircle, Trash2, Plus, Filter, Eye, EyeOff, Users, Apple, PieChart, History, Calculator, BarChart3, Layers, ChevronDown, ChevronUp, MoreVertical, Edit, SortAsc, SortDesc, CalendarDays } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -25,12 +25,16 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar as CalendarComponent } from '@/components/ui/calendar';
-import { format, isSameDay, parseISO } from 'date-fns';
+import { format, isSameDay, parseISO, startOfDay, endOfDay, subDays } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Separator } from '@/components/ui/separator';
+import { Textarea } from '@/components/ui/textarea';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
 // Define types
 interface WeightEntry {
@@ -115,7 +119,7 @@ interface KPIData {
 }
 
 interface RejectionEntry {
-  id?: string;
+  id: string;
   weight_entry_id: string;
   pallet_id: string;
   supplier_id: string;
@@ -135,6 +139,9 @@ interface RejectionEntry {
   notes?: string;
   rejected_at: string;
   created_by: string;
+  status: 'pending' | 'completed' | 'cancelled';
+  reviewed_by?: string;
+  reviewed_at?: string;
 }
 
 interface CountingHistoryRecord {
@@ -180,6 +187,9 @@ interface DailySummary {
   varieties: VarietyStats[];
 }
 
+type RejectSortField = 'date' | 'supplier' | 'weight' | 'status';
+type RejectSortDirection = 'asc' | 'desc';
+
 const getChangeIcon = (changeType: 'increase' | 'decrease' | 'neutral') => {
   switch (changeType) {
     case 'increase':
@@ -188,6 +198,19 @@ const getChangeIcon = (changeType: 'increase' | 'decrease' | 'neutral') => {
       return <TrendingDown className="h-4 w-4 text-red-600" />;
     default:
       return <Minus className="h-4 w-4 text-gray-600" />;
+  }
+};
+
+const getStatusBadge = (status: RejectionEntry['status']) => {
+  switch (status) {
+    case 'completed':
+      return <Badge className="bg-green-100 text-green-800 hover:bg-green-100 border-green-300">Completed</Badge>;
+    case 'pending':
+      return <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100 border-yellow-300">Pending</Badge>;
+    case 'cancelled':
+      return <Badge className="bg-red-100 text-red-800 hover:bg-red-100 border-red-300">Cancelled</Badge>;
+    default:
+      return <Badge variant="outline">Unknown</Badge>;
   }
 };
 
@@ -214,8 +237,10 @@ export default function WeightCapturePage() {
   
   // Rejects tab states
   const [rejects, setRejects] = useState<RejectionEntry[]>([]);
+  const [filteredRejects, setFilteredRejects] = useState<RejectionEntry[]>([]);
   const [isRejectsLoading, setIsRejectsLoading] = useState(false);
   const [newRejection, setNewRejection] = useState<RejectionEntry>({
+    id: '',
     weight_entry_id: '',
     pallet_id: '',
     supplier_id: '',
@@ -234,11 +259,20 @@ export default function WeightCapturePage() {
     reason: '',
     notes: '',
     rejected_at: new Date().toISOString(),
-    created_by: 'Weight Capture Station'
+    created_by: 'Weight Capture Station',
+    status: 'pending'
   });
   const [selectedWeightForReject, setSelectedWeightForReject] = useState<WeightEntry | null>(null);
   const [selectedCountingRecordForReject, setSelectedCountingRecordForReject] = useState<CountingHistoryRecord | null>(null);
   const [isAddingRejection, setIsAddingRejection] = useState(false);
+  
+  // Enhanced reject filtering states
+  const [rejectSearchTerm, setRejectSearchTerm] = useState('');
+  const [rejectDateFilter, setRejectDateFilter] = useState<Date | undefined>(new Date());
+  const [rejectStatusFilter, setRejectStatusFilter] = useState<string>('all');
+  const [expandedRejectId, setExpandedRejectId] = useState<string | null>(null);
+  const [rejectSortField, setRejectSortField] = useState<RejectSortField>('date');
+  const [rejectSortDirection, setRejectSortDirection] = useState<RejectSortDirection>('desc');
   
   // Statistics tab states
   const [statsPeriod, setStatsPeriod] = useState<'today' | 'week' | 'month'>('today');
@@ -338,30 +372,7 @@ export default function WeightCapturePage() {
     }
   };
 
-  // Add this helper function near the top (after imports):
-const safeFormatDate = (dateString: string, formatStr: string = 'PPpp') => {
-  if (!dateString) return '-';
-  try {
-    const date = new Date(dateString);
-    if (isNaN(date.getTime())) return 'Invalid Date';
-    return format(date, formatStr);
-  } catch {
-    return 'Date Error';
-  }
-};
-
-const safeFormatTime = (dateString: string) => {
-  if (!dateString) return '-';
-  try {
-    const date = new Date(dateString);
-    if (isNaN(date.getTime())) return 'Invalid';
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  } catch {
-    return 'Error';
-  }
-};
-
-  // Fetch rejects
+  // Fetch rejects with enhanced filtering
   const fetchRejects = async () => {
     try {
       setIsRejectsLoading(true);
@@ -369,18 +380,94 @@ const safeFormatTime = (dateString: string) => {
       
       if (response.ok) {
         const data: RejectionEntry[] = await response.json();
-        setRejects(data);
+        // Ensure all rejects have status
+        const rejectsWithStatus = data.map(reject => ({
+          ...reject,
+          status: reject.status || 'pending'
+        }));
+        setRejects(rejectsWithStatus);
+        setFilteredRejects(rejectsWithStatus);
       } else {
         // If no rejects API, use empty array
-        setRejects([]);
+        const emptyRejects: RejectionEntry[] = [];
+        setRejects(emptyRejects);
+        setFilteredRejects(emptyRejects);
       }
     } catch (error: any) {
       console.error('Error fetching rejects:', error);
-      setRejects([]);
+      const emptyRejects: RejectionEntry[] = [];
+      setRejects(emptyRejects);
+      setFilteredRejects(emptyRejects);
     } finally {
       setIsRejectsLoading(false);
     }
   };
+
+  // Filter and sort rejects
+  useEffect(() => {
+    let filtered = [...rejects];
+
+    // Apply search filter
+    if (rejectSearchTerm) {
+      const term = rejectSearchTerm.toLowerCase();
+      filtered = filtered.filter(reject =>
+        reject.supplier_name?.toLowerCase().includes(term) ||
+        reject.driver_name?.toLowerCase().includes(term) ||
+        reject.vehicle_plate?.toLowerCase().includes(term) ||
+        reject.pallet_id?.toLowerCase().includes(term) ||
+        reject.reason?.toLowerCase().includes(term)
+      );
+    }
+
+    // Apply date filter
+    if (rejectDateFilter) {
+      const filterDate = startOfDay(rejectDateFilter);
+      filtered = filtered.filter(reject => {
+        const rejectDate = startOfDay(new Date(reject.rejected_at));
+        return isSameDay(rejectDate, filterDate);
+      });
+    }
+
+    // Apply status filter
+    if (rejectStatusFilter !== 'all') {
+      filtered = filtered.filter(reject => reject.status === rejectStatusFilter);
+    }
+
+    // Apply sorting
+    filtered.sort((a, b) => {
+      let aValue: any, bValue: any;
+      
+      switch (rejectSortField) {
+        case 'date':
+          aValue = new Date(a.rejected_at).getTime();
+          bValue = new Date(b.rejected_at).getTime();
+          break;
+        case 'supplier':
+          aValue = a.supplier_name?.toLowerCase() || '';
+          bValue = b.supplier_name?.toLowerCase() || '';
+          break;
+        case 'weight':
+          aValue = a.total_rejected_weight || 0;
+          bValue = b.total_rejected_weight || 0;
+          break;
+        case 'status':
+          aValue = a.status;
+          bValue = b.status;
+          break;
+        default:
+          aValue = a.rejected_at;
+          bValue = b.rejected_at;
+      }
+
+      if (rejectSortDirection === 'asc') {
+        return aValue > bValue ? 1 : -1;
+      } else {
+        return aValue < bValue ? 1 : -1;
+      }
+    });
+
+    setFilteredRejects(filtered);
+  }, [rejects, rejectSearchTerm, rejectDateFilter, rejectStatusFilter, rejectSortField, rejectSortDirection]);
 
   // Calculate statistics
   const calculateStatistics = () => {
@@ -851,151 +938,150 @@ const safeFormatTime = (dateString: string) => {
   };
 
   // Generate CSV data
-// Generate CSV data with row totals
-const generateCSVData = (weights: WeightEntry[]) => {
-  const supplierMap = new Map<string, any>();
-  
-  weights.forEach(entry => {
-    const date = new Date(entry.created_at).toISOString().split('T')[0];
-    const supplierKey = entry.supplier || entry.driver_name || 'Unknown';
-    const phoneKey = entry.supplier_phone || entry.driver_phone || '';
-    const vehicleKey = entry.vehicle_plate || '';
-    const regionKey = entry.region || '';
+  const generateCSVData = (weights: WeightEntry[]) => {
+    const supplierMap = new Map<string, any>();
     
-    const key = `${date}_${supplierKey}_${vehicleKey}`;
+    weights.forEach(entry => {
+      const date = new Date(entry.created_at).toISOString().split('T')[0];
+      const supplierKey = entry.supplier || entry.driver_name || 'Unknown';
+      const phoneKey = entry.supplier_phone || entry.driver_phone || '';
+      const vehicleKey = entry.vehicle_plate || '';
+      const regionKey = entry.region || '';
+      
+      const key = `${date}_${supplierKey}_${vehicleKey}`;
+      
+      if (!supplierMap.has(key)) {
+        supplierMap.set(key, {
+          date,
+          supplier_name: supplierKey,
+          phone_number: phoneKey,
+          vehicle_plate_number: vehicleKey,
+          fuerte_weight: 0,
+          hass_weight: 0,
+          total_weight: 0,
+          fuerte_crates_in: 0,
+          hass_crates_in: 0,
+          total_crates: 0,
+          region: regionKey
+        });
+      }
+      
+      const row = supplierMap.get(key)!;
+      
+      row.fuerte_weight += entry.fuerte_weight || 0;
+      row.fuerte_crates_in += entry.fuerte_crates || 0;
+      row.hass_weight += entry.hass_weight || 0;
+      row.hass_crates_in += entry.hass_crates || 0;
+      row.total_weight = row.fuerte_weight + row.hass_weight;
+      row.total_crates = row.fuerte_crates_in + row.hass_crates_in;
+    });
     
-    if (!supplierMap.has(key)) {
-      supplierMap.set(key, {
-        date,
-        supplier_name: supplierKey,
-        phone_number: phoneKey,
-        vehicle_plate_number: vehicleKey,
-        fuerte_weight: 0,
-        hass_weight: 0,
-        total_weight: 0,
-        fuerte_crates_in: 0,
-        hass_crates_in: 0,
-        total_crates: 0,
-        region: regionKey
+    return Array.from(supplierMap.values());
+  };
+
+  // Download CSV with totals row
+  const downloadCSV = (weights: WeightEntry[], date: Date) => {
+    const csvData = generateCSVData(weights);
+    
+    if (csvData.length === 0) {
+      toast({
+        title: 'No Data',
+        description: 'No data available to download for the selected date.',
+        variant: 'destructive',
       });
+      return;
     }
     
-    const row = supplierMap.get(key)!;
-    
-    row.fuerte_weight += entry.fuerte_weight || 0;
-    row.fuerte_crates_in += entry.fuerte_crates || 0;
-    row.hass_weight += entry.hass_weight || 0;
-    row.hass_crates_in += entry.hass_crates || 0;
-    row.total_weight = row.fuerte_weight + row.hass_weight;
-    row.total_crates = row.fuerte_crates_in + row.hass_crates_in;
-  });
-  
-  return Array.from(supplierMap.values());
-};
-
-// Download CSV with totals row
-const downloadCSV = (weights: WeightEntry[], date: Date) => {
-  const csvData = generateCSVData(weights);
-  
-  if (csvData.length === 0) {
-    toast({
-      title: 'No Data',
-      description: 'No data available to download for the selected date.',
-      variant: 'destructive',
+    // Calculate totals
+    const totals = csvData.reduce((acc, row) => {
+      return {
+        totalFuerteWeight: acc.totalFuerteWeight + (row.fuerte_weight || 0),
+        totalHassWeight: acc.totalHassWeight + (row.hass_weight || 0),
+        totalFuerteCrates: acc.totalFuerteCrates + (row.fuerte_crates_in || 0),
+        totalHassCrates: acc.totalHassCrates + (row.hass_crates_in || 0),
+        totalWeight: acc.totalWeight + (row.fuerte_weight || 0) + (row.hass_weight || 0)
+      };
+    }, {
+      totalFuerteWeight: 0,
+      totalHassWeight: 0,
+      totalFuerteCrates: 0,
+      totalHassCrates: 0,
+      totalWeight: 0
     });
-    return;
-  }
-  
-  // Calculate totals
-  const totals = csvData.reduce((acc, row) => {
-    return {
-      totalFuerteWeight: acc.totalFuerteWeight + (row.fuerte_weight || 0),
-      totalHassWeight: acc.totalHassWeight + (row.hass_weight || 0),
-      totalFuerteCrates: acc.totalFuerteCrates + (row.fuerte_crates_in || 0),
-      totalHassCrates: acc.totalHassCrates + (row.hass_crates_in || 0),
-      totalWeight: acc.totalWeight + (row.fuerte_weight || 0) + (row.hass_weight || 0)
-    };
-  }, {
-    totalFuerteWeight: 0,
-    totalHassWeight: 0,
-    totalFuerteCrates: 0,
-    totalHassCrates: 0,
-    totalWeight: 0
-  });
-  
-  const headers = [
-    'Date',
-    'Supplier Name',
-    'Phone Number',
-    'Vehicle Plate Number',
-    'Fuerte Weight (kg)',
-    'Hass Weight (kg)',
-    'Fuerte Crates In',
-    'Hass Crates In',
-    'Region'
-  ];
-  
-  const rows = csvData.map(row => [
-    row.date,
-    `"${row.supplier_name}"`,
-    `"${row.phone_number}"`,
-    `"${row.vehicle_plate_number}"`,
-    row.fuerte_weight.toFixed(2),
-    row.hass_weight.toFixed(2),
-    row.fuerte_crates_in,
-    row.hass_crates_in,
-    `"${row.region}"`
-  ]);
-  
-  // Add empty row before totals
-  rows.push(['', '', '', '', '', '', '', '', '']);
-  
-  // Add totals row
-  rows.push([
-    'TOTALS',
-    '',
-    '',
-    '',
-    totals.totalFuerteWeight.toFixed(2),
-    totals.totalHassWeight.toFixed(2),
-    totals.totalFuerteCrates,
-    totals.totalHassCrates,
-    ''
-  ]);
-  
-  // Add grand total row for total fruits weight
-  rows.push([
-    'GRAND TOTAL',
-    '',
-    '',
-    '',
-    'Total Fruits Weight:',
-    totals.totalWeight.toFixed(2) + ' kg',
-    '',
-    '',
-    ''
-  ]);
-  
-  const csvContent = [
-    headers.join(','),
-    ...rows.map(row => row.join(','))
-  ].join('\n');
-  
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const link = document.createElement('a');
-  const url = URL.createObjectURL(blob);
-  link.setAttribute('href', url);
-  link.setAttribute('download', `weight_data_${format(date, 'yyyy-MM-dd')}.csv`);
-  link.style.visibility = 'hidden';
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  
-  toast({
-    title: 'CSV Downloaded',
-    description: `Weight data for ${format(date, 'MMMM d, yyyy')} has been downloaded with totals.`,
-  });
-};
+    
+    const headers = [
+      'Date',
+      'Supplier Name',
+      'Phone Number',
+      'Vehicle Plate Number',
+      'Fuerte Weight (kg)',
+      'Hass Weight (kg)',
+      'Fuerte Crates In',
+      'Hass Crates In',
+      'Region'
+    ];
+    
+    const rows = csvData.map(row => [
+      row.date,
+      `"${row.supplier_name}"`,
+      `"${row.phone_number}"`,
+      `"${row.vehicle_plate_number}"`,
+      row.fuerte_weight.toFixed(2),
+      row.hass_weight.toFixed(2),
+      row.fuerte_crates_in,
+      row.hass_crates_in,
+      `"${row.region}"`
+    ]);
+    
+    // Add empty row before totals
+    rows.push(['', '', '', '', '', '', '', '', '']);
+    
+    // Add totals row
+    rows.push([
+      'TOTALS',
+      '',
+      '',
+      '',
+      totals.totalFuerteWeight.toFixed(2),
+      totals.totalHassWeight.toFixed(2),
+      totals.totalFuerteCrates,
+      totals.totalHassCrates,
+      ''
+    ]);
+    
+    // Add grand total row for total fruits weight
+    rows.push([
+      'GRAND TOTAL',
+      '',
+      '',
+      '',
+      'Total Fruits Weight:',
+      totals.totalWeight.toFixed(2) + ' kg',
+      '',
+      '',
+      ''
+    ]);
+    
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.join(','))
+    ].join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `weight_data_${format(date, 'yyyy-MM-dd')}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    toast({
+      title: 'CSV Downloaded',
+      description: `Weight data for ${format(date, 'MMMM d, yyyy')} has been downloaded with totals.`,
+    });
+  };
 
   // Download Supplier GRN
   const downloadSupplierGRN = async (supplierId: string) => {
@@ -1281,7 +1367,8 @@ const downloadCSV = (weights: WeightEntry[], date: Date) => {
       counted_weight: countingRecord?.total_counted_weight || 0,
       total_rejected_weight: 0,
       total_rejected_crates: 0,
-      variance: calculateVariance(weight, countingRecord, 0, 0)
+      variance: calculateVariance(weight, countingRecord, 0, 0),
+      status: 'pending'
     });
     
     toast({
@@ -1315,7 +1402,8 @@ const downloadCSV = (weights: WeightEntry[], date: Date) => {
       counted_weight: record.total_counted_weight || 0,
       total_rejected_weight: 0,
       total_rejected_crates: 0,
-      variance: calculateVariance(weightEntry || null, record, 0, 0)
+      variance: calculateVariance(weightEntry || null, record, 0, 0),
+      status: 'pending'
     });
     
     toast({
@@ -1357,8 +1445,7 @@ const downloadCSV = (weights: WeightEntry[], date: Date) => {
     };
     
     if (field === 'fuerte_weight' || field === 'hass_weight' || 
-        field === 'fuerte_crates' || field === 'hass_crates' ||
-        field === 'counted_weight') {
+        field === 'fuerte_crates' || field === 'hass_crates') {
       
       const totalRejectedWeight = (updatedRejection.fuerte_weight || 0) + (updatedRejection.hass_weight || 0);
       const totalRejectedCrates = (updatedRejection.fuerte_crates || 0) + (updatedRejection.hass_crates || 0);
@@ -1366,7 +1453,7 @@ const downloadCSV = (weights: WeightEntry[], date: Date) => {
       updatedRejection.total_rejected_weight = totalRejectedWeight;
       updatedRejection.total_rejected_crates = totalRejectedCrates;
       
-      // Recalculate variance with new counted weight and rejected weight
+      // Recalculate variance with new rejected weight
       const intakeWeight = selectedWeightForReject 
         ? (selectedWeightForReject.fuerte_weight || 0) + (selectedWeightForReject.hass_weight || 0)
         : selectedCountingRecordForReject?.total_weight || 0;
@@ -1392,10 +1479,10 @@ const downloadCSV = (weights: WeightEntry[], date: Date) => {
       return;
     }
     
-    if (newRejection.total_rejected_weight <= 0 && newRejection.counted_weight <= 0) {
+    if (newRejection.total_rejected_weight <= 0) {
       toast({
         title: 'Validation Error',
-        description: 'Please enter either rejected weight or counted weight.',
+        description: 'Please enter rejected weight.',
         variant: 'destructive',
       });
       return;
@@ -1438,6 +1525,7 @@ const downloadCSV = (weights: WeightEntry[], date: Date) => {
       
       // Reset form
       setNewRejection({
+        id: '',
         weight_entry_id: '',
         pallet_id: '',
         supplier_id: '',
@@ -1456,7 +1544,8 @@ const downloadCSV = (weights: WeightEntry[], date: Date) => {
         reason: '',
         notes: '',
         rejected_at: new Date().toISOString(),
-        created_by: 'Weight Capture Station'
+        created_by: 'Weight Capture Station',
+        status: 'pending'
       });
       
       setSelectedWeightForReject(null);
@@ -1511,6 +1600,61 @@ const downloadCSV = (weights: WeightEntry[], date: Date) => {
     }
   };
 
+  // Update rejection status
+  const handleUpdateRejectionStatus = async (rejectionId: string, status: RejectionEntry['status']) => {
+    try {
+      const response = await fetch(`/api/rejects/${rejectionId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          status,
+          reviewed_by: 'Weight Capture Station',
+          reviewed_at: new Date().toISOString()
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to update rejection status');
+      }
+      
+      const updatedRejection = await response.json();
+      
+      setRejects(prev => prev.map(r => 
+        r.id === rejectionId ? { ...r, ...updatedRejection } : r
+      ));
+      
+      toast({
+        title: 'Status Updated',
+        description: `Rejection status updated to ${status}.`,
+      });
+      
+    } catch (error: any) {
+      console.error('Error updating rejection status:', error);
+      toast({
+        title: 'Update Failed',
+        description: error.message || 'Failed to update rejection status',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  // Toggle reject details
+  const toggleRejectDetails = (rejectId: string) => {
+    setExpandedRejectId(expandedRejectId === rejectId ? null : rejectId);
+  };
+
+  // Handle sort change
+  const handleSortChange = (field: RejectSortField) => {
+    if (rejectSortField === field) {
+      setRejectSortDirection(rejectSortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setRejectSortField(field);
+      setRejectSortDirection('desc');
+    }
+  };
+
   // Get regions for filter
   const regions = Array.from(new Set(weights.map(w => w.region).filter(Boolean)));
 
@@ -1554,6 +1698,11 @@ const downloadCSV = (weights: WeightEntry[], date: Date) => {
     const rejectDate = new Date(r.rejected_at);
     return isSameDay(rejectDate, today);
   }).length;
+
+  // Calculate status counts
+  const pendingRejectsCount = rejects.filter(r => r.status === 'pending').length;
+  const completedRejectsCount = rejects.filter(r => r.status === 'completed').length;
+  const cancelledRejectsCount = rejects.filter(r => r.status === 'cancelled').length;
 
   return (
     <SidebarProvider>
@@ -2216,7 +2365,7 @@ const downloadCSV = (weights: WeightEntry[], date: Date) => {
                       )}
                     </div>
 
-                    {/* Updated Export Summary */}
+                    {/* Export Summary */}
                     {filteredHistoryWeights.length > 0 && (
                       <Card>
                         <CardHeader>
@@ -2283,14 +2432,6 @@ const downloadCSV = (weights: WeightEntry[], date: Date) => {
                               <Download className="w-4 h-4" />
                               Download CSV with Totals
                             </Button>
-                            <Button
-                              onClick={() => historyDate && downloadEnhancedCSV(filteredHistoryWeights, historyDate)}
-                              className="gap-2"
-                              variant="outline"
-                            >
-                              <Download className="w-4 h-4" />
-                              Enhanced CSV
-                            </Button>
                           </div>
                         </CardContent>
                       </Card>
@@ -2300,377 +2441,601 @@ const downloadCSV = (weights: WeightEntry[], date: Date) => {
               </Card>
             </TabsContent>
 
-            {/* Rejects Tab */}
+            {/* Rejects Tab - Enhanced Version */}
             <TabsContent value="rejects" className="space-y-6 mt-6">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Rejects History */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <AlertTriangle className="w-5 h-5" />
-                      Rejects History
-                    </CardTitle>
-                    <CardDescription>
-                      {rejects.length} rejection entries recorded
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {isRejectsLoading ? (
-                      <div className="flex flex-col items-center justify-center py-12">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-4"></div>
-                        <p className="text-muted-foreground">Loading rejects...</p>
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Enhanced Rejects History */}
+                <div className="lg:col-span-2">
+                  <Card>
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <CardTitle className="flex items-center gap-2">
+                            <AlertTriangle className="w-5 h-5" />
+                            Rejects History
+                            <Badge variant="outline" className="ml-2">
+                              {filteredRejects.length} entries
+                            </Badge>
+                          </CardTitle>
+                          <CardDescription>
+                            Track and manage rejection entries with detailed filtering
+                          </CardDescription>
+                        </div>
+                        <Button
+                          onClick={fetchRejects}
+                          variant="outline"
+                          size="sm"
+                          className="gap-2"
+                        >
+                          <RefreshCw className="w-3 h-3" />
+                          Refresh
+                        </Button>
                       </div>
-                    ) : rejects.length === 0 ? (
-                      <div className="text-center py-8">
-                        <AlertTriangle className="w-12 h-12 mx-auto text-gray-300 mb-3" />
-                        <p className="text-gray-500 font-medium">No rejection entries found</p>
-                        <p className="text-sm text-gray-400 mt-1">
-                          Rejection entries will appear here after they are recorded
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {rejects.map((reject) => {
-                          // Safe access with default values to prevent undefined errors
-                          const totalWeight = reject?.total_rejected_weight || 0;
-                          const variance = reject?.variance || 0;
-                          const countedWeight = reject?.counted_weight || 0;
-                          const fuerteWeight = reject?.fuerte_weight || 0;
-                          const hassWeight = reject?.hass_weight || 0;
-                          const fuerteCrates = reject?.fuerte_crates || 0;
-                          const hassCrates = reject?.hass_crates || 0;
-                          const totalCrates = reject?.total_rejected_crates || 0;
-                          
-                          return (
-                            <div key={reject.id} className="border rounded-lg p-4 hover:bg-black-50">
-                              <div className="flex items-start justify-between mb-2">
-                                <div>
-                                  <div className="font-semibold">{reject?.supplier_name || 'Unknown Supplier'}</div>
-                                  <div className="text-sm text-gray-500">
-                                    Pallet: {reject?.pallet_id || '-'} • {safeFormatDate(reject?.rejected_at, 'PPpp')}
-                                  </div>
-                                </div>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-8 w-8 p-0 text-red-600 hover:text-red-800 hover:bg-black-50"
-                                  onClick={() => reject?.id && handleDeleteRejection(reject.id)}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </div>
-                              
-                              <div className="grid grid-cols-2 gap-4 mt-3 text-sm">
-                                <div>
-                                  <div className="text-gray-500">Total Rejected</div>
-                                  <div className="font-bold text-red-700">{totalWeight.toFixed(1)} kg</div>
-                                </div>
-                                <div>
-                                  <div className="text-gray-500">Counted Weight</div>
-                                  <div className="font-bold text-blue-700">{countedWeight.toFixed(1)} kg</div>
-                                </div>
-                                <div>
-                                  <div className="text-gray-500">Total Crates</div>
-                                  <div className="font-bold">{totalCrates}</div>
-                                </div>
-                                <div>
-                                  <div className="text-gray-500">Variance</div>
-                                  <div className={`font-bold ${variance > 0 ? 'text-green-700' : 'text-red-700'}`}>
-                                    {variance > 0 ? '+' : ''}{variance.toFixed(1)} kg
-                                  </div>
-                                </div>
-                                <div>
-                                  <div className="text-gray-500">Fuerte</div>
-                                  <div className="font-semibold">
-                                    {fuerteWeight > 0 ? `${fuerteWeight} kg (${fuerteCrates} crates)` : '-'}
-                                  </div>
-                                </div>
-                                <div>
-                                  <div className="text-gray-500">Hass</div>
-                                  <div className="font-semibold">
-                                    {hassWeight > 0 ? `${hassWeight} kg (${hassCrates} crates)` : '-'}
-                                  </div>
-                                </div>
-                              </div>
-                              
-                              {reject?.reason && (
-                                <div className="mt-3 pt-3 border-t">
-                                  <div className="text-sm text-gray-500">Reason</div>
-                                  <div className="text-sm">{reject.reason}</div>
-                                </div>
-                              )}
+                    </CardHeader>
+                    <CardContent>
+                      {/* Enhanced Filter Controls */}
+                      <div className="space-y-4 mb-6">
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="reject-search">Search</Label>
+                            <div className="relative">
+                              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                              <Input
+                                id="reject-search"
+                                placeholder="Supplier, driver, pallet..."
+                                value={rejectSearchTerm}
+                                onChange={(e) => setRejectSearchTerm(e.target.value)}
+                                className="pl-10"
+                              />
                             </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="reject-date">Date Filter</Label>
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  className={cn(
+                                    "w-full justify-start text-left font-normal",
+                                    !rejectDateFilter && "text-muted-foreground"
+                                  )}
+                                >
+                                  <Calendar className="mr-2 h-4 w-4" />
+                                  {rejectDateFilter ? format(rejectDateFilter, "PPP") : "All dates"}
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-auto p-0">
+                                <CalendarComponent
+                                  mode="single"
+                                  selected={rejectDateFilter}
+                                  onSelect={setRejectDateFilter}
+                                  initialFocus
+                                />
+                                <div className="p-2 border-t">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="w-full"
+                                    onClick={() => setRejectDateFilter(undefined)}
+                                  >
+                                    Clear Date Filter
+                                  </Button>
+                                </div>
+                              </PopoverContent>
+                            </Popover>
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="reject-status">Status Filter</Label>
+                            <Select value={rejectStatusFilter} onValueChange={setRejectStatusFilter}>
+                              <SelectTrigger>
+                                <SelectValue placeholder="All Status" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="all">All Status</SelectItem>
+                                <SelectItem value="pending">Pending</SelectItem>
+                                <SelectItem value="completed">Completed</SelectItem>
+                                <SelectItem value="cancelled">Cancelled</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Sort By</Label>
+                            <div className="flex gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleSortChange('date')}
+                                className="flex-1"
+                              >
+                                Date {rejectSortField === 'date' && (rejectSortDirection === 'asc' ? <SortAsc className="ml-1 h-3 w-3" /> : <SortDesc className="ml-1 h-3 w-3" />)}
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleSortChange('weight')}
+                                className="flex-1"
+                              >
+                                Weight {rejectSortField === 'weight' && (rejectSortDirection === 'asc' ? <SortAsc className="ml-1 h-3 w-3" /> : <SortDesc className="ml-1 h-3 w-3" />)}
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
 
-                {/* Add Rejection Form */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Plus className="w-5 h-5" />
-                      Add New Rejection
-                    </CardTitle>
-                    <CardDescription>
-                      Record rejected weight from quality control
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                      {/* Source Selection */}
-                      <div className="space-y-2">
-                        <Label>Select Source</Label>
-                        <div className="grid grid-cols-2 gap-2">
-                          <Button
-                            variant={selectedWeightForReject ? "default" : "outline"}
-                            onClick={() => {
-                              setSelectedCountingRecordForReject(null);
-                              setActiveTab('history');
-                            }}
-                          >
-                            <Scale className="h-4 w-4 mr-2" />
-                            Weight History
-                          </Button>
-                          <Button
-                            variant={selectedCountingRecordForReject ? "default" : "outline"}
-                            onClick={() => {
-                              setSelectedWeightForReject(null);
-                              setActiveTab('statistics');
-                            }}
-                          >
-                            <Calculator className="h-4 w-4 mr-2" />
-                            Counting History
-                          </Button>
+                        {/* Status Summary */}
+                        <div className="grid grid-cols-3 gap-4">
+                          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-center">
+                            <div className="text-2xl font-bold text-yellow-700">{pendingRejectsCount}</div>
+                            <div className="text-sm text-yellow-600">Pending</div>
+                          </div>
+                          <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-center">
+                            <div className="text-2xl font-bold text-green-700">{completedRejectsCount}</div>
+                            <div className="text-sm text-green-600">Completed</div>
+                          </div>
+                          <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-center">
+                            <div className="text-2xl font-bold text-red-700">{cancelledRejectsCount}</div>
+                            <div className="text-sm text-red-600">Cancelled</div>
+                          </div>
                         </div>
                       </div>
 
-                      {/* Selected Record Info */}
-                      {(selectedWeightForReject || selectedCountingRecordForReject) && (
-                        <div className="bg-black-50 p-4 rounded-lg border border-blue-200">
-                          <div className="flex items-center justify-between mb-2">
-                            <div className="font-semibold text-blue-800">
-                              {selectedWeightForReject ? 'Selected Weight Entry' : 'Selected Counting Record'}
-                            </div>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => {
-                                setSelectedWeightForReject(null);
-                                setSelectedCountingRecordForReject(null);
-                              }}
+                      {/* Rejects List with Collapsible Details */}
+                      {isRejectsLoading ? (
+                        <div className="flex flex-col items-center justify-center py-12">
+                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-4"></div>
+                          <p className="text-muted-foreground">Loading rejects...</p>
+                        </div>
+                      ) : filteredRejects.length === 0 ? (
+                        <div className="text-center py-8">
+                          <AlertTriangle className="w-12 h-12 mx-auto text-gray-300 mb-3" />
+                          <p className="text-gray-500 font-medium">No rejection entries found</p>
+                          <p className="text-sm text-gray-400 mt-1">
+                            {rejectSearchTerm || rejectDateFilter || rejectStatusFilter !== 'all' 
+                              ? 'Try changing your filters'
+                              : 'Rejection entries will appear here after they are recorded'}
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {filteredRejects.map((reject) => (
+                            <Collapsible
+                              key={reject.id}
+                              open={expandedRejectId === reject.id}
+                              onOpenChange={() => toggleRejectDetails(reject.id)}
+                              className="border rounded-lg overflow-hidden"
                             >
-                              <XCircle className="h-4 w-4" />
-                            </Button>
-                          </div>
-                          <div className="text-sm">
-                            <div><span className="font-medium">Supplier:</span> {
-                              selectedWeightForReject?.supplier || selectedCountingRecordForReject?.supplier_name || 'Unknown'
-                            }</div>
-                            <div><span className="font-medium">Pallet ID:</span> {
-                              selectedWeightForReject?.pallet_id || selectedCountingRecordForReject?.pallet_id || '-'
-                            }</div>
-                            <div><span className="font-medium">Intake Weight:</span> 
-                              {selectedWeightForReject 
-                                ? ((selectedWeightForReject.fuerte_weight + selectedWeightForReject.hass_weight).toFixed(1))
-                                : ((selectedCountingRecordForReject?.total_weight || 0).toFixed(1))
-                              } kg
-                            </div>
-                            <div><span className="font-medium">Counted Weight:</span> 
-                              {selectedCountingRecordForReject?.total_counted_weight 
-                                ? `${selectedCountingRecordForReject.total_counted_weight.toFixed(1)} kg` 
-                                : 'Not counted yet'}
-                            </div>
-                          </div>
+                              <div className={`p-4 hover:bg-black-50 ${expandedRejectId === reject.id ? 'bg-black-50' : ''}`}>
+                                <div className="flex items-start justify-between">
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-3 mb-2">
+                                      <div className="font-semibold text-lg">
+                                        {reject.supplier_name || 'Unknown Supplier'}
+                                      </div>
+                                      {getStatusBadge(reject.status)}
+                                    </div>
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                                      <div>
+                                        <div className="text-gray-500">Date</div>
+                                        <div className="font-medium">
+                                          {format(new Date(reject.rejected_at), 'MMM d, yyyy HH:mm')}
+                                        </div>
+                                      </div>
+                                      <div>
+                                        <div className="text-gray-500">Pallet ID</div>
+                                        <div className="font-mono">{reject.pallet_id || '-'}</div>
+                                      </div>
+                                      <div>
+                                        <div className="text-gray-500">Total Rejected</div>
+                                        <div className="font-bold text-red-700">
+                                          {(reject.total_rejected_weight || 0).toFixed(1)} kg
+                                        </div>
+                                      </div>
+                                      <div>
+                                        <div className="text-gray-500">Variance</div>
+                                        <div className={`font-bold ${(reject.variance || 0) > 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                          {(reject.variance || 0) > 0 ? '+' : ''}{(reject.variance || 0).toFixed(1)} kg
+                                        </div>
+                                      </div>
+                                    </div>
+                                    {reject.reason && (
+                                      <div className="mt-2 text-sm">
+                                        <span className="text-gray-500">Reason: </span>
+                                        <span className="font-medium">{reject.reason}</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="flex flex-col items-end gap-2 ml-4">
+                                    <CollapsibleTrigger asChild>
+                                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                                        {expandedRejectId === reject.id ? (
+                                          <ChevronUp className="h-4 w-4" />
+                                        ) : (
+                                          <ChevronDown className="h-4 w-4" />
+                                        )}
+                                      </Button>
+                                    </CollapsibleTrigger>
+                                    <DropdownMenu>
+                                      <DropdownMenuTrigger asChild>
+                                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                                          <MoreVertical className="h-4 w-4" />
+                                        </Button>
+                                      </DropdownMenuTrigger>
+                                      <DropdownMenuContent align="end">
+                                        <DropdownMenuItem
+                                          onClick={() => handleUpdateRejectionStatus(reject.id, 'completed')}
+                                          disabled={reject.status === 'completed'}
+                                        >
+                                          <CheckCircle className="mr-2 h-4 w-4" />
+                                          Mark as Completed
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem
+                                          onClick={() => handleUpdateRejectionStatus(reject.id, 'cancelled')}
+                                          disabled={reject.status === 'cancelled'}
+                                        >
+                                          <XCircle className="mr-2 h-4 w-4" />
+                                          Mark as Cancelled
+                                        </DropdownMenuItem>
+                                        <Separator />
+                                        <DropdownMenuItem
+                                          onClick={() => reject.id && handleDeleteRejection(reject.id)}
+                                          className="text-red-600"
+                                        >
+                                          <Trash2 className="mr-2 h-4 w-4" />
+                                          Delete
+                                        </DropdownMenuItem>
+                                      </DropdownMenuContent>
+                                    </DropdownMenu>
+                                  </div>
+                                </div>
+                              </div>
+                              
+                              <CollapsibleContent>
+                                <div className="px-4 pb-4 border-t">
+                                  <div className="grid grid-cols-2 gap-6 mt-4">
+                                    <div>
+                                      <h4 className="font-semibold mb-2">Rejection Details</h4>
+                                      <div className="space-y-2 text-sm">
+                                        <div className="flex justify-between">
+                                          <span className="text-gray-500">Driver:</span>
+                                          <span>{reject.driver_name || '-'}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                          <span className="text-gray-500">Vehicle:</span>
+                                          <span>{reject.vehicle_plate || '-'}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                          <span className="text-gray-500">Region:</span>
+                                          <span>{reject.region || '-'}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                          <span className="text-gray-500">Recorded By:</span>
+                                          <span>{reject.created_by || '-'}</span>
+                                        </div>
+                                        {reject.reviewed_by && (
+                                          <div className="flex justify-between">
+                                            <span className="text-gray-500">Reviewed By:</span>
+                                            <span>{reject.reviewed_by}</span>
+                                          </div>
+                                        )}
+                                        {reject.reviewed_at && (
+                                          <div className="flex justify-between">
+                                            <span className="text-gray-500">Reviewed At:</span>
+                                            <span>{format(new Date(reject.reviewed_at), 'MMM d, yyyy HH:mm')}</span>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                    
+                                    <div>
+                                      <h4 className="font-semibold mb-2">Weight Breakdown</h4>
+                                      <div className="space-y-2 text-sm">
+                                        <div className="flex justify-between">
+                                          <span className="text-gray-500">Counted Weight:</span>
+                                          <span className="font-medium text-blue-700">
+                                            {(reject.counted_weight || 0).toFixed(1)} kg
+                                          </span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                          <span className="text-gray-500">Fuerte Rejected:</span>
+                                          <span>
+                                            {(reject.fuerte_weight || 0).toFixed(1)} kg ({reject.fuerte_crates || 0} crates)
+                                          </span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                          <span className="text-gray-500">Hass Rejected:</span>
+                                          <span>
+                                            {(reject.hass_weight || 0).toFixed(1)} kg ({reject.hass_crates || 0} crates)
+                                          </span>
+                                        </div>
+                                        <div className="flex justify-between font-semibold pt-2 border-t">
+                                          <span>Total Crates Rejected:</span>
+                                          <span>{reject.total_rejected_crates || 0}</span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                  
+                                  {reject.notes && (
+                                    <div className="mt-4 pt-4 border-t">
+                                      <h4 className="font-semibold mb-2">Additional Notes</h4>
+                                      <p className="text-sm text-gray-600">{reject.notes}</p>
+                                    </div>
+                                  )}
+                                </div>
+                              </CollapsibleContent>
+                            </Collapsible>
+                          ))}
                         </div>
                       )}
+                    </CardContent>
+                  </Card>
+                </div>
 
-                      {/* Rejection Form */}
+                {/* Add New Rejection Form */}
+                <div>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Plus className="w-5 h-5" />
+                        Add New Rejection
+                      </CardTitle>
+                      <CardDescription>
+                        Record rejected weight from quality control
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
                       <div className="space-y-4">
-                        {/* Counted Weight Input */}
+                        {/* Source Selection */}
                         <div className="space-y-2">
-                          <Label htmlFor="counted_weight">Counted Weight (kg)</Label>
-                          <div className="flex items-center gap-2">
+                          <Label>Select Source</Label>
+                          <div className="grid grid-cols-2 gap-2">
+                            <Button
+                              variant={selectedWeightForReject ? "default" : "outline"}
+                              onClick={() => {
+                                setSelectedCountingRecordForReject(null);
+                                setActiveTab('history');
+                              }}
+                              className="text-xs"
+                            >
+                              <Scale className="h-3 w-3 mr-2" />
+                              Weight History
+                            </Button>
+                            <Button
+                              variant={selectedCountingRecordForReject ? "default" : "outline"}
+                              onClick={() => {
+                                setSelectedWeightForReject(null);
+                                setActiveTab('statistics');
+                              }}
+                              className="text-xs"
+                            >
+                              <Calculator className="h-3 w-3 mr-2" />
+                              Counting History
+                            </Button>
+                          </div>
+                        </div>
+
+                        {/* Selected Record Info */}
+                        {(selectedWeightForReject || selectedCountingRecordForReject) && (
+                          <div className="bg-black-50 p-4 rounded-lg border border-blue-200">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="font-semibold text-blue-800">
+                                {selectedWeightForReject ? 'Selected Weight Entry' : 'Selected Counting Record'}
+                              </div>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => {
+                                  setSelectedWeightForReject(null);
+                                  setSelectedCountingRecordForReject(null);
+                                }}
+                              >
+                                <XCircle className="h-4 w-4" />
+                              </Button>
+                            </div>
+                            <div className="text-sm space-y-1">
+                              <div><span className="font-medium">Supplier:</span> {
+                                selectedWeightForReject?.supplier || selectedCountingRecordForReject?.supplier_name || 'Unknown'
+                              }</div>
+                              <div><span className="font-medium">Pallet ID:</span> {
+                                selectedWeightForReject?.pallet_id || selectedCountingRecordForReject?.pallet_id || '-'
+                              }</div>
+                              <div><span className="font-medium">Intake Weight:</span> 
+                                {selectedWeightForReject 
+                                  ? ((selectedWeightForReject.fuerte_weight + selectedWeightForReject.hass_weight).toFixed(1))
+                                  : ((selectedCountingRecordForReject?.total_weight || 0).toFixed(1))
+                                } kg
+                              </div>
+                              <div><span className="font-medium">Counted Weight:</span> 
+                                <span className="font-bold text-blue-700">
+                                  {(selectedCountingRecordForReject?.total_counted_weight || 0).toFixed(1)} kg
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Rejection Form */}
+                        <div className="space-y-4">
+                          {/* Counted Weight (Locked/Read-only) */}
+                          <div className="space-y-2">
+                            <Label htmlFor="counted_weight">
+                              Counted Weight (kg) 
+                              <span className="text-xs text-gray-500 ml-2">Auto-filled from counting record</span>
+                            </Label>
                             <Input
                               id="counted_weight"
                               type="number"
                               min="0"
                               step="0.1"
-                              value={newRejection.counted_weight}
-                              onChange={(e) => handleRejectionInputChange('counted_weight', parseFloat(e.target.value) || 0)}
-                              placeholder="Enter counted weight"
-                              className="flex-1"
+                              value={newRejection.counted_weight || selectedCountingRecordForReject?.total_counted_weight || 0}
+                              readOnly
+                              className="cursor-not-allowed"
                             />
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                if (selectedCountingRecordForReject) {
-                                  handleRejectionInputChange('counted_weight', selectedCountingRecordForReject.total_counted_weight || 0);
-                                }
-                              }}
-                              disabled={!selectedCountingRecordForReject}
-                              title="Use counted weight from selected record"
+                            <p className="text-xs text-gray-500">
+                              This value is automatically populated from the selected counting record
+                            </p>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <Label htmlFor="fuerte_weight">Fuerte Rejected (kg)</Label>
+                              <Input
+                                id="fuerte_weight"
+                                type="number"
+                                min="0"
+                                step="0.1"
+                                value={newRejection.fuerte_weight}
+                                onChange={(e) => handleRejectionInputChange('fuerte_weight', parseFloat(e.target.value) || 0)}
+                                placeholder="0.0"
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="fuerte_crates">Fuerte Crates Rejected</Label>
+                              <Input
+                                id="fuerte_crates"
+                                type="number"
+                                min="0"
+                                value={newRejection.fuerte_crates}
+                                onChange={(e) => handleRejectionInputChange('fuerte_crates', parseInt(e.target.value) || 0)}
+                                placeholder="0"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <Label htmlFor="hass_weight">Hass Rejected (kg)</Label>
+                              <Input
+                                id="hass_weight"
+                                type="number"
+                                min="0"
+                                step="0.1"
+                                value={newRejection.hass_weight}
+                                onChange={(e) => handleRejectionInputChange('hass_weight', parseFloat(e.target.value) || 0)}
+                                placeholder="0.0"
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="hass_crates">Hass Crates Rejected</Label>
+                              <Input
+                                id="hass_crates"
+                                type="number"
+                                min="0"
+                                value={newRejection.hass_crates}
+                                onChange={(e) => handleRejectionInputChange('hass_crates', parseInt(e.target.value) || 0)}
+                                placeholder="0"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label htmlFor="reason">Reason for Rejection</Label>
+                            <Select
+                              value={newRejection.reason || ''}
+                              onValueChange={(value) => handleRejectionInputChange('reason', value)}
                             >
-                              Auto-fill
-                            </Button>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select reason" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="quality_issues">Quality Issues</SelectItem>
+                                <SelectItem value="damaged">Mechanical damage</SelectItem>
+                                <SelectItem value="overripe">Overripe</SelectItem>
+                                <SelectItem value="underweight">Underweight</SelectItem>
+                                <SelectItem value="incorrect_variety">Incorrect Variety</SelectItem>
+                                <SelectItem value="contamination">Black spots</SelectItem>
+                                <SelectItem value="other">Other</SelectItem>
+                              </SelectContent>
+                            </Select>
                           </div>
-                          <p className="text-xs text-gray-500">
-                            Weight after counting/quality check
-                          </p>
-                        </div>
 
-                        <div className="grid grid-cols-2 gap-4">
                           <div className="space-y-2">
-                            <Label htmlFor="fuerte_weight">Fuerte Rejected (kg)</Label>
-                            <Input
-                              id="fuerte_weight"
-                              type="number"
-                              min="0"
-                              step="0.1"
-                              value={newRejection.fuerte_weight}
-                              onChange={(e) => handleRejectionInputChange('fuerte_weight', parseFloat(e.target.value) || 0)}
-                              placeholder="0.0"
+                            <Label htmlFor="notes">Additional Notes</Label>
+                            <Textarea
+                              id="notes"
+                              value={newRejection.notes || ''}
+                              onChange={(e) => handleRejectionInputChange('notes', e.target.value)}
+                              placeholder="Additional details..."
+                              rows={3}
                             />
                           </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="fuerte_crates">Fuerte Crates Rejected</Label>
-                            <Input
-                              id="fuerte_crates"
-                              type="number"
-                              min="0"
-                              value={newRejection.fuerte_crates}
-                              onChange={(e) => handleRejectionInputChange('fuerte_crates', parseInt(e.target.value) || 0)}
-                              placeholder="0"
-                            />
-                          </div>
-                        </div>
 
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="hass_weight">Hass Rejected (kg)</Label>
-                            <Input
-                              id="hass_weight"
-                              type="number"
-                              min="0"
-                              step="0.1"
-                              value={newRejection.hass_weight}
-                              onChange={(e) => handleRejectionInputChange('hass_weight', parseFloat(e.target.value) || 0)}
-                              placeholder="0.0"
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="hass_crates">Hass Crates Rejected</Label>
-                            <Input
-                              id="hass_crates"
-                              type="number"
-                              min="0"
-                              value={newRejection.hass_crates}
-                              onChange={(e) => handleRejectionInputChange('hass_crates', parseInt(e.target.value) || 0)}
-                              placeholder="0"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label htmlFor="reason">Reason for Rejection</Label>
-                          <Input
-                            id="reason"
-                            value={newRejection.reason || ''}
-                            onChange={(e) => handleRejectionInputChange('reason', e.target.value)}
-                            placeholder="Quality issues, damage, etc."
-                          />
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label htmlFor="notes">Notes</Label>
-                          <Input
-                            id="notes"
-                            value={newRejection.notes || ''}
-                            onChange={(e) => handleRejectionInputChange('notes', e.target.value)}
-                            placeholder="Additional details..."
-                          />
-                        </div>
-
-                        {/* Summary */}
-                        <div className="bg-black-50 p-4 rounded-lg border">
-                          <div className="grid grid-cols-2 gap-4 mb-4">
-                            <div>
-                              <div className="text-sm text-gray-500">Total Rejected Weight</div>
-                              <div className="text-xl font-bold text-red-700">
-                                {(newRejection.total_rejected_weight || 0).toFixed(1)} kg
-                              </div>
-                            </div>
-                            <div>
-                              <div className="text-sm text-gray-500">Total Rejected Crates</div>
-                              <div className="text-xl font-bold">
-                                {newRejection.total_rejected_crates || 0}
-                              </div>
-                            </div>
-                          </div>
-                          
-                          {(selectedWeightForReject || selectedCountingRecordForReject) && (
-                            <div className="mt-4 pt-4 border-t">
-                              <div className="text-sm text-gray-500 font-medium mb-2">Variance Calculation</div>
-                              <div className="space-y-2 text-sm">
-                                <div className="flex justify-between">
-                                  <span>Intake Weight:</span>
-                                  <span className="font-semibold">
-                                    {selectedWeightForReject 
-                                      ? ((selectedWeightForReject.fuerte_weight + selectedWeightForReject.hass_weight).toFixed(1))
-                                      : ((selectedCountingRecordForReject?.total_weight || 0).toFixed(1))
-                                    } kg
-                                  </span>
-                                </div>
-                                <div className="flex justify-between">
-                                  <span>Counted Weight:</span>
-                                  <span className="font-semibold text-blue-700">-{(newRejection.counted_weight || 0).toFixed(1)} kg</span>
-                                </div>
-                                <div className="flex justify-between">
-                                  <span>Rejected Weight:</span>
-                                  <span className="font-semibold text-red-700">-{(newRejection.total_rejected_weight || 0).toFixed(1)} kg</span>
+                          {/* Summary */}
+                          <div className="bg-black-50 p-4 rounded-lg border">
+                            <div className="grid grid-cols-2 gap-4 mb-4">
+                              <div>
+                                <div className="text-sm text-gray-500">Total Rejected Weight</div>
+                                <div className="text-xl font-bold text-red-700">
+                                  {(newRejection.total_rejected_weight || 0).toFixed(1)} kg
                                 </div>
                               </div>
-                              <div className="mt-3 pt-3 border-t">
-                                <div className="flex justify-between font-bold text-lg">
-                                  <span>Variance:</span>
-                                  <span className={(newRejection.variance || 0) > 0 ? 'text-green-700' : 'text-red-700'}>
-                                    {(newRejection.variance || 0) > 0 ? '+' : ''}{(newRejection.variance || 0).toFixed(1)} kg
-                                  </span>
-                                </div>
-                                <div className="text-xs text-gray-500 mt-1">
-                                  Formula: Intake - (Counted + Rejected)
+                              <div>
+                                <div className="text-sm text-gray-500">Total Rejected Crates</div>
+                                <div className="text-xl font-bold">
+                                  {newRejection.total_rejected_crates || 0}
                                 </div>
                               </div>
                             </div>
-                          )}
-                        </div>
+                            
+                            {(selectedWeightForReject || selectedCountingRecordForReject) && (
+                              <div className="mt-4 pt-4 border-t">
+                                <div className="text-sm text-gray-500 font-medium mb-2">Variance Calculation</div>
+                                <div className="space-y-2 text-sm">
+                                  <div className="flex justify-between">
+                                    <span>Intake Weight:</span>
+                                    <span className="font-semibold">
+                                      {selectedWeightForReject 
+                                        ? ((selectedWeightForReject.fuerte_weight + selectedWeightForReject.hass_weight).toFixed(1))
+                                        : ((selectedCountingRecordForReject?.total_weight || 0).toFixed(1))
+                                      } kg
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span>Counted Weight:</span>
+                                    <span className="font-semibold text-blue-700">-{(newRejection.counted_weight || 0).toFixed(1)} kg</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span>Rejected Weight:</span>
+                                    <span className="font-semibold text-red-700">-{(newRejection.total_rejected_weight || 0).toFixed(1)} kg</span>
+                                  </div>
+                                </div>
+                                <div className="mt-3 pt-3 border-t">
+                                  <div className="flex justify-between font-bold text-lg">
+                                    <span>Variance:</span>
+                                    <span className={(newRejection.variance || 0) > 0 ? 'text-green-700' : 'text-red-700'}>
+                                      {(newRejection.variance || 0) > 0 ? '+' : ''}{(newRejection.variance || 0).toFixed(1)} kg
+                                    </span>
+                                  </div>
+                                  <div className="text-xs text-gray-500 mt-1">
+                                    Formula: Intake - (Counted + Rejected)
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
 
-                        <Button
-                          onClick={handleSubmitRejection}
-                          disabled={isAddingRejection || (!selectedWeightForReject && !selectedCountingRecordForReject) || 
-                                   ((newRejection.total_rejected_weight || 0) <= 0 && (newRejection.counted_weight || 0) <= 0)}
-                          className="w-full bg-red-600 hover:bg-red-700"
-                        >
-                          {isAddingRejection ? (
-                            <>
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              Saving...
-                            </>
-                          ) : (
-                            <>
-                              <AlertTriangle className="mr-2 h-4 w-4" />
-                              Save Rejection Entry
-                            </>
-                          )}
-                        </Button>
+                          <Button
+                            onClick={handleSubmitRejection}
+                            disabled={isAddingRejection || (!selectedWeightForReject && !selectedCountingRecordForReject) || 
+                                     ((newRejection.total_rejected_weight || 0) <= 0)}
+                            className="w-full bg-red-600 hover:bg-red-700"
+                          >
+                            {isAddingRejection ? (
+                              <>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                Saving...
+                              </>
+                            ) : (
+                              <>
+                                <AlertTriangle className="mr-2 h-4 w-4" />
+                                Save Rejection Entry
+                              </>
+                            )}
+                          </Button>
+                        </div>
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
+                    </CardContent>
+                  </Card>
+                </div>
               </div>
             </TabsContent>
 
@@ -2753,7 +3118,7 @@ const downloadCSV = (weights: WeightEntry[], date: Date) => {
                               {countingHistory.slice(0, 10).map((record) => (
                                 <TableRow key={record.id}>
                                   <TableCell>
-                                    {safeFormatDate(record.submitted_at, 'MM/dd/yyyy')}
+                                    {format(new Date(record.submitted_at), 'MM/dd/yyyy')}
                                   </TableCell>
                                   <TableCell className="font-medium">
                                     {record.supplier_name || 'Unknown'}
@@ -2847,7 +3212,7 @@ const downloadCSV = (weights: WeightEntry[], date: Date) => {
                               {dailySummaries.map((summary) => (
                                 <TableRow key={summary.date}>
                                   <TableCell className="font-medium">
-                                    {safeFormatDate(summary.date, 'MM/dd/yyyy')}
+                                    {format(new Date(summary.date), 'MM/dd/yyyy')}
                                   </TableCell>
                                   <TableCell className="font-bold">
                                     {summary.total_weight.toFixed(1)} kg
