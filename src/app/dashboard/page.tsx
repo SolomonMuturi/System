@@ -1518,7 +1518,7 @@ const AdminDashboard = () => {
                                 const qc = qualityChecks.find(q => q.weight_entry_id === supplier.id);
                                 
                                 return (
-                                  <div key={supplier.id} className="p-3 border rounded-lg hover:bg-gray-50 transition-colors">
+                                  <div key={supplier.id} className="p-3 border rounded-lg hover:bg-black-50 transition-colors">
                                     <div className="flex items-start justify-between">
                                       <div>
                                         <div className="font-medium">{supplier.supplier_name}</div>
@@ -1549,14 +1549,6 @@ const AdminDashboard = () => {
                         </div>
                       </CardContent>
                       <CardFooter>
-                        <Button 
-                          variant="outline" 
-                          className="w-full"
-                          onClick={() => router.push('/warehouse')}
-                        >
-                          <Warehouse className="w-4 h-4 mr-2" />
-                          Go to Warehouse Management
-                        </Button>
                       </CardFooter>
                     </Card>
                   </div>
@@ -1614,15 +1606,6 @@ const AdminDashboard = () => {
                         </div>
                       </CardContent>
                       <CardFooter>
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
-                          className="w-full"
-                          onClick={() => router.push('/cold-room')}
-                        >
-                          <Snowflake className="w-4 h-4 mr-2" />
-                          Manage Cold Rooms
-                        </Button>
                       </CardFooter>
                     </Card>
 
@@ -1648,7 +1631,7 @@ const AdminDashboard = () => {
                             <div key={alert.id} className={`p-3 border rounded-lg ${
                               alert.severity === 'high' ? 'bg-red-50 border-red-200' :
                               alert.severity === 'medium' ? 'bg-yellow-50 border-yellow-200' :
-                              'bg-blue-50 border-blue-200'
+                              'bg-black-50 border-blue-200'
                             }`}>
                               <div className="flex items-start gap-3">
                                 {alert.type === 'temperature' && (
