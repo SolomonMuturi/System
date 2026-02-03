@@ -1436,246 +1436,248 @@ export default function ColdRoomPage() {
     });
   };
 
-  const calculateSelectedGroupsSummary = () => {
-    const selectedGroups = palletCreation.boxGroups.filter(group => group.is_selected && group.selectedQuantity > 0);
-    
-    const totalBoxes = selectedGroups.reduce((sum, group) => sum + group.selectedQuantity, 0);
-    const totalWeight = selectedGroups.reduce((sum, group) => {
-      const boxWeight = group.box_type === '4kg' ? 4 : 10;
-      return sum + (group.selectedQuantity * boxWeight);
-    }, 0);
-    
-    const varietySizeGroups: Record<string, {
-      variety: string;
-      size: string;
-      totalQuantity: number;
-      groups: BoxGroup[];
-    }> = {};
-    
-    selectedGroups.forEach(group => {
-      const key = `${group.variety}_${group.size}`;
-      if (!varietySizeGroups[key]) {
-        varietySizeGroups[key] = {
-          variety: group.variety,
-          size: group.size,
-          totalQuantity: 0,
-          groups: []
-        };
-      }
-      varietySizeGroups[key].totalQuantity += group.selectedQuantity;
-      varietySizeGroups[key].groups.push(group);
-    });
-    
-    const boxTypeSummary: { [key: string]: { totalBoxes: number, pallets: number, remaining: number } } = {};
-    
-    selectedGroups.forEach(group => {
-      if (!boxTypeSummary[group.box_type]) {
-        boxTypeSummary[group.box_type] = { totalBoxes: 0, pallets: 0, remaining: 0 };
-      }
-      boxTypeSummary[group.box_type].totalBoxes += group.selectedQuantity;
-    });
-    
-    Object.keys(boxTypeSummary).forEach(type => {
-      const standardBoxesPerPallet = type === '4kg' ? 288 : 120;
-      boxTypeSummary[type].pallets = Math.floor(boxTypeSummary[type].totalBoxes / standardBoxesPerPallet);
-      boxTypeSummary[type].remaining = boxTypeSummary[type].totalBoxes % standardBoxesPerPallet;
-    });
-    
-    const suggestedPallets = Math.ceil(totalBoxes / palletCreation.boxesPerPallet);
-    
-    return {
-      totalBoxes,
-      totalWeight,
-      boxesPerPallet: palletCreation.boxesPerPallet,
-      suggestedPallets,
-      isAtLeastOneBox: totalBoxes > 0,
-      boxTypeSummary,
-      varietySizeGroups: Object.values(varietySizeGroups),
-      selectedGroups: selectedGroups.map(group => ({
-        size: group.size,
+const calculateSelectedGroupsSummary = () => {
+  const selectedGroups = palletCreation.boxGroups.filter(group => group.is_selected && group.selectedQuantity > 0);
+  
+  const totalBoxes = selectedGroups.reduce((sum, group) => sum + group.selectedQuantity, 0);
+  const totalWeight = selectedGroups.reduce((sum, group) => {
+    const boxWeight = group.box_type === '4kg' ? 4 : 10;
+    return sum + (group.selectedQuantity * boxWeight);
+  }, 0);
+  
+  const varietySizeGroups: Record<string, {
+    variety: string;
+    size: string;
+    totalQuantity: number;
+    groups: BoxGroup[];
+  }> = {};
+  
+  selectedGroups.forEach(group => {
+    const key = `${group.variety}_${group.size}`;
+    if (!varietySizeGroups[key]) {
+      varietySizeGroups[key] = {
         variety: group.variety,
-        box_type: group.box_type,
-        grade: group.grade,
-        quantity: group.selectedQuantity,
-        cold_room_id: group.cold_room_id,
-        supplierName: group.boxes[0]?.supplier_name || 'Unknown Supplier',
-        region: group.boxes[0]?.region || '',
-        countingRecordId: group.boxes[0]?.counting_record_id || null
-      }))
-    };
+        size: group.size,
+        totalQuantity: 0,
+        groups: []
+      };
+    }
+    varietySizeGroups[key].totalQuantity += group.selectedQuantity;
+    varietySizeGroups[key].groups.push(group);
+  });
+  
+  const boxTypeSummary: { [key: string]: { totalBoxes: number, pallets: number, remaining: number } } = {};
+  
+  selectedGroups.forEach(group => {
+    if (!boxTypeSummary[group.box_type]) {
+      boxTypeSummary[group.box_type] = { totalBoxes: 0, pallets: 0, remaining: 0 };
+    }
+    boxTypeSummary[group.box_type].totalBoxes += group.selectedQuantity;
+  });
+  
+  Object.keys(boxTypeSummary).forEach(type => {
+    const standardBoxesPerPallet = type === '4kg' ? palletCreation.boxesPerPallet : 120;
+    boxTypeSummary[type].pallets = Math.floor(boxTypeSummary[type].totalBoxes / standardBoxesPerPallet);
+    boxTypeSummary[type].remaining = boxTypeSummary[type].totalBoxes % standardBoxesPerPallet;
+  });
+  
+  const suggestedPallets = Math.ceil(totalBoxes / palletCreation.boxesPerPallet);
+  
+  return {
+    totalBoxes,
+    totalWeight,
+    boxesPerPallet: palletCreation.boxesPerPallet,
+    suggestedPallets,
+    isAtLeastOneBox: totalBoxes > 0,
+    boxTypeSummary,
+    varietySizeGroups: Object.values(varietySizeGroups),
+    selectedGroups: selectedGroups.map(group => ({
+      size: group.size,
+      variety: group.variety,
+      box_type: group.box_type,
+      grade: group.grade,
+      quantity: group.selectedQuantity,
+      cold_room_id: group.cold_room_id,
+      supplierName: group.boxes[0]?.supplier_name || 'Unknown Supplier',
+      region: group.boxes[0]?.region || '',
+      countingRecordId: group.boxes[0]?.counting_record_id || null
+    }))
   };
+};
 
-  const calculatePalletCounts = () => {
-    const summary = calculateSelectedGroupsSummary();
-    setPalletCounts({});
+
+const calculatePalletCounts = () => {
+  const summary = calculateSelectedGroupsSummary();
+  setPalletCounts({});
+  
+  if (!summary.isAtLeastOneBox) return;
+  
+  const counts: { [key: string]: number } = {};
+  
+  const boxTypes = ['4kg', '10kg'];
+  
+  boxTypes.forEach(type => {
+    const boxesOfType = palletCreation.boxGroups
+      .filter(group => group.is_selected && group.selectedQuantity > 0 && group.box_type === type)
+      .reduce((sum, group) => sum + group.selectedQuantity, 0);
     
-    if (!summary.isAtLeastOneBox) return;
-    
-    const counts: { [key: string]: number } = {};
-    
-    const boxTypes = ['4kg', '10kg'];
-    
-    boxTypes.forEach(type => {
-      const boxesOfType = palletCreation.boxGroups
-        .filter(group => group.is_selected && group.selectedQuantity > 0 && group.box_type === type)
-        .reduce((sum, group) => sum + group.selectedQuantity, 0);
+    if (boxesOfType > 0) {
+      const boxesPerPallet = type === '4kg' ? palletCreation.boxesPerPallet : 120;
+      const fullPallets = Math.floor(boxesOfType / boxesPerPallet);
+      const remainingBoxes = boxesOfType % boxesPerPallet;
       
-      if (boxesOfType > 0) {
-        const boxesPerPallet = type === '4kg' ? 288 : 120;
-        const fullPallets = Math.floor(boxesOfType / boxesPerPallet);
-        const remainingBoxes = boxesOfType % boxesPerPallet;
-        
-        counts[type] = fullPallets;
-        
-        if (remainingBoxes > 0) {
-          counts[`${type}_remaining`] = remainingBoxes;
-        }
+      counts[type] = fullPallets;
+      
+      if (remainingBoxes > 0) {
+        counts[`${type}_remaining`] = remainingBoxes;
       }
-    });
-    
-    setPalletCounts(counts);
-  };
+    }
+  });
+  
+  setPalletCounts(counts);
+};
 
   useEffect(() => {
     calculatePalletCounts();
   }, [palletCreation.boxGroups]);
 
-  const handleCreateManualPallet = async () => {
-    const summary = calculateSelectedGroupsSummary();
-    
-    if (summary.totalBoxes === 0) {
+const handleCreateManualPallet = async () => {
+  const summary = calculateSelectedGroupsSummary();
+  
+  if (summary.totalBoxes === 0) {
+    toast({
+      title: 'No boxes selected',
+      description: 'Please select at least one box to create a pallet',
+      variant: 'destructive',
+    });
+    return;
+  }
+
+  if (!palletCreation.palletName.trim()) {
+    toast({
+      title: 'Pallet name required',
+      description: 'Please enter a name for the pallet',
+      variant: 'destructive',
+    });
+    return;
+  }
+
+  try {
+    const duplicateCheck = await checkForExistingPallet(
+      palletCreation.coldRoomId,
+      summary.selectedGroups
+    );
+
+    if (duplicateCheck.exists) {
       toast({
-        title: 'No boxes selected',
-        description: 'Please select at least one box to create a pallet',
+        title: 'Duplicate Pallet Detected',
+        description: (
+          <div className="space-y-2">
+            <p>A pallet with the exact same box combination already exists:</p>
+            <div className="bg-amber-50 p-3 rounded border border-amber-200">
+              <p className="font-medium text-amber-800">
+                "{duplicateCheck.palletName}"
+              </p>
+              <p className="text-sm text-amber-600">
+                Pallet ID: {duplicateCheck.palletId}
+              </p>
+            </div>
+            <p className="text-sm text-gray-600">
+              To avoid duplicates, please modify your selection or use the existing pallet.
+            </p>
+          </div>
+        ),
         variant: 'destructive',
+        duration: 10000,
       });
       return;
     }
 
-    if (!palletCreation.palletName.trim()) {
+    const response = await fetch('/api/cold-room', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        action: 'create-manual-pallet',
+        palletName: palletCreation.palletName,
+        coldRoomId: palletCreation.coldRoomId,
+        boxes: summary.selectedGroups,
+        boxesPerPallet: palletCreation.boxesPerPallet,
+      }),
+    });
+
+    const result = await response.json();
+
+    if (result.success) {
       toast({
-        title: 'Pallet name required',
-        description: 'Please enter a name for the pallet',
-        variant: 'destructive',
+        title: '✅ Pallet Created Successfully!',
+        description: (
+          <div className="space-y-2">
+            <p>Pallet "{palletCreation.palletName}" created with {summary.totalBoxes} boxes</p>
+            <div className="text-sm text-gray-600">
+              {Object.entries(summary.boxTypeSummary).map(([type, stats]) => (
+                <div key={type}>
+                  {type === '4kg' ? `${palletCreation.boxesPerPallet}` : '120'} boxes per pallet: {stats.pallets} pallet{stats.pallets !== 1 ? 's' : ''} 
+                  {stats.remaining > 0 && ` + ${stats.remaining} box${stats.remaining !== 1 ? 'es' : ''}`}
+                </div>
+              ))}
+            </div>
+            <div className="text-xs text-green-600 mt-2">
+              ✅ No duplicates detected - This is a unique pallet combination
+            </div>
+          </div>
+        ),
       });
-      return;
-    }
 
-    try {
-      const duplicateCheck = await checkForExistingPallet(
-        palletCreation.coldRoomId,
-        summary.selectedGroups
-      );
+      setPalletCreation({
+        palletName: '',
+        coldRoomId: 'coldroom1',
+        boxesPerPallet: 288,
+        selectedBoxes: [],
+        boxGroups: [],
+        showOnlyAvailable: true,
+        viewMode: 'grouped',
+      });
 
-      if (duplicateCheck.exists) {
+      await Promise.allSettled([
+        fetchColdRoomBoxes(),
+        fetchPallets(),
+        fetchPalletHistory(),
+        fetchColdRoomStats(),
+        fetchGroupedBoxes(),
+      ]);
+
+    } else {
+      if (result.status === 409) {
         toast({
           title: 'Duplicate Pallet Detected',
           description: (
             <div className="space-y-2">
-              <p>A pallet with the exact same box combination already exists:</p>
+              <p>{result.error}</p>
               <div className="bg-amber-50 p-3 rounded border border-amber-200">
-                <p className="font-medium text-amber-800">
-                  "{duplicateCheck.palletName}"
-                </p>
                 <p className="text-sm text-amber-600">
-                  Pallet ID: {duplicateCheck.palletId}
+                  Pallet ID: {result.palletId}
                 </p>
               </div>
-              <p className="text-sm text-gray-600">
-                To avoid duplicates, please modify your selection or use the existing pallet.
-              </p>
             </div>
           ),
           variant: 'destructive',
           duration: 10000,
         });
-        return;
-      }
-
-      const response = await fetch('/api/cold-room', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          action: 'create-manual-pallet',
-          palletName: palletCreation.palletName,
-          coldRoomId: palletCreation.coldRoomId,
-          boxes: summary.selectedGroups,
-          boxesPerPallet: palletCreation.boxesPerPallet,
-        }),
-      });
-
-      const result = await response.json();
-
-      if (result.success) {
-        toast({
-          title: '✅ Pallet Created Successfully!',
-          description: (
-            <div className="space-y-2">
-              <p>Pallet "{palletCreation.palletName}" created with {summary.totalBoxes} boxes</p>
-              <div className="text-sm text-gray-600">
-                {Object.entries(summary.boxTypeSummary).map(([type, stats]) => (
-                  <div key={type}>
-                    {type}: {stats.pallets} pallet{stats.pallets !== 1 ? 's' : ''} 
-                    {stats.remaining > 0 && ` + ${stats.remaining} box${stats.remaining !== 1 ? 'es' : ''}`}
-                  </div>
-                ))}
-              </div>
-              <div className="text-xs text-green-600 mt-2">
-                ✅ No duplicates detected - This is a unique pallet combination
-              </div>
-            </div>
-          ),
-        });
-
-        setPalletCreation({
-          palletName: '',
-          coldRoomId: 'coldroom1',
-          boxesPerPallet: 288,
-          selectedBoxes: [],
-          boxGroups: [],
-          showOnlyAvailable: true,
-          viewMode: 'grouped',
-        });
-
-        await Promise.allSettled([
-          fetchColdRoomBoxes(),
-          fetchPallets(),
-          fetchPalletHistory(),
-          fetchColdRoomStats(),
-          fetchGroupedBoxes(),
-        ]);
-
       } else {
-        if (result.status === 409) {
-          toast({
-            title: 'Duplicate Pallet Detected',
-            description: (
-              <div className="space-y-2">
-                <p>{result.error}</p>
-                <div className="bg-amber-50 p-3 rounded border border-amber-200">
-                  <p className="text-sm text-amber-600">
-                    Pallet ID: {result.palletId}
-                  </p>
-                </div>
-              </div>
-            ),
-            variant: 'destructive',
-            duration: 10000,
-          });
-        } else {
-          throw new Error(result.error || 'Failed to create pallet');
-        }
+        throw new Error(result.error || 'Failed to create pallet');
       }
-    } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to create pallet',
-        variant: 'destructive',
-      });
     }
-  };
+  } catch (error: any) {
+    toast({
+      title: 'Error',
+      description: error.message || 'Failed to create pallet',
+      variant: 'destructive',
+    });
+  }
+};
+
 
   const handleDissolvePallet = async (palletId: string, coldRoomId: string) => {
     try {
@@ -3004,6 +3006,7 @@ const getInventoryBreakdown = () => {
                         </div>
                       </div>
                       
+                      {/* In the Create Manual Pallet section, find the Boxes per Pallet Select component */}
                       <div>
                         <Label htmlFor="boxes-per-pallet">Boxes per Pallet *</Label>
                         <Select
@@ -3015,14 +3018,14 @@ const getInventoryBreakdown = () => {
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="288">288 boxes (4kg boxes)</SelectItem>
+                            <SelectItem value="300">300 boxes (4kg boxes)</SelectItem>
                             <SelectItem value="120">120 crates (10kg crates)</SelectItem>
                           </SelectContent>
                         </Select>
                         <p className="text-xs text-muted-foreground mt-1">
-                          Standard pallet sizes: 288 boxes for 4kg, 120 crates for 10kg
+                          Standard pallet sizes: 288 boxes for 4kg, 300 boxes for 4kg, 120 crates for 10kg
                         </p>
-                      </div>
-                      
+                      </div>                      
                       <div className="flex items-center justify-between">
                         <div>
                           <h3 className="font-medium">Select Box Groups for Pallet</h3>
