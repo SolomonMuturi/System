@@ -1,4 +1,4 @@
-// src/app/page.tsx - COMPLETE REPLACEMENT
+// src/app/page.tsx 
 'use client';
 
 import { Suspense, useState, useEffect } from 'react';
