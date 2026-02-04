@@ -301,7 +301,7 @@ CREATE TABLE `weight_entries` (
     `created_at` DATETIME(0) NOT NULL DEFAULT CURRENT_TIMESTAMP(0),
     `supplier_id` VARCHAR(255) NULL,
     `supplier_phone` VARCHAR(50) NULL,
-    `fruit_variety` TEXT NULL,
+    `fruit_variety` TEXT NULL DEFAULT '[]',
     `number_of_crates` INTEGER NULL DEFAULT 0,
     `region` VARCHAR(100) NULL,
     `image_url` TEXT NULL,
