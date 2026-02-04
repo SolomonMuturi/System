@@ -5,15 +5,13 @@ services:
       - "3000:3000"
     environment:
       - DATABASE_URL=mysql://root:password@db:3306/system_db
-      - NEXTAUTH_SECRET=your-secret-key-here
+      - NEXTAUTH_SECRET=your-secret-key-here-change-in-production
       - NEXTAUTH_URL=http://localhost:3000
     depends_on:
       - db
-    volumes:
-      - ./prisma:/app/prisma
 
   db:
-    image: mysql:8.4.8
+    image: mysql:8.0
     restart: always
     environment:
       MYSQL_ROOT_PASSWORD: password
