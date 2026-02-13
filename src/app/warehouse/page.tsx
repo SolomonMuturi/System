@@ -3352,7 +3352,12 @@ const downloadCSV = (records: CountingRecord[]) => {
                       <div className="space-y-3">
                         {qualityChecks
                           .filter(qc => {
-                            // Check if this supplier has already been counted
+                            // Don't filter out the supplier that's currently being edited
+                            if (isEditingMode && editingRecord?.supplier_name === qc.supplier_name) {
+                              return true; // Keep showing in QC tab while editing
+                            }
+                            
+                            // Check if this supplier has already been counted (and not being edited)
                             const alreadyCounted = countingRecords.some(record => 
                               record.supplier_name === qc.supplier_name
                             );
@@ -3364,7 +3369,8 @@ const downloadCSV = (records: CountingRecord[]) => {
                             const hasFuerteQC = qc.fuerte_overall > 0;
                             const hasHassQC = qc.hass_overall > 0;
                             const alreadyCounted = countingRecords.some(record => 
-                              record.supplier_name === qc.supplier_name
+                              record.supplier_name === qc.supplier_name && 
+                              (!isEditingMode || record.id !== editingRecord?.id) // Exclude current edit
                             );  
                             return (
                               <Collapsible
