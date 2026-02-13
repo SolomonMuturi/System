@@ -473,7 +473,7 @@ const generateWarehouseGRN = async (record: CountingRecord) => {
         '/Harirlogo.jpg',
         '/logo.png',
         '/logo.jpg',
-        '/favicon.ico'
+       '/favicon.ico'
       ];
       
       for (const path of logoPaths) {
@@ -530,6 +530,7 @@ const generateWarehouseGRN = async (record: CountingRecord) => {
     
     let yPos = startY + 26;
     
+    // Document Details
     doc.setFillColor(248, 249, 250);
     doc.rect(10, yPos, 190, 12, 'F');
     
@@ -546,6 +547,7 @@ const generateWarehouseGRN = async (record: CountingRecord) => {
     
     yPos += 16;
     
+    // Supplier Information
     doc.setFillColor(233, 236, 239);
     doc.rect(10, yPos, 190, 20, 'F');
     
@@ -567,7 +569,7 @@ const generateWarehouseGRN = async (record: CountingRecord) => {
     
     // Weight Summary with Rejected Weight
     doc.setFillColor(220, 252, 231);
-    doc.rect(10, yPos, 190, 20, 'F');
+    doc.rect(10, yPos, 190, 15, 'F');
     
     doc.setFontSize(9);
     doc.setFont('helvetica', 'bold');
@@ -582,20 +584,19 @@ const generateWarehouseGRN = async (record: CountingRecord) => {
     const rejectedWeight = record.rejected_weight || 0;
     const totalCountedWeight = totalFuerteWeight + totalHassWeight;
     const intakeWeight = record.total_weight;
-    const weightVariance = intakeWeight - totalCountedWeight - rejectedWeight;
     
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
     
     doc.text(`Intake: ${safeToFixed(intakeWeight, 2)} kg`, 15, yPos + 10);
     doc.text(`Counted: ${safeToFixed(totalCountedWeight, 2)} kg`, 80, yPos + 10);
-    doc.text(`Variance: ${safeToFixed(weightVariance, 2)} kg`, 140, yPos + 10);
+    doc.text(`Rejected: ${safeToFixed(rejectedWeight, 2)} kg`, 140, yPos + 10);
     
     yPos += 24;
     
     if (rejectedWeight > 0) {
       doc.setFillColor(255, 243, 243);
-      doc.rect(10, yPos, 190, 25, 'F'); // Increased height for more details
+      doc.rect(10, yPos, 190, 15, 'F');
       
       doc.setFontSize(8);
       doc.setFont('helvetica', 'bold');
@@ -609,7 +610,6 @@ const generateWarehouseGRN = async (record: CountingRecord) => {
       const rejectionPercentage = ((rejectedWeight / intakeWeight) * 100).toFixed(1);
       doc.text(`Total Rejected: ${safeToFixed(rejectedWeight, 2)} kg (${rejectionPercentage}% of intake)`, 15, yPos + 12);
       
-      // Add rejection breakdown if available
       if (record.rejection_reason) {
         doc.text(`Reason: ${record.rejection_reason}`, 15, yPos + 17);
       }
@@ -661,200 +661,226 @@ const generateWarehouseGRN = async (record: CountingRecord) => {
     const hass4kgSizes = getSizeCounts('hass', '4kg');
     const hass10kgSizes = getSizeCounts('hass', '10kg');
     
-    // Arrange tables side by side - Fuerte left, Hass right
-    const tableWidth = 90;
-    const leftMargin = 10;
-    const rightMargin = leftMargin + tableWidth + 5;
+    const hasFuerte = fuerte4kgSizes.length > 0 || fuerte10kgSizes.length > 0;
+    const hasHass = hass4kgSizes.length > 0 || hass10kgSizes.length > 0;
     
-    // Fuerte Tables (Left Side)
+    const tableWidth = hasFuerte && hasHass ? 90 : 190;
+    const leftMargin = 10;
+    const rightMargin = hasFuerte && hasHass ? leftMargin + tableWidth + 5 : leftMargin;
+    
+    // Fuerte Tables
     let leftY = yPos;
     
-    if (fuerte4kgSizes.length > 0) {
-      doc.setFontSize(8);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(22, 101, 52);
-      doc.text('Fuerte 4kg Boxes - Size Breakdown:', leftMargin, leftY);
+    if (hasFuerte) {
+      if (!hasHass) {
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(22, 101, 52);
+        doc.text('FUERTE AVOCADO - SIZE BREAKDOWN', 105, leftY - 2, { align: 'center' });
+      }
       
-      leftY += 3;
+      if (fuerte4kgSizes.length > 0) {
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(22, 101, 52);
+        doc.text('Fuerte 4kg Boxes - Size Breakdown:', leftMargin, leftY);
+        
+        leftY += 3;
+        
+        autoTable(doc, {
+          startY: leftY,
+          margin: { left: leftMargin, right: hasFuerte && hasHass ? leftMargin + tableWidth : 20 },
+          head: [['Size', 'Class 1', 'Class 2']],
+          body: fuerte4kgSizes.map(s => [
+            `Size ${s.size}`,
+            s.class1.toString(),
+            s.class2.toString()
+          ]),
+          theme: 'grid',
+          headStyles: { 
+            fillColor: [22, 101, 52],
+            textColor: [255, 255, 255],
+            fontSize: 7,
+            fontStyle: 'bold'
+          },
+          styles: { 
+            fontSize: 7,
+            cellPadding: 2,
+            textColor: [0, 0, 0]
+          },
+          columnStyles: {
+            0: { cellWidth: hasFuerte && hasHass ? 25 : 35 },
+            1: { cellWidth: hasFuerte && hasHass ? 20 : 30, halign: 'center' },
+            2: { cellWidth: hasFuerte && hasHass ? 20 : 30, halign: 'center' }
+          },
+          tableWidth: tableWidth
+        });
+        
+        leftY = (doc as any).lastAutoTable.finalY + 5;
+        
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`Total Fuerte 4kg: ${record.fuerte_4kg_total || 0} boxes`, leftMargin, leftY);
+        leftY += 8;
+      }
+
+      if (fuerte10kgSizes.length > 0) {
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(22, 101, 52);
+        doc.text('Fuerte 10kg Crates - Size Breakdown:', leftMargin, leftY);
+        
+        leftY += 3;
+        
+        autoTable(doc, {
+          startY: leftY,
+          margin: { left: leftMargin, right: hasFuerte && hasHass ? leftMargin + tableWidth : 20 },
+          head: [['Size', 'Class 1', 'Class 2']],
+          body: fuerte10kgSizes.map(s => [
+            `Size ${s.size}`,
+            s.class1.toString(),
+            s.class2.toString()
+          ]),
+          theme: 'grid',
+          headStyles: { 
+            fillColor: [22, 101, 52],
+            textColor: [255, 255, 255],
+            fontSize: 7,
+            fontStyle: 'bold'
+          },
+          styles: { 
+            fontSize: 7,
+            cellPadding: 2,
+            textColor: [0, 0, 0]
+          },
+          columnStyles: {
+            0: { cellWidth: hasFuerte && hasHass ? 25 : 35 },
+            1: { cellWidth: hasFuerte && hasHass ? 20 : 30, halign: 'center' },
+            2: { cellWidth: hasFuerte && hasHass ? 20 : 30, halign: 'center' }
+          },
+          tableWidth: tableWidth
+        });
+        
+        leftY = (doc as any).lastAutoTable.finalY + 5;
+        
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`Total Fuerte 10kg: ${record.fuerte_10kg_total || 0} crates`, leftMargin, leftY);
+        leftY += 8;
+      }
       
-      autoTable(doc, {
-        startY: leftY,
-        margin: { left: leftMargin, right: leftMargin + tableWidth },
-        head: [['Size', 'Class 1', 'Class 2']],
-        body: fuerte4kgSizes.map(s => [
-          `Size ${s.size}`,
-          s.class1.toString(),
-          s.class2.toString()
-        ]),
-        theme: 'grid',
-        headStyles: { 
-          fillColor: [22, 101, 52],
-          textColor: [255, 255, 255],
-          fontSize: 7,
-          fontStyle: 'bold'
-        },
-        styles: { 
-          fontSize: 7,
-          cellPadding: 2,
-          textColor: [0, 0, 0]
-        },
-        columnStyles: {
-          0: { cellWidth: 25 },
-          1: { cellWidth: 20, halign: 'center' },
-          2: { cellWidth: 20, halign: 'center' }
-        },
-        tableWidth: tableWidth
-      });
-      
-      leftY = (doc as any).lastAutoTable.finalY + 5;
-      
-      doc.setFontSize(8);
-      doc.setFont('helvetica', 'bold');
-      doc.text(`Total Fuerte 4kg: ${record.fuerte_4kg_total || 0} boxes`, leftMargin, leftY);
-      leftY += 8;
+      if (!hasHass) {
+        yPos = leftY;
+      }
     }
 
-    if (fuerte10kgSizes.length > 0) {
-      doc.setFontSize(8);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(22, 101, 52);
-      doc.text('Fuerte 10kg Crates - Size Breakdown:', leftMargin, leftY);
-      
-      leftY += 3;
-      
-      autoTable(doc, {
-        startY: leftY,
-        margin: { left: leftMargin, right: leftMargin + tableWidth },
-        head: [['Size', 'Class 1', 'Class 2']],
-        body: fuerte10kgSizes.map(s => [
-          `Size ${s.size}`,
-          s.class1.toString(),
-          s.class2.toString()
-        ]),
-        theme: 'grid',
-        headStyles: { 
-          fillColor: [22, 101, 52],
-          textColor: [255, 255, 255],
-          fontSize: 7,
-          fontStyle: 'bold'
-        },
-        styles: { 
-          fontSize: 7,
-          cellPadding: 2,
-          textColor: [0, 0, 0]
-        },
-        columnStyles: {
-          0: { cellWidth: 25 },
-          1: { cellWidth: 20, halign: 'center' },
-          2: { cellWidth: 20, halign: 'center' }
-        },
-        tableWidth: tableWidth
-      });
-      
-      leftY = (doc as any).lastAutoTable.finalY + 5;
-      
-      doc.setFontSize(8);
-      doc.setFont('helvetica', 'bold');
-      doc.text(`Total Fuerte 10kg: ${record.fuerte_10kg_total || 0} crates`, leftMargin, leftY);
-      leftY += 8;
-    }
-
-    // Hass Tables (Right Side)
+    // Hass Tables
     let rightY = yPos;
     
-    if (hass4kgSizes.length > 0) {
-      doc.setFontSize(8);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(124, 58, 237);
-      doc.text('Hass 4kg Boxes - Size Breakdown:', rightMargin, rightY);
+    if (hasHass) {
+      if (!hasFuerte) {
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(124, 58, 237);
+        doc.text('HASS AVOCADO - SIZE BREAKDOWN', 105, rightY - 2, { align: 'center' });
+      }
       
-      rightY += 3;
-      
-      autoTable(doc, {
-        startY: rightY,
-        margin: { left: rightMargin, right: 200 },
-        head: [['Size', 'Class 1', 'Class 2']],
-        body: hass4kgSizes.map(s => [
-          `Size ${s.size}`,
-          s.class1.toString(),
-          s.class2.toString()
-        ]),
-        theme: 'grid',
-        headStyles: { 
-          fillColor: [124, 58, 237],
-          textColor: [255, 255, 255],
-          fontSize: 7,
-          fontStyle: 'bold'
-        },
-        styles: { 
-          fontSize: 7,
-          cellPadding: 2,
-          textColor: [0, 0, 0]
-        },
-        columnStyles: {
-          0: { cellWidth: 25 },
-          1: { cellWidth: 20, halign: 'center' },
-          2: { cellWidth: 20, halign: 'center' }
-        },
-        tableWidth: tableWidth
-      });
-      
-      rightY = (doc as any).lastAutoTable.finalY + 5;
-      
-      doc.setFontSize(8);
-      doc.setFont('helvetica', 'bold');
-      doc.text(`Total Hass 4kg: ${record.hass_4kg_total || 0} boxes`, rightMargin, rightY);
-      rightY += 8;
-    }
+      if (hass4kgSizes.length > 0) {
+        if (hasFuerte && hasHass) {
+          doc.setFontSize(8);
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(124, 58, 237);
+          doc.text('Hass 4kg Boxes - Size Breakdown:', rightMargin, rightY);
+        }
+        
+        rightY += 3;
+        
+        autoTable(doc, {
+          startY: rightY,
+          margin: { left: hasFuerte && hasHass ? rightMargin : 10, right: 20 },
+          head: [['Size', 'Class 1', 'Class 2']],
+          body: hass4kgSizes.map(s => [
+            `Size ${s.size}`,
+            s.class1.toString(),
+            s.class2.toString()
+          ]),
+          theme: 'grid',
+          headStyles: { 
+            fillColor: [124, 58, 237],
+            textColor: [255, 255, 255],
+            fontSize: 7,
+            fontStyle: 'bold'
+          },
+          styles: { 
+            fontSize: 7,
+            cellPadding: 2,
+            textColor: [0, 0, 0]
+          },
+          columnStyles: {
+            0: { cellWidth: hasFuerte && hasHass ? 25 : 35 },
+            1: { cellWidth: hasFuerte && hasHass ? 20 : 30, halign: 'center' },
+            2: { cellWidth: hasFuerte && hasHass ? 20 : 30, halign: 'center' }
+          },
+          tableWidth: hasFuerte && hasHass ? 90 : 190
+        });
+        
+        rightY = (doc as any).lastAutoTable.finalY + 5;
+        
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`Total Hass 4kg: ${record.hass_4kg_total || 0} boxes`, hasFuerte && hasHass ? rightMargin : 10, rightY);
+        rightY += 8;
+      }
 
-    if (hass10kgSizes.length > 0) {
-      doc.setFontSize(8);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(124, 58, 237);
-      doc.text('Hass 10kg Crates - Size Breakdown:', rightMargin, rightY);
-      
-      rightY += 3;
-      
-      autoTable(doc, {
-        startY: rightY,
-        margin: { left: rightMargin, right: 200 },
-        head: [['Size', 'Class 1', 'Class 2']],
-        body: hass10kgSizes.map(s => [
-          `Size ${s.size}`,
-          s.class1.toString(),
-          s.class2.toString()
-        ]),
-        theme: 'grid',
-        headStyles: { 
-          fillColor: [124, 58, 237],
-          textColor: [255, 255, 255],
-          fontSize: 7,
-          fontStyle: 'bold'
-        },
-        styles: { 
-          fontSize: 7,
-          cellPadding: 2,
-          textColor: [0, 0, 0]
-        },
-        columnStyles: {
-          0: { cellWidth: 25 },
-          1: { cellWidth: 20, halign: 'center' },
-          2: { cellWidth: 20, halign: 'center' }
-        },
-        tableWidth: tableWidth
-      });
-      
-      rightY = (doc as any).lastAutoTable.finalY + 5;
-      
-      doc.setFontSize(8);
-      doc.setFont('helvetica', 'bold');
-      doc.text(`Total Hass 10kg: ${record.hass_10kg_total || 0} crates`, rightMargin, rightY);
-      rightY += 8;
+      if (hass10kgSizes.length > 0) {
+        if (hasFuerte && hasHass) {
+          doc.setFontSize(8);
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(124, 58, 237);
+          doc.text('Hass 10kg Crates - Size Breakdown:', rightMargin, rightY);
+        }
+        
+        rightY += 3;
+        
+        autoTable(doc, {
+          startY: rightY,
+          margin: { left: hasFuerte && hasHass ? rightMargin : 10, right: 20 },
+          head: [['Size', 'Class 1', 'Class 2']],
+          body: hass10kgSizes.map(s => [
+            `Size ${s.size}`,
+            s.class1.toString(),
+            s.class2.toString()
+          ]),
+          theme: 'grid',
+          headStyles: { 
+            fillColor: [124, 58, 237],
+            textColor: [255, 255, 255],
+            fontSize: 7,
+            fontStyle: 'bold'
+          },
+          styles: { 
+            fontSize: 7,
+            cellPadding: 2,
+            textColor: [0, 0, 0]
+          },
+          columnStyles: {
+            0: { cellWidth: hasFuerte && hasHass ? 25 : 35 },
+            1: { cellWidth: hasFuerte && hasHass ? 20 : 30, halign: 'center' },
+            2: { cellWidth: hasFuerte && hasHass ? 20 : 30, halign: 'center' }
+          },
+          tableWidth: hasFuerte && hasHass ? 90 : 190
+        });
+        
+        rightY = (doc as any).lastAutoTable.finalY + 5;
+        
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`Total Hass 10kg: ${record.hass_10kg_total || 0} crates`, hasFuerte && hasHass ? rightMargin : 10, rightY);
+        rightY += 8;
+      }
     }
     
-
-    
-    yPos += 100;
+    yPos = Math.max(leftY, rightY) + 5;
     
     if (record.bank_name || record.bank_account || record.kra_pin) {
       doc.setFillColor(249, 250, 251);
@@ -905,7 +931,7 @@ const generateWarehouseGRN = async (record: CountingRecord) => {
     doc.line(20, yPos, 90, yPos);
     doc.setFontSize(7);
     doc.setFont('helvetica', 'normal');
-    doc.text('Counting Supervisor', 55, yPos + 3, { align: 'center' });
+    doc.text('Counting Clerk', 55, yPos + 3, { align: 'center' });
     doc.text('Name & Signature', 55, yPos + 6, { align: 'center' });
     
     doc.line(120, yPos, 190, yPos);
@@ -920,7 +946,7 @@ const generateWarehouseGRN = async (record: CountingRecord) => {
     doc.text(`Document: WH-GRN-${record.id.slice(0, 8).toUpperCase()} • Generated: ${format(today, 'dd/MM/yyyy HH:mm:ss')}`, 105, yPos + 3, { align: 'center' });
     doc.text('This is a computer-generated document', 105, yPos + 6, { align: 'center' });
     
-    const fileName = `Warehouse_GRN_${record.supplier_name.replace(/\s+/g, '_')}_${record.pallet_id}_${format(today, 'yyyyMMdd_HHmm')}.pdf`;
+    const fileName = `Warehouse_GRN_${record.supplier_name.replace(/\s+/g, '_')}.pdf`;
     doc.save(fileName);
     
     return true;
