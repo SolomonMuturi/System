@@ -3352,15 +3352,20 @@ const downloadCSV = (records: CountingRecord[]) => {
                       <div className="space-y-3">
                         {qualityChecks
                           .filter(qc => {
-                            const alreadyCounted = isSupplierCounted(qc.weight_entry_id, countingRecords);
+                            // Check if this supplier has already been counted
+                            const alreadyCounted = countingRecords.some(record => 
+                              record.supplier_name === qc.supplier_name
+                            );
+                            
                             return qc.overall_status === 'approved' && !alreadyCounted;
                           })
                           .map((qc) => {
                             const supplierIntake = supplierIntakeRecords.find(r => r.id === qc.weight_entry_id);
                             const hasFuerteQC = qc.fuerte_overall > 0;
                             const hasHassQC = qc.hass_overall > 0;
-                            const alreadyCounted = isSupplierCounted(qc.weight_entry_id, countingRecords);
-                            
+                            const alreadyCounted = countingRecords.some(record => 
+                              record.supplier_name === qc.supplier_name
+                            );  
                             return (
                               <Collapsible
                                 key={qc.id}
