@@ -640,15 +640,14 @@ export async function GET(request: NextRequest) {
         }, { status: 500 });
       }
       
-    } else {
-      // Return all counting records (default endpoint)
-      try {
-        const countingRecords = await prisma.$queryRaw`
-          SELECT * FROM counting_records 
-          ORDER BY submitted_at DESC
-          LIMIT 50
-        `;
-        
+      } else {
+        // Return all counting records (default endpoint)
+        try {
+          const countingRecords = await prisma.$queryRaw`
+            SELECT * FROM counting_records 
+            ORDER BY submitted_at ASC
+          `;
+
         // Process the data
         const processedRecords = Array.isArray(countingRecords) ? countingRecords.map((record: any) => {
           let countingData = record.counting_data;
